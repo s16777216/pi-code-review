@@ -1,0 +1,7 @@
+node_modules/
+dist/
+gl-code-quality-report.json
+
+# Local manual test scripts tend to carry real secrets pasted in by hand.
+test_script.ps1
+.env
