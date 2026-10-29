@@ -2,11 +2,11 @@
 
 AI code review for GitLab merge requests. It fetches a merge request's diff, runs an AI agent (`pi-agent-core` + `pi-ai`, OpenAI) over it, and publishes the findings back to GitLab as inline comments and a Code Quality report.
 
-The core review logic (`ReviewEngine`) is platform-agnostic; this repository ships the GitLab adapter (`gitlab-mr-context` / `review-output`) on top of it. See `openspec/changes/gitlab-ai-code-review/design.md` for the architecture.
+The core review logic (`ReviewEngine`) is platform-agnostic; this repository ships the GitLab adapter (`gitlab-mr-context` / `review-output`) on top of it. See `openspec/specs/` for the capability specs, and `openspec/changes/archive/2026-10-29-gitlab-ai-code-review/design.md` for the original architecture decisions.
 
 ## Status
 
-This is a standalone Node.js CLI tool today. **Packaging as a Docker image and a GitLab CI/CD Component is not implemented yet** — see [Roadmap](#roadmap). Run it with `node` directly, in a CI job's `script:` step or by hand.
+This ships as an installable Node.js CLI, published on the public npm registry as [`@s16777216/pi-code-review`](https://www.npmjs.com/package/@s16777216/pi-code-review). There is no Docker image and no GitLab CI/CD Component — a CI job installs the package with `npm`, the same as any other Node.js CLI dependency.
 
 ## Requirements
 
@@ -16,16 +16,26 @@ This is a standalone Node.js CLI tool today. **Packaging as a Docker image and a
 
 ## Installation
 
+From npm:
+
+```bash
+npm install -g @s16777216/pi-code-review
+```
+
+This installs a `pi-code-review` command. `npx @s16777216/pi-code-review` works too, with no install step.
+
+From source (for development on this tool itself):
+
 ```bash
 npm install
 npm run build
 ```
 
-This produces `dist/index.js`.
+This produces `dist/index.js`, runnable with `node dist/index.js` in place of the `pi-code-review` command below.
 
 ## Configuration
 
-Every setting can come from an environment variable or a CLI flag. **A CLI flag always wins over its matching environment variable when both are given.** Secrets (`OPENAI_API_KEY`, the GitLab token) should normally stay environment variables — see the warning under [CLI flags](#cli-flags).
+Every setting can come from an environment variable or a CLI flag. **A CLI flag always wins over its matching environment variable when both are given.** Secrets (`OPENAI_API_KEY`, the GitLab token) should normally stay environment variables — see [Running locally](#running-locally) for the trade-off of passing them as flags instead.
 
 | Environment variable | CLI flag | Required | Notes |
 |---|---|---|---|
@@ -50,9 +60,8 @@ ai-code-review:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
-    - npm ci
-    - npm run build
-    - node dist/index.js
+    - npm install -g @s16777216/pi-code-review
+    - pi-code-review
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
@@ -66,7 +75,7 @@ Secrets as environment variables, everything else as CLI flags:
 
 ```bash
 OPENAI_API_KEY="sk-..." CI_JOB_TOKEN="<personal access token>" \
-node dist/index.js \
+pi-code-review \
   --gitlab-url "https://gitlab.example.com/api/v4" \
   --project-id 123 \
   --mr 7 \
@@ -81,7 +90,7 @@ PowerShell:
 $env:OPENAI_API_KEY = "sk-..."
 $env:CI_JOB_TOKEN = "<personal access token>"
 
-node dist/index.js `
+pi-code-review `
   --gitlab-url "https://gitlab.example.com/api/v4" `
   --project-id 123 `
   --mr 7 `
@@ -89,6 +98,8 @@ node dist/index.js `
   --openai-base-url https://api.openai.com/v1 `
   --auth-header PRIVATE-TOKEN
 ```
+
+Running from source instead of the npm package: replace `pi-code-review` with `node dist/index.js` everywhere above.
 
 The personal/project access token needs the `api` scope. `--auth-header PRIVATE-TOKEN` is what lets a personal/project access token work here — `CI_JOB_TOKEN`/`--job-token` is just where the token value goes regardless of which header sends it.
 
@@ -108,5 +119,4 @@ npm run build  # type-check and compile to dist/
 
 ## Roadmap
 
-- Docker image packaging
-- A GitLab CI/CD Component template (`include: component:`), so adopting this tool doesn't require hand-writing the job above
+- Split the CLI into `review` and `publish` subcommands, so a local run can stop after seeing the AI's findings without posting to GitLab — see `openspec/changes/split-review-publish-commands/`.
