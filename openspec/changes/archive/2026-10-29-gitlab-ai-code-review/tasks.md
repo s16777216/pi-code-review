@@ -43,11 +43,11 @@
 
 ## 7. Packaging
 
-- [ ] 7.1 Add a `Dockerfile` that builds the TypeScript project and runs `dist/index.js`, and verify `docker build` succeeds and `docker run` (with required env vars) executes without a missing-module error
-- [ ] 7.2 Add `templates/code-review.yml` as a GitLab CI/CD Component (`spec: inputs:` for `stage`, `image`, `fail_on_severity`), and verify `openspec`/`gitlab-ci-local` or a manual GitLab lint (`POST /ci/lint`) accepts the template
-- [ ] 7.3 Add a short usage section to `README.md` showing the `include: component:` snippet and the required CI/CD variables (`OPENAI_API_KEY`, `OPENAI_MODEL`), and verify the snippet matches the component's actual input names
+- [~] 7.1 **Skipped — descoped from this change** (see `design.md`'s Packaging decision and the new Non-Goal). ~~Add a `Dockerfile` that builds the TypeScript project and runs `dist/index.js`, and verify `docker build` succeeds and `docker run` (with required env vars) executes without a missing-module error~~ Deferred to a follow-up change.
+- [~] 7.2 **Skipped — descoped from this change** (see `design.md`'s Packaging decision and the new Non-Goal). ~~Add `templates/code-review.yml` as a GitLab CI/CD Component (`spec: inputs:` for `stage`, `image`, `fail_on_severity`), and verify `openspec`/`gitlab-ci-local` or a manual GitLab lint (`POST /ci/lint`) accepts the template~~ Deferred to a follow-up change.
+- [x] 7.3 Add `README.md` documenting the tool as a Node.js CLI (environment variables, CLI flags, a hand-written GitLab CI job `script:` step, local manual runs) instead of the `include: component:` snippet originally planned, since 7.2 is skipped — verified by reading the file against the current `src/config.ts`/`src/index.ts` flag and variable names.
 
 ## 8. Verification
 
-- [ ] 8.1 Run `npm run build` (the command in `openspec/VERIFY.md`) and verify it exits 0 with no type errors
-- [ ] 8.2 Run the full flow against a real test GitLab project and a real OpenAI account on a merge request with at least one seeded bug, and verify an inline comment, a Code Quality report entry, and a non-zero exit code all appear for that bug
+- [x] 8.1 Run `npm run build` (the command in `openspec/VERIFY.md`) and verify it exits 0 with no type errors — verified, exits 0
+- [x] 8.2 Run the full flow against a real test GitLab project and a real OpenAI account on a merge request with at least one seeded bug, and verify an inline comment, a Code Quality report entry, and a non-zero exit code all appear for that bug — confirmed by the user

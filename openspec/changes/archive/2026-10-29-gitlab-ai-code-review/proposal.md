@@ -11,7 +11,7 @@ Agents now produce most code changes. Manual, line-by-line review does not scale
 - The engine runs an AI agent (`pi-agent-core` with `pi-ai`, OpenAI provider) over the `ReviewContext`. The agent produces a list of findings. Each finding has a file, a line, a severity (`important`, `nit`, or `pre_existing`), and a summary.
 - The engine decides the CI job's exit code from a configurable severity threshold (`FAIL_ON_SEVERITY`, default `important`). This decision does not depend on GitLab.
 - The GitLab sink adapter publishes findings as inline comments on the merge request's discussion, and writes a GitLab Code Quality report artifact from the findings.
-- The tool ships as a Docker image and a GitLab CI/CD Component template, so other projects can add it with an `include: component:` entry.
+- The tool ships as a Node.js CLI, runnable directly with `node` (locally or from a hand-written CI job `script:` step). Docker image and GitLab CI/CD Component packaging are deferred to a follow-up change — see Impact and `design.md`'s Packaging decision.
 
 ## Capabilities
 
@@ -25,7 +25,7 @@ Agents now produce most code changes. Manual, line-by-line review does not scale
 
 ## Impact
 
-- New Node.js/TypeScript project in this repository (`src/`, `Dockerfile`, `templates/`), structured around a `ReviewContext`/`Finding[]` boundary between the engine and the GitLab adapter.
+- New Node.js/TypeScript project in this repository (`src/`, `README.md`), structured around a `ReviewContext`/`Finding[]` boundary between the engine and the GitLab adapter.
 - New runtime dependencies: `pi-agent-core`, `pi-ai`, and an OpenAI API account.
-- New CI/CD requirements for any project that adopts the component: GitLab CI/CD variables `OPENAI_API_KEY` (masked secret), `OPENAI_MODEL`, and `OPENAI_BASE_URL` (no default — every adopter must set it, for example `https://api.openai.com/v1`), and `CI_JOB_TOKEN` access to the GitLab Merge Requests API enabled in project settings.
-- New Docker image to build and publish (used by the CI/CD Component template).
+- New CI/CD requirements for any project that adopts the tool: GitLab CI/CD variables `OPENAI_API_KEY` (masked secret), `OPENAI_MODEL`, and `OPENAI_BASE_URL` (no default — every adopter must set it, for example `https://api.openai.com/v1`), and `CI_JOB_TOKEN` access to the GitLab Merge Requests API enabled in project settings. Adopting it today means hand-writing the CI job's `script:` step; see `README.md`.
+- Docker image and `templates/code-review.yml` (a GitLab CI/CD Component) are out of scope for this change — deferred to a follow-up change.

@@ -8,7 +8,6 @@ GitLab CI gives the job these facts for free: `CI_API_V4_URL`, `CI_PROJECT_ID`, 
 
 **Goals:**
 - Run as one short-lived CI job per merge request, with no external state store.
-- Keep the Docker image small and portable across `amd64` and `arm64` CI runners.
 - Keep the OpenAI integration on a well-documented, first-class path.
 
 **Non-Goals:**
@@ -16,6 +15,7 @@ GitLab CI gives the job these facts for free: `CI_API_V4_URL`, `CI_PROJECT_ID`, 
 - Security-specific review. This change produces correctness/bug findings only; a separate tool or job can cover security review.
 - Risk-tiered human approval routing. This change only gates the CI job's exit code; it does not decide who must approve the merge request.
 - A second platform adapter. GitHub and Gitea adapters are planned (see the `SourceProvider`/`SinkProvider` decision below), but this change builds and ships only the GitLab adapter. It does not build a GitHub adapter, a Gitea adapter, or a local-CLI adapter.
+- Docker image and GitLab CI/CD Component packaging. Deferred to a follow-up change — see the Packaging decision below. This change ships a Node.js CLI, documented in `README.md`, runnable directly with `node` in a hand-written CI job step or locally.
 
 ## Decisions
 
@@ -110,8 +110,8 @@ GitLab's Code Quality format expects `info`, `minor`, `major`, `blocker`, or `cr
 ### Review scope: diff plus affected files via an on-demand tool
 The `ReviewContext`'s title, description, and diff hunks go directly into the agent's prompt. Full file content is not preloaded; the agent calls a `get_file_content` tool, backed by `ReviewContext.getFileContent`, when it needs context beyond the diff hunks. This bounds prompt size on large merge requests while still letting the agent read full affected files when it decides it needs to.
 
-### Packaging: Docker image plus a GitLab CI/CD Component
-The tool ships as a Docker image (built from this repository) and a component template under `templates/`, so any project adopts it with an `include: component:` line instead of hand-writing a CI job.
+### Packaging: deferred (Node.js CLI for now, Docker image and GitLab CI/CD Component later)
+A Docker image and a `templates/code-review.yml` CI/CD Component were originally planned for this change, so adopters would add an `include: component:` line instead of hand-writing a CI job. Both are deferred to a follow-up change — tasks 7.1/7.2 are explicitly skipped (see `tasks.md`). For now the tool ships as a Node.js CLI (`npm install && npm run build && node dist/index.js`), documented in `README.md`, which an adopter wires into their own `script:` step. Nothing about the `ReviewEngine`/`SourceProvider`/`SinkProvider` boundary depends on this decision — packaging is purely a distribution concern layered on top of the same `dist/index.js` entrypoint.
 
 ## Risks / Trade-offs
 
