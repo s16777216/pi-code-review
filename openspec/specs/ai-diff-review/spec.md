@@ -70,17 +70,3 @@ The system SHALL read the OpenAI model name from the `OPENAI_MODEL` environment 
 - **WHEN** `OPENAI_MODEL` is not set
 - **THEN** the system stops before it calls the OpenAI API, and reports a clear configuration error
 
-### Requirement: Decide the pass/fail outcome from a severity threshold
-The system SHALL read a severity threshold from the `FAIL_ON_SEVERITY` environment variable, defaulting to `important`, and MUST report a failing outcome when any valid finding meets or exceeds that threshold. This decision MUST NOT depend on how the findings will be published.
-
-#### Scenario: A finding meets the default threshold
-- **WHEN** `FAIL_ON_SEVERITY` is not set and at least one valid finding has severity `important`
-- **THEN** the engine reports a failing outcome
-
-#### Scenario: No finding meets the threshold
-- **WHEN** every valid finding's severity is below the configured threshold
-- **THEN** the engine reports a passing outcome
-
-#### Scenario: Threshold is set to none
-- **WHEN** `FAIL_ON_SEVERITY` is set to `none`
-- **THEN** the engine reports a passing outcome regardless of the findings

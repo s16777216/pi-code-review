@@ -29,7 +29,7 @@
 ## 6. Verification
 
 - [x] 6.1 Ran `npm run build` and `npm test`: both pass, 82/82 tests, no regressions. Also manually exercised the compiled CLI (`node dist/index.js`, `node dist/index.js bogus`, `node dist/index.js review --fail-on nit`) to confirm the clear-error and exit-code behavior described in tasks 3.1-3.2.
-- [ ] 6.2 Run `review` then `publish` locally against a real GitLab project and a real OpenAI account (reusing the setup from the `gitlab-ai-code-review` change's task 8.2), and verify the findings file is produced by `review`, and that `publish` posts the same findings and returns the expected exit code
+- [x] 6.2 Run `review` then `publish` locally against a real GitLab project and a real OpenAI account (reusing the setup from the `gitlab-ai-code-review` change's task 8.2), and verify the findings file is produced by `review`, and that `publish` posts the same findings and returns the expected exit code — verified by the user
 
 ## 7. Drop `CI_JOB_TOKEN`/`JOB-TOKEN`, always use `PRIVATE-TOKEN`
 

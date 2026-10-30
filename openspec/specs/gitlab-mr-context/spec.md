@@ -33,13 +33,13 @@ The system SHALL fetch the full content of a changed file at the head commit whe
 - **WHEN** the system cannot fetch a requested file's content
 - **THEN** the system returns an error message instead of the file content, and the review step continues
 
-### Requirement: Authenticate with the CI job token
-The system SHALL authenticate every GitLab API call with the `CI_JOB_TOKEN` environment variable.
+### Requirement: Authenticate with a GitLab access token
+The system SHALL authenticate every GitLab API call with the `GITLAB_TOKEN` environment variable (or the `--token` CLI flag), sent in the `PRIVATE-TOKEN` request header. The system MUST NOT use GitLab CI's `CI_JOB_TOKEN`/`JOB-TOKEN` mechanism.
 
-#### Scenario: Job token is present
+#### Scenario: Token is present
 - **WHEN** the system calls the GitLab API
-- **THEN** the system sends the `CI_JOB_TOKEN` value in the `JOB-TOKEN` request header
+- **THEN** the system sends the `GITLAB_TOKEN` value in the `PRIVATE-TOKEN` request header
 
-#### Scenario: Job token is missing
-- **WHEN** the `CI_JOB_TOKEN` environment variable is not set
+#### Scenario: Token is missing
+- **WHEN** neither `GITLAB_TOKEN` nor `--token` is set
 - **THEN** the system stops before it calls the GitLab API, and reports a clear configuration error
