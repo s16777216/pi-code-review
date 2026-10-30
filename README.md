@@ -22,7 +22,7 @@ From npm:
 npm install -g @s16777216/pi-code-review
 ```
 
-This installs a `pi-code-review` command. `npx @s16777216/pi-code-review` works too, with no install step.
+This installs a `picr` command. `npx @s16777216/pi-code-review` works too, with no install step.
 
 From source (for development on this tool itself):
 
@@ -31,13 +31,13 @@ npm install
 npm run build
 ```
 
-This produces `dist/index.js`, runnable with `node dist/index.js` in place of the `pi-code-review` command below.
+This produces `dist/index.js`, runnable with `node dist/index.js` in place of the `picr` command below.
 
 ## The two commands
 
 ```
-pi-code-review review   [flags]   # fetch the MR, run the AI review, write findings.json
-pi-code-review publish  [flags]   # read findings.json, post comments + Code Quality report, decide pass/fail
+picr review   [flags]   # fetch the MR, run the AI review, write findings.json
+picr publish  [flags]   # read findings.json, post comments + Code Quality report, decide pass/fail
 ```
 
 - **`review`** never contacts GitLab to publish anything, and never decides pass or fail. Its exit code reflects only whether the review process itself completed (a GitLab or OpenAI API error) — not the severity of what it found. Running it locally and stopping there is the normal way to just see what the AI found, with no side effect on the merge request.
@@ -101,7 +101,7 @@ review:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
     - npm install -g @s16777216/pi-code-review
-    - pi-code-review review
+    - picr review
   artifacts:
     paths:
       - findings.json
@@ -114,7 +114,7 @@ publish:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
     - npm install -g @s16777216/pi-code-review
-    - pi-code-review publish
+    - picr publish
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
@@ -128,7 +128,7 @@ Usually only `review` — see which findings the AI reports, with no GitLab side
 
 ```bash
 OPENAI_API_KEY="sk-..." \
-pi-code-review review \
+picr review \
   --gitlab-url "https://gitlab.example.com/api/v4" \
   --project-id 123 \
   --mr 7 \
@@ -142,7 +142,7 @@ To actually publish those findings to the merge request, run `publish` against t
 
 ```bash
 GITLAB_TOKEN="<personal or project access token>" \
-pi-code-review publish \
+picr publish \
   --gitlab-url "https://gitlab.example.com/api/v4" \
   --project-id 123 \
   --mr 7
@@ -153,7 +153,7 @@ PowerShell:
 ```powershell
 $env:OPENAI_API_KEY = "sk-..."
 
-pi-code-review review `
+picr review `
   --gitlab-url "https://gitlab.example.com/api/v4" `
   --project-id 123 `
   --mr 7 `
@@ -164,13 +164,13 @@ pi-code-review review `
 ```powershell
 $env:GITLAB_TOKEN = "<personal or project access token>"
 
-pi-code-review publish `
+picr publish `
   --gitlab-url "https://gitlab.example.com/api/v4" `
   --project-id 123 `
   --mr 7
 ```
 
-Running from source instead of the npm package: replace `pi-code-review` with `node dist/index.js` everywhere above.
+Running from source instead of the npm package: replace `picr` with `node dist/index.js` everywhere above.
 
 ## Output
 

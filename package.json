@@ -12,7 +12,7 @@
   },
   "type": "module",
   "bin": {
-    "pi-code-review": "./dist/index.js"
+    "picr": "./dist/index.js"
   },
   "files": [
     "dist",
