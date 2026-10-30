@@ -22,7 +22,7 @@ function withFullEnv(overrides: Record<string, string | undefined> = {}): void {
 }
 
 function clearEnv(): void {
-  for (const key of [...GITLAB_VARS, ...OPENAI_VARS, 'FAIL_ON_SEVERITY']) {
+  for (const key of [...GITLAB_VARS, ...OPENAI_VARS, 'FAIL_ON_SEVERITY', 'OPENAI_MAX_TOKENS']) {
     delete process.env[key];
   }
 }
@@ -51,6 +51,37 @@ test('loadReviewConfig does not require FAIL_ON_SEVERITY', () => {
   clearEnv();
   withFullEnv();
   assert.doesNotThrow(() => loadReviewConfig());
+  clearEnv();
+});
+
+test('loadReviewConfig defaults maxTokens to 32000 when neither the flag nor OPENAI_MAX_TOKENS is set', () => {
+  clearEnv();
+  withFullEnv();
+  assert.equal(loadReviewConfig().openai.maxTokens, 32_000);
+  clearEnv();
+});
+
+test('loadReviewConfig uses OPENAI_MAX_TOKENS when set', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_MAX_TOKENS: '64000' });
+  assert.equal(loadReviewConfig().openai.maxTokens, 64_000);
+  clearEnv();
+});
+
+test('loadReviewConfig prefers a CLI --max-tokens value over OPENAI_MAX_TOKENS when both are set', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_MAX_TOKENS: '64000' });
+  assert.equal(loadReviewConfig({ maxTokens: '8000' }).openai.maxTokens, 8_000);
+  clearEnv();
+});
+
+test('loadReviewConfig rejects a non-numeric or non-positive OPENAI_MAX_TOKENS value', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_MAX_TOKENS: 'not-a-number' });
+  assert.throws(() => loadReviewConfig(), ConfigError);
+  clearEnv();
+  withFullEnv({ OPENAI_MAX_TOKENS: '0' });
+  assert.throws(() => loadReviewConfig(), ConfigError);
   clearEnv();
 });
 

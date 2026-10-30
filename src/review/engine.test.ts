@@ -71,9 +71,14 @@ test('AgentReviewEngine logs the prompt and raw response, and never logs the api
 
   await engine.review(context);
 
-  assert.equal(debugCalls.length, 2);
-  const [promptCall, responseCall] = debugCalls as [{ prompt: string }, { response: string }];
+  assert.equal(debugCalls.length, 3);
+  const [promptCall, finalMessageCall, responseCall] = debugCalls as [
+    { prompt: string },
+    { stopReason: string; usage: unknown; contentBlockTypes: string[] },
+    { response: string },
+  ];
   assert.match(promptCall.prompt, /Small change/);
+  assert.deepEqual(finalMessageCall.contentBlockTypes, ['text']);
   assert.match(responseCall.response, /Minor\./);
   const serialized = JSON.stringify(debugCalls);
   assert.doesNotMatch(serialized, /test-key/);

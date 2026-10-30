@@ -71,6 +71,14 @@ export class AgentReviewEngine implements ReviewEngine {
         `The agent run failed (stopReason: ${lastAssistant.stopReason}): ${lastAssistant.errorMessage ?? 'no error message'}`,
       );
     }
+    logger.debug(
+      {
+        stopReason: lastAssistant.stopReason,
+        usage: lastAssistant.usage,
+        contentBlockTypes: lastAssistant.content.map((block) => block.type),
+      },
+      'review final assistant message',
+    );
 
     const text = lastAssistant.content
       .filter((block): block is TextContent => block.type === 'text')

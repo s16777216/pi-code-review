@@ -65,6 +65,7 @@ Used by both commands:
 | `OPENAI_API_KEY` | `--openai-api-key` | Yes | **Secret.** |
 | `OPENAI_MODEL` | `--model` | Yes | No default on purpose — pick the model explicitly. |
 | `OPENAI_BASE_URL` | `--openai-base-url` | Yes | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint. |
+| `OPENAI_MAX_TOKENS` | `--max-tokens` | No (default `32000`) | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this. |
 | (n/a) | `--out` | No (default `findings.json`) | Where `review` writes its findings file. |
 
 `publish`-only:

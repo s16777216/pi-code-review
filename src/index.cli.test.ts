@@ -18,6 +18,8 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     'https://custom.example.com/v1',
     '--openai-api-key',
     'sk-from-cli',
+    '--max-tokens',
+    '64000',
     '--out',
     'my-findings.json',
     '--debug',
@@ -31,6 +33,7 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     model: 'o4-mini',
     openaiBaseUrl: 'https://custom.example.com/v1',
     apiKey: 'sk-from-cli',
+    maxTokens: '64000',
     out: 'my-findings.json',
     debug: true,
   });
@@ -45,6 +48,7 @@ test('parseReviewCliOptions returns all-undefined fields when no flags are given
     model: undefined,
     openaiBaseUrl: undefined,
     apiKey: undefined,
+    maxTokens: undefined,
     out: undefined,
     debug: undefined,
   });
@@ -99,4 +103,5 @@ test('parsePublishCliOptions rejects a review-only flag', () => {
   assert.throws(() => parsePublishCliOptions(['--model', 'gpt-4.1']));
   assert.throws(() => parsePublishCliOptions(['--openai-base-url', 'https://api.openai.com/v1']));
   assert.throws(() => parsePublishCliOptions(['--openai-api-key', 'sk-should-not-exist']));
+  assert.throws(() => parsePublishCliOptions(['--max-tokens', '64000']));
 });
