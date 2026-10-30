@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
+import pino from 'pino';
 import type { PublishConfig, ReviewConfig } from './config.ts';
 import type {
   DiscussionPosition,
@@ -128,13 +129,28 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
     logged.push(args.map(String).join(' '));
   };
 
+  // Also run with a real, non-silent (debug-level) logger — the same kind
+  // `--debug` builds — so a future call site that logs a token is still
+  // caught here even if `pino`'s `redact` paths were ever incomplete.
+  const debugLines: string[] = [];
+  const debugStream = {
+    write(chunk: string) {
+      debugLines.push(chunk);
+      return true;
+    },
+  };
+  const debugLogger = pino(
+    { level: 'debug', redact: { paths: ['headers["PRIVATE-TOKEN"]', '*.headers["PRIVATE-TOKEN"]', 'apiKey', '*.apiKey'], censor: '[REDACTED]' } },
+    debugStream as unknown as NodeJS.WritableStream,
+  );
+
   try {
-    await runReview({ config, client, provider: faux.provider });
+    await runReview({ config, client, provider: faux.provider, logger: debugLogger });
   } finally {
     console.log = originalLog;
   }
 
-  const output = logged.join('\n');
+  const output = logged.join('\n') + debugLines.join('\n');
   assert.doesNotMatch(output, /super-secret-token/);
   assert.doesNotMatch(output, /sk-super-secret-api-key/);
 });

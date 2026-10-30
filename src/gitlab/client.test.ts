@@ -62,6 +62,31 @@ test('GitLabClient always sends the PRIVATE-TOKEN header (never JOB-TOKEN)', asy
   }
 });
 
+test('GitLabClient logs method/url/status via its logger, and never logs headers', async () => {
+  const { restore } = mockFetch(() =>
+    jsonResponse({ title: 't', description: 'd', diff_refs: { base_sha: 'b', start_sha: 's', head_sha: 'h' } }),
+  );
+  const debugCalls: unknown[] = [];
+  const fakeLogger = { debug: (obj: unknown) => debugCalls.push(obj) } as unknown as import('../logger.ts').Logger;
+  try {
+    const client = await GitLabClient.create({
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '1',
+      token: 'tok',
+      logger: fakeLogger,
+    });
+    await client.getMergeRequest('5');
+    assert.equal(debugCalls.length, 1);
+    const logged = debugCalls[0] as { method: string; url: string; status: number };
+    assert.equal(logged.method, 'GET');
+    assert.match(logged.url, /\/merge_requests\/5$/);
+    assert.equal(logged.status, 200);
+    assert.equal('headers' in logged, false);
+  } finally {
+    restore();
+  }
+});
+
 test('getMergeRequest parses title, description, and diff refs', async () => {
   const { restore } = mockFetch(() =>
     jsonResponse({

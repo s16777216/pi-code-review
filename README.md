@@ -56,6 +56,7 @@ Used by both commands:
 | `CI_PROJECT_ID` | `--project-id` | Yes | Set automatically by GitLab CI. |
 | `CI_MERGE_REQUEST_IID` | `--mr` | Yes for `publish`; `review` skips and exits 0 if neither this nor `--mr` is set | Set automatically by GitLab CI on a merge-request pipeline. |
 | `GITLAB_TOKEN` | `--token` | Yes | **Secret.** A personal or project access token with the `api` scope, sent under the `PRIVATE-TOKEN` header. This is **not** GitLab CI's own `CI_JOB_TOKEN` — see [Auth](#auth) below. |
+| `DEBUG` | `--debug` | No (default off) | `true`/`1` (env) or bare `--debug` (flag) turns on debug logging to stderr — see [Debug logging](#debug-logging) below. |
 
 `review`-only:
 
@@ -78,6 +79,16 @@ Used by both commands:
 This tool always authenticates with a personal or project access token, sent under the `PRIVATE-TOKEN` header — the same whether it runs locally or in CI. It never uses GitLab CI's own `CI_JOB_TOKEN`/`JOB-TOKEN`, so there is no zero-configuration path in CI: every pipeline that runs this tool needs `GITLAB_TOKEN` set as a CI/CD variable, holding a real access token, exactly as `OPENAI_API_KEY` already needs to be.
 
 To create one: **User Settings → Access Tokens** (personal) or **Project Settings → Access Tokens** (project), scope `api`, with at least Developer access to the project.
+
+### Debug logging
+
+`--debug` (or `DEBUG=true`/`DEBUG=1`) turns on detailed logging to stderr, for both `review` and `publish`. It is off by default and never changes a command's exit code, stdout output, or the findings file's contents — it only adds log lines.
+
+Under `--debug` you get:
+- Every GitLab API call's HTTP method, URL, and response status (never headers or request/response bodies)
+- The exact prompt sent to the AI agent, and its raw response text, before that text is parsed into findings
+
+`GITLAB_TOKEN`/`OPENAI_API_KEY`/the `PRIVATE-TOKEN` header are never printed, with or without `--debug` — this is enforced structurally (via [`pino`](https://getpino.io/)'s `redact` option), not by each log call remembering to omit them.
 
 ## Running in GitLab CI
 

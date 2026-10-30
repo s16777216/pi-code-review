@@ -15,6 +15,7 @@ import { type FindingsFile, readFindingsFile, writeFindingsFile } from './findin
 import { GitLabClient, type MergeRequestProvider, type MergeRequestWriter } from './gitlab/client.ts';
 import { GitLabSinkProvider } from './gitlab/sinkProvider.ts';
 import { GitLabSourceProvider } from './gitlab/sourceProvider.ts';
+import { buildLogger, type Logger } from './logger.ts';
 import { decidePassFail } from './report/exitCode.ts';
 import { AgentReviewEngine } from './review/engine.ts';
 
@@ -44,6 +45,8 @@ export interface ReviewOptions {
   /** The model provider to stream from. Production passes `openaiProvider()`;
    * tests pass `fauxProvider().provider` so no network call happens. */
   provider: Provider;
+  /** Logs the review prompt/response under `--debug`. Defaults to a silent logger. */
+  logger?: Logger;
 }
 
 /** Fetches the merge request, runs the `ReviewEngine`, and returns the
@@ -59,7 +62,12 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile> {
   console.log(`${LOG_PREFIX} Reviewing "${context.title}" (${context.changedFiles.length} changed file(s)).`);
 
   console.log(`${LOG_PREFIX} Running review with model "${config.openai.model}"...`);
-  const engine = new AgentReviewEngine({ provider, model: buildModel(config), apiKey: config.openai.apiKey });
+  const engine = new AgentReviewEngine({
+    provider,
+    model: buildModel(config),
+    apiKey: config.openai.apiKey,
+    logger: options.logger,
+  });
   const findings = await engine.review(context);
   console.log(`${LOG_PREFIX} Review produced ${findings.length} finding(s).`);
 
@@ -99,7 +107,7 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
 /** `review`'s own CLI flags. No `--fail-on` — `review` has no pass/fail
  * concept (see the `review-cli` spec's "Each command accepts only the
  * configuration it needs" requirement). */
-export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & { out?: string } {
+export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & { out?: string; debug?: boolean } {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -111,6 +119,7 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
       'openai-base-url': { type: 'string' },
       'openai-api-key': { type: 'string' },
       out: { type: 'string' },
+      debug: { type: 'boolean' },
     },
     strict: true,
   });
@@ -123,12 +132,13 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
     openaiBaseUrl: values['openai-base-url'],
     apiKey: values['openai-api-key'],
     out: values.out,
+    debug: values.debug,
   };
 }
 
 /** `publish`'s own CLI flags. No `--model`/`--openai-base-url`/`--openai-api-key`
  * — `publish` never contacts OpenAI. */
-export function parsePublishCliOptions(argv: string[]): PublishConfigOverrides & { from?: string } {
+export function parsePublishCliOptions(argv: string[]): PublishConfigOverrides & { from?: string; debug?: boolean } {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -138,6 +148,7 @@ export function parsePublishCliOptions(argv: string[]): PublishConfigOverrides &
       token: { type: 'string' },
       'fail-on': { type: 'string' },
       from: { type: 'string' },
+      debug: { type: 'boolean' },
     },
     strict: true,
   });
@@ -148,7 +159,16 @@ export function parsePublishCliOptions(argv: string[]): PublishConfigOverrides &
     token: values.token,
     failOnSeverity: values['fail-on'],
     from: values.from,
+    debug: values.debug,
   };
+}
+
+/** `--debug` wins over `DEBUG` when both are given, consistent with every
+ * other setting (see `config.ts`'s `resolve()`). Unlike every other setting,
+ * this one is optional with a default (`false`), so it does not go through
+ * `resolve()`'s "throw if missing" path. */
+function resolveDebug(flag: boolean | undefined): boolean {
+  return flag ?? (process.env.DEBUG === 'true' || process.env.DEBUG === '1');
 }
 
 /** Real wiring for `review`: builds the real GitLab client and the real
@@ -167,13 +187,15 @@ export async function runReviewCommand(argv: string[]): Promise<number> {
   }
 
   const config = loadReviewConfig(cliOptions);
+  const logger = buildLogger(resolveDebug(cliOptions.debug));
   const client = await GitLabClient.create({
     apiUrl: config.gitlab.apiUrl,
     projectId: config.gitlab.projectId,
     token: config.gitlab.token,
+    logger,
   });
 
-  const findingsFile = await runReview({ config, client, provider: openaiProvider() });
+  const findingsFile = await runReview({ config, client, provider: openaiProvider(), logger });
   await writeFindingsFile(outPath, findingsFile);
   console.log(`${LOG_PREFIX} Wrote findings to "${outPath}".`);
   return 0;
@@ -192,6 +214,7 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
     apiUrl: config.gitlab.apiUrl,
     projectId: config.gitlab.projectId,
     token: config.gitlab.token,
+    logger: buildLogger(resolveDebug(cliOptions.debug)),
   });
 
   const findingsFile = await readFindingsFile(fromPath);

@@ -1,5 +1,6 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Model, Provider, TextContent } from '@earendil-works/pi-ai';
+import { buildLogger, type Logger } from '../logger.ts';
 import type { Finding, ReviewContext } from '../types.ts';
 import { createGetFileContentTool } from './agent.ts';
 import { isValidNewFileLine } from './diff.ts';
@@ -29,6 +30,10 @@ export interface AgentReviewEngineOptions {
   provider: Provider;
   model: Model<Api>;
   apiKey: string;
+  /** Logs the built prompt and the agent's raw response under `--debug`.
+   * Defaults to a silent logger, so existing call sites and tests are
+   * unaffected. */
+  logger?: Logger;
 }
 
 /** The `ReviewEngine` implementation. Nothing in this file names GitLab —
@@ -38,6 +43,7 @@ export class AgentReviewEngine implements ReviewEngine {
 
   async review(context: ReviewContext): Promise<Finding[]> {
     const { provider, model, apiKey } = this.options;
+    const logger = this.options.logger ?? buildLogger(false);
     const tool = createGetFileContentTool(context);
 
     const agent = new Agent({
@@ -50,7 +56,9 @@ export class AgentReviewEngine implements ReviewEngine {
       },
     });
 
-    await agent.prompt(buildReviewPrompt(context));
+    const prompt = buildReviewPrompt(context);
+    logger.debug({ prompt }, 'review prompt');
+    await agent.prompt(prompt);
 
     const lastAssistant = [...agent.state.messages]
       .reverse()
@@ -69,6 +77,7 @@ export class AgentReviewEngine implements ReviewEngine {
       .map((block) => block.text)
       .join('');
 
+    logger.debug({ response: text }, 'review response');
     const findings = parseFindings(text);
     return findings.filter((finding) => isValidNewFileLine(context.changedFiles, finding.file, finding.line));
   }

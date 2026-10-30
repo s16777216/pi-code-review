@@ -45,6 +45,40 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
   assert.equal(decidePassFail(findings, 'important'), false);
 });
 
+test('AgentReviewEngine logs the prompt and raw response, and never logs the apiKey', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }])),
+  ]);
+
+  const context: ReviewContext = {
+    title: 'Small change',
+    description: '',
+    changedFiles: [{ oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+    async getFileContent() {
+      return { error: 'not used' };
+    },
+  };
+
+  const debugCalls: unknown[] = [];
+  const fakeLogger = { debug: (obj: unknown) => debugCalls.push(obj) } as unknown as import('../logger.ts').Logger;
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'test-key',
+    logger: fakeLogger,
+  });
+
+  await engine.review(context);
+
+  assert.equal(debugCalls.length, 2);
+  const [promptCall, responseCall] = debugCalls as [{ prompt: string }, { response: string }];
+  assert.match(promptCall.prompt, /Small change/);
+  assert.match(responseCall.response, /Minor\./);
+  const serialized = JSON.stringify(debugCalls);
+  assert.doesNotMatch(serialized, /test-key/);
+});
+
 test('AgentReviewEngine drops a finding whose line is not in the diff', async () => {
   const faux = fauxProvider();
   faux.setResponses([

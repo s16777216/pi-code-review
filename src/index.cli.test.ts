@@ -20,6 +20,7 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     'sk-from-cli',
     '--out',
     'my-findings.json',
+    '--debug',
   ]);
 
   assert.deepEqual(options, {
@@ -31,6 +32,7 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     openaiBaseUrl: 'https://custom.example.com/v1',
     apiKey: 'sk-from-cli',
     out: 'my-findings.json',
+    debug: true,
   });
 });
 
@@ -44,6 +46,7 @@ test('parseReviewCliOptions returns all-undefined fields when no flags are given
     openaiBaseUrl: undefined,
     apiKey: undefined,
     out: undefined,
+    debug: undefined,
   });
 });
 
@@ -66,6 +69,7 @@ test('parsePublishCliOptions maps every publish flag to the matching field', () 
     'nit',
     '--from',
     'my-findings.json',
+    '--debug',
   ]);
 
   assert.deepEqual(options, {
@@ -75,6 +79,7 @@ test('parsePublishCliOptions maps every publish flag to the matching field', () 
     token: 'token-from-cli',
     failOnSeverity: 'nit',
     from: 'my-findings.json',
+    debug: true,
   });
 });
 
@@ -86,6 +91,7 @@ test('parsePublishCliOptions returns all-undefined fields when no flags are give
     token: undefined,
     failOnSeverity: undefined,
     from: undefined,
+    debug: undefined,
   });
 });
 
