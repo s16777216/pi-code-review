@@ -124,15 +124,10 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
     openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000 },
   });
 
-  const logged: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => {
-    logged.push(args.map(String).join(' '));
-  };
-
-  // Also run with a real, non-silent (debug-level) logger — the same kind
-  // `--debug` builds — so a future call site that logs a token is still
-  // caught here even if `pino`'s `redact` paths were ever incomplete.
+  // Use a real, non-silent (debug-level) logger — the same kind `--debug`
+  // builds — so every log line `runReview` and the engine produce is
+  // captured here, and a future call site that logs a token is still caught
+  // even if `pino`'s `redact` paths were ever incomplete.
   const debugLines: string[] = [];
   const debugStream = {
     write(chunk: string) {
@@ -145,13 +140,9 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
     debugStream as unknown as NodeJS.WritableStream,
   );
 
-  try {
-    await runReview({ config, client, provider: faux.provider, logger: debugLogger });
-  } finally {
-    console.log = originalLog;
-  }
+  await runReview({ config, client, provider: faux.provider, logger: debugLogger });
 
-  const output = logged.join('\n') + debugLines.join('\n');
+  const output = debugLines.join('\n');
   assert.doesNotMatch(output, /super-secret-token/);
   assert.doesNotMatch(output, /sk-super-secret-api-key/);
 });

@@ -1,5 +1,5 @@
 import { ConfigError } from "../config.ts";
-import { buildLogger, type Logger } from "../logger.ts";
+import { silentLogger, type Logger } from "../logger.ts";
 
 export interface GitLabDiffRefs {
   baseSha: string;
@@ -82,7 +82,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     this.apiUrl = options.apiUrl.replace(/\/+$/, "");
     this.projectId = options.projectId;
     this.token = options.token;
-    this.logger = options.logger ?? buildLogger(false);
+    this.logger = options.logger ?? silentLogger();
   }
 
   static async create(options: GitLabClientOptions): Promise<GitLabClient> {

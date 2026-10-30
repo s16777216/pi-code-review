@@ -1,6 +1,6 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Model, Provider, TextContent } from '@earendil-works/pi-ai';
-import { buildLogger, type Logger } from '../logger.ts';
+import { silentLogger, type Logger } from '../logger.ts';
 import type { Finding, ReviewContext } from '../types.ts';
 import { createGetFileContentTool } from './agent.ts';
 import { isValidNewFileLine } from './diff.ts';
@@ -43,7 +43,7 @@ export class AgentReviewEngine implements ReviewEngine {
 
   async review(context: ReviewContext): Promise<Finding[]> {
     const { provider, model, apiKey } = this.options;
-    const logger = this.options.logger ?? buildLogger(false);
+    const logger = this.options.logger ?? silentLogger();
     const tool = createGetFileContentTool(context);
 
     const agent = new Agent({

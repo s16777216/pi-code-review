@@ -77,3 +77,22 @@ test('publish isolates a failed discussion: the other finding still posts, and t
   assert.ok(written);
   assert.equal(JSON.parse(written!).length, 2); // report still covers both findings
 });
+
+test('a failed discussion logs via the injected logger when no onDiscussionError override is given', async () => {
+  const writer = new FakeWriter((position) => position.newPath === 'a.ts');
+  const errorCalls: unknown[] = [];
+  const fakeLogger = { error: (obj: unknown) => errorCalls.push(obj) } as unknown as import('../logger.ts').Logger;
+  const provider = new GitLabSinkProvider({
+    client: writer,
+    mergeRequestIid: '5',
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    codeQualityReportPath: '/tmp/report.json',
+    writeReport: async () => {},
+    logger: fakeLogger,
+  });
+
+  await provider.publish(findings());
+
+  assert.equal(errorCalls.length, 1);
+  assert.deepEqual(errorCalls[0], { file: 'a.ts', line: 3, error: 'simulated GitLab API failure' });
+});

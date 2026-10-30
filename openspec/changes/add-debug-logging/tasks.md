@@ -25,3 +25,12 @@
 
 - [x] 6.1 Run `npm run build && npm test` and confirm all tests pass with no regressions — 84/84 passing
 - [x] 6.2 Run `openspec validate add-debug-logging --strict` and confirm it passes
+
+## 7. Unify all logging on `pino` (pulled forward mid-change, per user request)
+
+- [x] 7.1 Change `buildLogger(debug)` to always render through `pino-pretty` (no more `silent`-when-`!debug` branch): level `info` by default, `debug` when `--debug`/`DEBUG` is set. Add a separate `silentLogger()` export in `src/logger.ts` for library classes' constructor defaults (`GitLabClient`, `AgentReviewEngine`, `GitLabSinkProvider`) when no logger is injected, so existing tests that construct those directly stay silent.
+- [x] 7.2 Replace every `console.log('[pi-code-review] ...')` progress message in `src/index.ts` (`runReview`, `runPublish`, `runReviewCommand`, `runPublishCommand`) with `logger.info(...)` on the same logger already threaded through for `--debug`, dropping the now-redundant `[pi-code-review]` text prefix (`pino-pretty` already shows time/level/pid), and verify `npm run build && npm test` still passes
+- [x] 7.3 Replace the top-level uncaught-error handler's `console.error('[pi-code-review] ...')` with `buildLogger(false).error(...)`, and verify manually (`node dist/index.js bogus`) that the error still prints and the process still exits 1
+- [x] 7.4 Add an optional `logger` field to `GitLabSinkProviderOptions` (default `silentLogger()`) and replace its default per-finding failure handler's bare `console.error(...)` with `this.logger.error({ file, line, error }, 'failed to post discussion')`, keeping the existing injectable `onDiscussionError` override unchanged, and verify with a new test (`src/gitlab/sinkProvider.test.ts`) that a fake logger receives the error object when no override is given
+- [x] 7.5 Verify manually (`node dist/index.js review` with no MR env vars, and `node dist/index.js bogus`) that normal (non-`--debug`) output now shows `info`/`error`-level lines via `pino-pretty`, and that `npm run build && npm test` passes with no regressions (89/89)
+- [x] 7.6 Update `design.md`'s Goals/Non-Goals and add a "Migrating the existing progress/error output to `pino`" Decision section, plus a matching Risks/Trade-offs entry for the stdout→stderr behavior change
