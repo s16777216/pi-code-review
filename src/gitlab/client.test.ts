@@ -34,11 +34,11 @@ function jsonResponse(body: unknown, init?: ResponseInit): Response {
   });
 }
 
-test('GitLabClient.create refuses to construct without a job token, and never calls fetch', async () => {
+test('GitLabClient.create refuses to construct without a token, and never calls fetch', async () => {
   const { calls, restore } = mockFetch(() => jsonResponse({}));
   try {
     await assert.rejects(
-      () => GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: '' }),
+      () => GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: '' }),
       ConfigError,
     );
     assert.equal(calls.length, 0);
@@ -47,34 +47,15 @@ test('GitLabClient.create refuses to construct without a job token, and never ca
   }
 });
 
-test('GitLabClient sends the JOB-TOKEN header on every request by default', async () => {
+test('GitLabClient always sends the PRIVATE-TOKEN header (never JOB-TOKEN)', async () => {
   const { calls, restore } = mockFetch(() =>
     jsonResponse({ title: 't', description: 'd', diff_refs: { base_sha: 'b', start_sha: 's', head_sha: 'h' } }),
   );
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     await client.getMergeRequest('5');
     assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.headers['JOB-TOKEN'], 'tok');
-    assert.equal(calls[0]!.headers['PRIVATE-TOKEN'], undefined);
-  } finally {
-    restore();
-  }
-});
-
-test('GitLabClient sends PRIVATE-TOKEN instead when authHeader is overridden, for local manual runs', async () => {
-  const { calls, restore } = mockFetch(() =>
-    jsonResponse({ title: 't', description: 'd', diff_refs: { base_sha: 'b', start_sha: 's', head_sha: 'h' } }),
-  );
-  try {
-    const client = await GitLabClient.create({
-      apiUrl: 'https://gitlab.example.com/api/v4',
-      projectId: '1',
-      jobToken: 'personal-access-token',
-      authHeader: 'PRIVATE-TOKEN',
-    });
-    await client.getMergeRequest('5');
-    assert.equal(calls[0]!.headers['PRIVATE-TOKEN'], 'personal-access-token');
+    assert.equal(calls[0]!.headers['PRIVATE-TOKEN'], 'tok');
     assert.equal(calls[0]!.headers['JOB-TOKEN'], undefined);
   } finally {
     restore();
@@ -90,7 +71,7 @@ test('getMergeRequest parses title, description, and diff refs', async () => {
     }),
   );
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     const mr = await client.getMergeRequest('5');
     assert.deepEqual(mr, {
       title: 'Fix bug',
@@ -105,7 +86,7 @@ test('getMergeRequest parses title, description, and diff refs', async () => {
 test('getMergeRequest throws GitLabApiError on a non-ok response', async () => {
   const { restore } = mockFetch(() => new Response('not found', { status: 404, statusText: 'Not Found' }));
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     await assert.rejects(() => client.getMergeRequest('5'), GitLabApiError);
   } finally {
     restore();
@@ -131,7 +112,7 @@ test('getMergeRequestDiff parses a multi-file diff and follows pagination', asyn
     });
   });
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     const files = await client.getMergeRequestDiff('5');
     assert.equal(files.length, 3);
     assert.equal(files[0]!.newPath, 'a.ts');
@@ -146,7 +127,7 @@ test('getMergeRequestDiff parses a multi-file diff and follows pagination', asyn
 test('getFileContent returns the file content on success', async () => {
   const { restore } = mockFetch(() => new Response('export const x = 1;', { status: 200 }));
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     const result = await client.getFileContent('src/a.ts', 'head123');
     assert.deepEqual(result, { content: 'export const x = 1;' });
   } finally {
@@ -157,7 +138,7 @@ test('getFileContent returns the file content on success', async () => {
 test('getFileContent returns an error object instead of throwing on a 404', async () => {
   const { restore } = mockFetch(() => new Response('not found', { status: 404, statusText: 'Not Found' }));
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     const result = await client.getFileContent('src/missing.ts', 'head123');
     assert.ok('error' in result);
   } finally {
@@ -168,7 +149,7 @@ test('getFileContent returns an error object instead of throwing on a 404', asyn
 test('createDiscussion sends a position with base/start/head SHA and the new-file line', async () => {
   const { calls, restore } = mockFetch(() => new Response(null, { status: 201 }));
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     await client.createDiscussion('5', '**[important]** Off-by-one bug.', {
       baseSha: 'base123',
       startSha: 'start123',
@@ -200,7 +181,7 @@ test('createDiscussion sends a position with base/start/head SHA and the new-fil
 test('createDiscussion throws GitLabApiError on a non-ok response', async () => {
   const { restore } = mockFetch(() => new Response('bad request', { status: 400, statusText: 'Bad Request' }));
   try {
-    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', jobToken: 'tok' });
+    const client = await GitLabClient.create({ apiUrl: 'https://gitlab.example.com/api/v4', projectId: '1', token: 'tok' });
     await assert.rejects(
       () =>
         client.createDiscussion('5', 'body', {

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
-import type { Config } from './config.ts';
+import type { PublishConfig, ReviewConfig } from './config.ts';
 import type {
   DiscussionPosition,
   FileContentResult,
@@ -13,7 +13,8 @@ import type {
   MergeRequestProvider,
   MergeRequestWriter,
 } from './gitlab/client.ts';
-import { runReview } from './index.ts';
+import type { FindingsFile } from './findingsFile.ts';
+import { main, runPublish, runReview } from './index.ts';
 
 class FakeClient implements MergeRequestProvider, MergeRequestWriter {
   discussions: { mergeRequestIid: string; body: string; position: DiscussionPosition }[] = [];
@@ -40,26 +41,37 @@ class FakeClient implements MergeRequestProvider, MergeRequestWriter {
   }
 }
 
-function fixtureConfig(overrides: Partial<Config> = {}): Config {
+function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfig {
   return {
     gitlab: {
       apiUrl: 'https://gitlab.example.com/api/v4',
       projectId: '1',
       mergeRequestIid: '5',
-      jobToken: 'tok',
-      authHeader: 'JOB-TOKEN',
+      token: 'tok',
     },
     openai: {
       apiKey: 'sk-test',
       model: 'gpt-4.1',
       baseUrl: 'https://api.openai.com/v1',
     },
+    ...overrides,
+  };
+}
+
+function fixturePublishConfig(overrides: Partial<PublishConfig> = {}): PublishConfig {
+  return {
+    gitlab: {
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '1',
+      mergeRequestIid: '5',
+      token: 'tok',
+    },
     failOnSeverity: 'important',
     ...overrides,
   };
 }
 
-test('runReview wires source -> engine -> sink and returns the pass/fail outcome', async () => {
+test('runReview returns findings and diff refs, and never contacts the GitLab sink', async () => {
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }])),
@@ -70,18 +82,85 @@ test('runReview wires source -> engine -> sink and returns the pass/fail outcome
     [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
   );
 
+  const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
+
+  assert.deepEqual(findingsFile.diffRefs, { baseSha: 'base', startSha: 'start', headSha: 'head' });
+  assert.deepEqual(findingsFile.findings, [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }]);
+  // runReview has no sink dependency at all - createDiscussion is only ever called by runPublish.
+  assert.equal(client.discussions.length, 0);
+});
+
+test('runReview returns an empty findings list when the review finds nothing', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[]')]);
+
+  const client = new FakeClient(
+    { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [{ oldPath: 'README.md', newPath: 'README.md', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+  );
+
+  const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
+
+  assert.deepEqual(findingsFile.findings, []);
+});
+
+test('runReview never logs the OpenAI API key or the GitLab access token', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[]')]);
+
+  const client = new FakeClient(
+    { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [{ oldPath: 'README.md', newPath: 'README.md', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+  );
+  const config = fixtureReviewConfig({
+    gitlab: {
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '1',
+      mergeRequestIid: '5',
+      token: 'super-secret-token',
+    },
+    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1' },
+  });
+
+  const logged: string[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    logged.push(args.map(String).join(' '));
+  };
+
+  try {
+    await runReview({ config, client, provider: faux.provider });
+  } finally {
+    console.log = originalLog;
+  }
+
+  const output = logged.join('\n');
+  assert.doesNotMatch(output, /super-secret-token/);
+  assert.doesNotMatch(output, /sk-super-secret-api-key/);
+});
+
+test('runPublish publishes every finding and writes the Code Quality report', async () => {
+  const client = new FakeClient(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+  const findingsFile: FindingsFile = {
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor nit.' }],
+  };
+
   const dir = await mkdtemp(join(tmpdir(), 'pi-code-review-test-'));
   const reportPath = join(dir, 'report.json');
 
   try {
-    const passed = await runReview({
-      config: fixtureConfig(),
+    const passed = await runPublish({
+      config: fixturePublishConfig(),
       client,
-      provider: faux.provider,
+      findingsFile,
       codeQualityReportPath: reportPath,
     });
 
-    assert.equal(passed, false); // an "important" finding fails the default threshold
+    assert.equal(passed, true); // "nit" is below the default "important" threshold
     assert.equal(client.discussions.length, 1);
     assert.deepEqual(client.discussions[0]!.position, {
       baseSha: 'base',
@@ -94,75 +173,68 @@ test('runReview wires source -> engine -> sink and returns the pass/fail outcome
 
     const report = JSON.parse(await readFile(reportPath, 'utf8'));
     assert.equal(report.length, 1);
-    assert.equal(report[0].severity, 'major');
+    assert.equal(report[0].severity, 'minor');
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test('runReview returns true (pass) when the review finds nothing', async () => {
-  const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
-
+test('runPublish publishes an important finding before failing on it (severity never blocks publishing)', async () => {
   const client = new FakeClient(
-    { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
-    [{ oldPath: 'README.md', newPath: 'README.md', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
   );
+  const findingsFile: FindingsFile = {
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.' }],
+  };
 
   const dir = await mkdtemp(join(tmpdir(), 'pi-code-review-test-'));
   const reportPath = join(dir, 'report.json');
 
   try {
-    const passed = await runReview({
-      config: fixtureConfig(),
+    const passed = await runPublish({
+      config: fixturePublishConfig(),
       client,
-      provider: faux.provider,
+      findingsFile,
       codeQualityReportPath: reportPath,
     });
 
-    assert.equal(passed, true);
-    assert.equal(client.discussions.length, 0);
+    // The discussion was posted (publishing happened) even though the final outcome is a fail.
+    assert.equal(client.discussions.length, 1);
+    assert.equal(passed, false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-test('runReview never logs the OpenAI API key or the GitLab job token', async () => {
-  const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
-
+test('runPublish passes when no finding meets the threshold', async () => {
   const client = new FakeClient(
-    { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
-    [{ oldPath: 'README.md', newPath: 'README.md', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
   );
+  const findingsFile: FindingsFile = {
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    findings: [],
+  };
 
   const dir = await mkdtemp(join(tmpdir(), 'pi-code-review-test-'));
   const reportPath = join(dir, 'report.json');
-  const config = fixtureConfig({
-    gitlab: {
-      apiUrl: 'https://gitlab.example.com/api/v4',
-      projectId: '1',
-      mergeRequestIid: '5',
-      jobToken: 'super-secret-job-token',
-      authHeader: 'JOB-TOKEN',
-    },
-    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1' },
-  });
-
-  const logged: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => {
-    logged.push(args.map(String).join(' '));
-  };
 
   try {
-    await runReview({ config, client, provider: faux.provider, codeQualityReportPath: reportPath });
+    const passed = await runPublish({
+      config: fixturePublishConfig(),
+      client,
+      findingsFile,
+      codeQualityReportPath: reportPath,
+    });
+    assert.equal(passed, true);
   } finally {
-    console.log = originalLog;
     await rm(dir, { recursive: true, force: true });
   }
+});
 
-  const output = logged.join('\n');
-  assert.doesNotMatch(output, /super-secret-job-token/);
-  assert.doesNotMatch(output, /sk-super-secret-api-key/);
+test('main rejects a missing or unknown subcommand with a clear error', async () => {
+  await assert.rejects(() => main([]), /Unknown command/);
+  await assert.rejects(() => main(['bogus']), /Unknown command "bogus"/);
 });

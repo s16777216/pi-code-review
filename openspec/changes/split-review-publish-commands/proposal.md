@@ -10,6 +10,7 @@ A local manual run of the tool today always runs the full flow: fetch the merge 
 - The severity-threshold pass/fail decision moves from the `ai-diff-review` capability (the `ReviewEngine`) to the new CLI capability. The engine itself never had this as part of its own interface (`review()` already only returned `Finding[]`); only the spec requirement describing when the decision happens moves.
 - `review` only accepts GitLab connection flags and OpenAI flags (`--model`, `--openai-base-url`, `--openai-api-key`). `publish` only accepts GitLab connection flags and `--fail-on`. Neither command accepts the other's flags.
 - No validation that the merge request has not changed between `review` and `publish` (for example, new commits that would make the saved diff refs stale). This is an explicit non-goal for this change.
+- **BREAKING**: Authentication drops GitLab CI's `CI_JOB_TOKEN`/`JOB-TOKEN` mechanism entirely. Both commands now always authenticate with a personal or project access token (`GITLAB_TOKEN` environment variable or `--token` flag), sent under the `PRIVATE-TOKEN` header — the same mechanism locally and in CI. `GITLAB_AUTH_HEADER`/`--auth-header` is removed; there is no header choice left to make.
 
 ## Capabilities
 
@@ -18,6 +19,7 @@ A local manual run of the tool today always runs the full flow: fetch the merge 
 
 ### Modified Capabilities
 - `ai-diff-review`: Removes the "Decide the pass/fail outcome from a severity threshold" requirement. The `ReviewEngine` itself never decided this through its own interface; the decision's timing moves to the `review-cli` capability's `publish` command, so that publishing always happens before anything can block the pipeline on severity.
+- `gitlab-mr-context`: Replaces "Authenticate with the CI job token" with "Authenticate with a GitLab access token". The system now always sends a personal/project access token under `PRIVATE-TOKEN`; it no longer supports `CI_JOB_TOKEN`/`JOB-TOKEN` at all.
 
 ## Impact
 

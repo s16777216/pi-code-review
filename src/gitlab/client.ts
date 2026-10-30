@@ -1,4 +1,4 @@
-import { ConfigError, type GitLabAuthHeader } from "../config.ts";
+import { ConfigError } from "../config.ts";
 
 export interface GitLabDiffRefs {
   baseSha: string;
@@ -32,11 +32,10 @@ export class GitLabApiError extends Error {
 export interface GitLabClientOptions {
   apiUrl: string;
   projectId: string;
-  jobToken: string;
-  /** Header to send `jobToken` under. Defaults to `JOB-TOKEN`. Set to
-   * `PRIVATE-TOKEN` to pass a personal/project access token instead, for
-   * manual local runs against a real GitLab project outside CI. */
-  authHeader?: GitLabAuthHeader;
+  /** A GitLab personal or project access token, sent under the `PRIVATE-TOKEN`
+   * header. This tool never uses `CI_JOB_TOKEN`/`JOB-TOKEN` — see `design.md`'s
+   * "Auth: always a personal/project access token" decision. */
+  token: string;
 }
 
 /** The subset of the GitLab API this tool needs. Adapters depend on this
@@ -67,8 +66,7 @@ export interface MergeRequestWriter {
 export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
   private readonly apiUrl: string;
   private readonly projectId: string;
-  private readonly jobToken: string;
-  private readonly authHeader: GitLabAuthHeader;
+  private readonly token: string;
 
   /** Private: construction goes through `GitLabClient.create()`, so the
    * returned instance is always fully set up, even once setup needs to
@@ -78,14 +76,13 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
   private constructor(options: GitLabClientOptions) {
     this.apiUrl = options.apiUrl.replace(/\/+$/, "");
     this.projectId = options.projectId;
-    this.jobToken = options.jobToken;
-    this.authHeader = options.authHeader ?? "JOB-TOKEN";
+    this.token = options.token;
   }
 
   static async create(options: GitLabClientOptions): Promise<GitLabClient> {
-    if (!options.jobToken) {
+    if (!options.token) {
       throw new ConfigError(
-        "GitLabClient requires a non-empty jobToken; refusing to call the GitLab API without one.",
+        "GitLabClient requires a non-empty token; refusing to call the GitLab API without one.",
       );
     }
     return new GitLabClient(options);
@@ -104,7 +101,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
       method: init?.method,
       body: init?.body,
       headers: {
-        [this.authHeader]: this.jobToken,
+        "PRIVATE-TOKEN": this.token,
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
     });
