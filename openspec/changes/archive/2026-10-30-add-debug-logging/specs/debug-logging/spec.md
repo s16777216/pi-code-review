@@ -41,8 +41,19 @@ When `--debug` is on, the system SHALL log the prompt built for the AI agent and
 - **THEN** the debug output includes the prompt sent to the agent and the agent's raw response text
 
 ### Requirement: Debug logging does not change outcomes
-Enabling `--debug` MUST NOT change a command's exit code, its stdout output, or the contents of the findings file it reads or writes.
+Enabling `--debug` MUST NOT change a command's exit code or the contents of the findings file it reads or writes.
 
 #### Scenario: Same run, with and without debug
 - **WHEN** the same `review` or `publish` invocation is run once with `--debug` and once without
 - **THEN** both runs produce the same exit code and the same findings file contents
+
+### Requirement: All CLI output goes through one logger, to stderr
+The system SHALL emit every log line it produces — normal progress messages, `--debug` detail, and errors alike — through a single logger, regardless of whether `--debug` is on. The system MUST write all of that output to stderr and MUST NOT write log output to stdout.
+
+#### Scenario: Normal progress is visible without --debug
+- **WHEN** a command runs without `--debug`
+- **THEN** the system still prints its normal progress messages (not only error output)
+
+#### Scenario: All output goes to the same stream
+- **WHEN** any command runs, with or without `--debug`
+- **THEN** every log line it produces — progress, debug detail, and errors — is written to stderr, and none of it is written to stdout
