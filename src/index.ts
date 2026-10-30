@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
