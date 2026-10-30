@@ -30,7 +30,9 @@
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "^1.4.0",
-    "@earendil-works/pi-ai": "^1.4.0"
+    "@earendil-works/pi-ai": "^1.4.0",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

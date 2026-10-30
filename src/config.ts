@@ -3,6 +3,7 @@ import type { Severity } from "./types.ts";
 export type FailOnSeverity = Severity | "none";
 
 const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ["important", "nit", "none"];
+const DEFAULT_MAX_TOKENS = 32_000;
 
 export class ConfigError extends Error {}
 
@@ -23,6 +24,7 @@ export interface ReviewConfig {
     apiKey: string;
     model: string;
     baseUrl: string;
+    maxTokens: number;
   };
 }
 
@@ -54,6 +56,8 @@ export interface ReviewConfigOverrides extends GitlabConnectionOverrides {
   openaiBaseUrl?: string;
   /** Secret — see `GitlabConnectionOverrides`'s doc comment for the same trade-off. */
   apiKey?: string;
+  /** Raw string from the CLI flag; `loadReviewConfig()` parses and validates it. */
+  maxTokens?: string;
 }
 
 export interface PublishConfigOverrides extends GitlabConnectionOverrides {
@@ -87,6 +91,21 @@ function loadGitlabConnectionConfig(overrides: GitlabConnectionOverrides): Gitla
   };
 }
 
+/** `--max-tokens`/`OPENAI_MAX_TOKENS` is optional with a default, unlike
+ * every other OpenAI setting — the model still runs without it. A CLI flag
+ * wins over the environment variable, same as everything else. */
+function resolveMaxTokens(override: string | undefined): number {
+  const raw = override ?? process.env.OPENAI_MAX_TOKENS;
+  if (raw === undefined) {
+    return DEFAULT_MAX_TOKENS;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new ConfigError(`Invalid OPENAI_MAX_TOKENS value: "${raw}". Must be a positive integer.`);
+  }
+  return value;
+}
+
 /** Resolves config for the `review` command: GitLab connection + OpenAI.
  * Never requires `FAIL_ON_SEVERITY` — `review` has no pass/fail concept. */
 export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewConfig {
@@ -96,6 +115,7 @@ export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewC
       apiKey: resolve("OPENAI_API_KEY", overrides.apiKey),
       model: resolve("OPENAI_MODEL", overrides.model),
       baseUrl: resolve("OPENAI_BASE_URL", overrides.openaiBaseUrl),
+      maxTokens: resolveMaxTokens(overrides.maxTokens),
     },
   };
 }

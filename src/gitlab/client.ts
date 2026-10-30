@@ -1,4 +1,5 @@
 import { ConfigError } from "../config.ts";
+import { silentLogger, type Logger } from "../logger.ts";
 
 export interface GitLabDiffRefs {
   baseSha: string;
@@ -36,6 +37,9 @@ export interface GitLabClientOptions {
    * header. This tool never uses `CI_JOB_TOKEN`/`JOB-TOKEN` — see `design.md`'s
    * "Auth: always a personal/project access token" decision. */
   token: string;
+  /** Logs each GitLab API call's method/URL/status under `--debug`. Defaults
+   * to a silent logger, so existing call sites and tests are unaffected. */
+  logger?: Logger;
 }
 
 /** The subset of the GitLab API this tool needs. Adapters depend on this
@@ -67,6 +71,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
   private readonly apiUrl: string;
   private readonly projectId: string;
   private readonly token: string;
+  private readonly logger: Logger;
 
   /** Private: construction goes through `GitLabClient.create()`, so the
    * returned instance is always fully set up, even once setup needs to
@@ -77,6 +82,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     this.apiUrl = options.apiUrl.replace(/\/+$/, "");
     this.projectId = options.projectId;
     this.token = options.token;
+    this.logger = options.logger ?? silentLogger();
   }
 
   static async create(options: GitLabClientOptions): Promise<GitLabClient> {
@@ -97,7 +103,8 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     if (searchParams) {
       for (const [key, value] of searchParams) url.searchParams.set(key, value);
     }
-    return fetch(url, {
+    const method = init?.method ?? "GET";
+    const response = await fetch(url, {
       method: init?.method,
       body: init?.body,
       headers: {
@@ -105,6 +112,8 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
     });
+    this.logger.debug({ method, url: url.toString(), status: response.status }, "gitlab request");
+    return response;
   }
 
   async getMergeRequest(

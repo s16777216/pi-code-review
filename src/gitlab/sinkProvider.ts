@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { silentLogger, type Logger } from '../logger.ts';
 import { buildCodeQualityReport } from '../report/codeQuality.ts';
 import type { SinkProvider } from '../review/providers.ts';
 import type { Finding } from '../types.ts';
@@ -12,12 +13,18 @@ export interface GitLabSinkProviderOptions {
   codeQualityReportPath: string;
   /** Injectable for tests; defaults to `node:fs/promises`' `writeFile`. */
   writeReport?: (path: string, contents: string) => Promise<void>;
-  /** Injectable for tests; defaults to `console.error`. */
+  /** Injectable for tests; defaults to logging via `logger.error`. */
   onDiscussionError?: (finding: Finding, error: unknown) => void;
+  /** Defaults to a silent logger, so existing call sites and tests are unaffected. */
+  logger?: Logger;
 }
 
 export class GitLabSinkProvider implements SinkProvider {
-  constructor(private readonly options: GitLabSinkProviderOptions) {}
+  private readonly logger: Logger;
+
+  constructor(private readonly options: GitLabSinkProviderOptions) {
+    this.logger = options.logger ?? silentLogger();
+  }
 
   async publish(findings: Finding[]): Promise<void> {
     await Promise.all(findings.map((finding) => this.postDiscussion(finding)));
@@ -34,7 +41,14 @@ export class GitLabSinkProvider implements SinkProvider {
         newLine: finding.line,
       });
     } catch (error) {
-      (onDiscussionError ?? defaultOnDiscussionError)(finding, error);
+      if (onDiscussionError) {
+        onDiscussionError(finding, error);
+      } else {
+        this.logger.error(
+          { file: finding.file, line: finding.line, error: error instanceof Error ? error.message : String(error) },
+          'failed to post discussion',
+        );
+      }
     }
   }
 
@@ -47,10 +61,4 @@ export class GitLabSinkProvider implements SinkProvider {
 
 function formatDiscussionBody(finding: Finding): string {
   return `**[${finding.severity}]** ${finding.summary}`;
-}
-
-function defaultOnDiscussionError(finding: Finding, error: unknown): void {
-  console.error(
-    `Failed to post a discussion for ${finding.file}:${finding.line}: ${error instanceof Error ? error.message : String(error)}`,
-  );
 }

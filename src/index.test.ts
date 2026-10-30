@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
+import pino from 'pino';
 import type { PublishConfig, ReviewConfig } from './config.ts';
 import type {
   DiscussionPosition,
@@ -53,6 +54,7 @@ function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfi
       apiKey: 'sk-test',
       model: 'gpt-4.1',
       baseUrl: 'https://api.openai.com/v1',
+      maxTokens: 32_000,
     },
     ...overrides,
   };
@@ -119,22 +121,28 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
       mergeRequestIid: '5',
       token: 'super-secret-token',
     },
-    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1' },
+    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000 },
   });
 
-  const logged: string[] = [];
-  const originalLog = console.log;
-  console.log = (...args: unknown[]) => {
-    logged.push(args.map(String).join(' '));
+  // Use a real, non-silent (debug-level) logger — the same kind `--debug`
+  // builds — so every log line `runReview` and the engine produce is
+  // captured here, and a future call site that logs a token is still caught
+  // even if `pino`'s `redact` paths were ever incomplete.
+  const debugLines: string[] = [];
+  const debugStream = {
+    write(chunk: string) {
+      debugLines.push(chunk);
+      return true;
+    },
   };
+  const debugLogger = pino(
+    { level: 'debug', redact: { paths: ['headers["PRIVATE-TOKEN"]', '*.headers["PRIVATE-TOKEN"]', 'apiKey', '*.apiKey'], censor: '[REDACTED]' } },
+    debugStream as unknown as NodeJS.WritableStream,
+  );
 
-  try {
-    await runReview({ config, client, provider: faux.provider });
-  } finally {
-    console.log = originalLog;
-  }
+  await runReview({ config, client, provider: faux.provider, logger: debugLogger });
 
-  const output = logged.join('\n');
+  const output = debugLines.join('\n');
   assert.doesNotMatch(output, /super-secret-token/);
   assert.doesNotMatch(output, /sk-super-secret-api-key/);
 });
