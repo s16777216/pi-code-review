@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import type { Api, Model, Provider } from '@earendil-works/pi-ai';
@@ -251,8 +252,13 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
 
 /** Only run `main()` when this module is the process entrypoint (`node dist/index.js`),
  * not when a test imports `runReview`/`main` from it. Compares resolved file URLs
- * (not raw path strings) so this works correctly on Windows too. */
-const isEntrypoint = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+ * (not raw path strings) so this works correctly on Windows too. `realpathSync` on
+ * `argv[1]` matters: `import.meta.url` is already symlink-resolved by the ESM loader,
+ * so a global install reached through a symlink/junction (e.g. nvm-windows' "C:\Program
+ * Files\nodejs" link) would otherwise never compare equal, and `main()` would silently
+ * never run. */
+const isEntrypoint =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href;
 
 if (isEntrypoint) {
   main()
