@@ -1,3 +1,4 @@
+import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, Severity } from '../types.ts';
 
 export class ReviewFailureError extends Error {}
@@ -35,9 +36,10 @@ function validateFinding(item: unknown, index: number): Finding {
 
 /** Parses the agent's final output text into `Finding[]`. Expects a JSON
  * array (optionally wrapped in a ```json fenced code block). Throws
- * `ReviewFailureError` for anything else, instead of silently returning no
- * findings. */
-export function parseFindings(text: string): Finding[] {
+ * `ReviewFailureError` when the text is not JSON or not an array, instead of
+ * silently returning no findings. Inside the array, an invalid element is
+ * dropped with one `warn` log line, and every valid element is kept. */
+export function parseFindings(text: string, logger: Logger = silentLogger()): Finding[] {
   const jsonText = extractJsonText(text);
 
   let parsed: unknown;
@@ -51,5 +53,14 @@ export function parseFindings(text: string): Finding[] {
     throw new ReviewFailureError('Agent output is not a JSON array of findings.');
   }
 
-  return parsed.map((item, index) => validateFinding(item, index));
+  const findings: Finding[] = [];
+  parsed.forEach((item, index) => {
+    try {
+      findings.push(validateFinding(item, index));
+    } catch (error) {
+      if (!(error instanceof ReviewFailureError)) throw error;
+      logger.warn({ index, reason: error.message }, 'dropped an invalid finding from the agent output');
+    }
+  });
+  return findings;
 }

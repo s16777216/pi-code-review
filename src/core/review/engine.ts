@@ -3,13 +3,13 @@ import type { Api, AssistantMessage, Model, Provider, TextContent } from '@earen
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ReviewContext } from '../types.ts';
 import { createGetFileContentTool } from './agent.ts';
-import { isValidNewFileLine } from './diff.ts';
+import { checkNewFileLine } from './diff.ts';
 import { parseFindings, ReviewFailureError } from './findings.ts';
 import { buildReviewPrompt } from './prompt.ts';
 
-const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
+export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
 
-Read the change's diff hunks. Call the get_file_content tool for any changed file when the diff hunks alone are not enough context. Do not guess about code you have not read.
+Read the change's diff hunks. In each diff, the number before "|" is the line's number in the new version of the file; it is not part of the code. Lines with no number were removed. Call the get_file_content tool for any changed file when the diff hunks alone are not enough context. Do not guess about code you have not read.
 
 Report only genuine bugs or correctness problems. Do not report style, formatting, or naming nits as a separate category from real nits; use "nit" severity for anything minor enough that a human would not block on it.
 
@@ -18,7 +18,7 @@ For each problem, decide a severity:
 - "nit": a minor issue worth a comment but not worth blocking on.
 - "pre_existing": a bug in code the change did not modify.
 
-When you are done, output ONLY a JSON array of findings, with no other text. Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (an integer line number in the new version of that file), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Output "[]" when you find nothing to report.`;
+When you are done, output ONLY a JSON array of findings, with no other text. Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Output "[]" when you find nothing to report.`;
 
 export interface ReviewEngine {
   review(context: ReviewContext): Promise<Finding[]>;
@@ -86,7 +86,15 @@ export class AgentReviewEngine implements ReviewEngine {
       .join('');
 
     logger.debug({ response: text }, 'review response');
-    const findings = parseFindings(text);
-    return findings.filter((finding) => isValidNewFileLine(context.changedFiles, finding.file, finding.line));
+    const findings = parseFindings(text, logger);
+    return findings.filter((finding) => {
+      const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
+      if (reason === 'ok') return true;
+      logger.warn(
+        { file: finding.file, line: finding.line, reason },
+        'discarded a finding that cannot be placed on the diff',
+      );
+      return false;
+    });
   }
 }
