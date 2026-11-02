@@ -1,7 +1,7 @@
 import type { SourceProvider } from '../../core/review/providers.ts';
 import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../../core/types.ts';
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestProvider } from './client.ts';
-import { isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
+import { discussionAnchor, isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
 import { stripMarker } from './marker.ts';
 
 export class GitLabSourceProvider implements SourceProvider {
@@ -24,6 +24,7 @@ export class GitLabSourceProvider implements SourceProvider {
       oldPath: file.oldPath,
       newPath: file.newPath,
       hunks: file.diffHunks,
+      ...(file.deletedFile ? { deleted: true } : {}),
     }));
 
     const headSha = metadata.diffRefs.headSha;
@@ -76,6 +77,7 @@ function toReviewDiscussion(discussion: GitLabDiscussion): ReviewDiscussion | nu
     positionCommit: discussion.position?.headSha ?? null,
     resolved: isDiscussionResolved(discussion),
     fromThisTool: isFromThisTool(discussion),
+    anchor: discussionAnchor(discussion),
     notes: notes.map((note) => ({ author: note.author, body: stripMarker(note.body) })),
   };
 }

@@ -9,6 +9,7 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
   const data: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 3, severity: 'important', summary: 'Off-by-one.' }],
   };
@@ -26,6 +27,7 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
   const data: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
   };
@@ -126,10 +128,31 @@ test('readFindingsFile ignores unknown extra fields', async () => {
     findings: [{ ...validFinding, note: 'extra' }],
   });
 
-  assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding] });
+  assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding], resolved: [] });
 });
 
 test('readFindingsFile keeps a finding\'s relatesTo', async () => {
   const result = await readRaw({ diffRefs: validRefs, findings: [{ ...validFinding, relatesTo: 'd1' }] });
   assert.deepEqual(result.findings, [{ ...validFinding, relatesTo: 'd1' }]);
+});
+
+test('readFindingsFile round-trips fixed declarations', async () => {
+  const result = await readRaw({
+    diffRefs: validRefs,
+    findings: [],
+    resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
+  });
+  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'Fixed.' }]);
+});
+
+test('readFindingsFile reads a file without "resolved" as no declarations', async () => {
+  const result = await readRaw({ diffRefs: validRefs, findings: [] });
+  assert.deepEqual(result.resolved, []);
+});
+
+test('readFindingsFile rejects an invalid fixed declaration', async () => {
+  await assert.rejects(
+    () => readRaw({ diffRefs: validRefs, findings: [], resolved: [{ discussionId: 'd1' }] }),
+    (error: unknown) => error instanceof FindingsFileError && /"reason"/.test(error.message),
+  );
 });

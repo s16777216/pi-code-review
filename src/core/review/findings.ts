@@ -1,5 +1,5 @@
 import { silentLogger, type Logger } from '../../logger.ts';
-import type { Finding, Severity } from '../types.ts';
+import type { Finding, ResolvedDiscussion, Severity } from '../types.ts';
 
 export class ReviewFailureError extends Error {}
 
@@ -49,12 +49,36 @@ export function validateFinding(item: unknown, index: number): Finding {
   return finding;
 }
 
-/** Parses the agent's final output text into `Finding[]`. Expects a JSON
- * array (optionally wrapped in a ```json fenced code block). Throws
- * `ReviewFailureError` when the text is not JSON or not an array, instead of
- * silently returning no findings. Inside the array, an invalid element is
- * dropped with one `warn` log line, and every valid element is kept. */
-export function parseFindings(text: string, logger: Logger = silentLogger()): Finding[] {
+/** Checks one fixed declaration's shape. Shared by the engine (agent output)
+ * and `findingsFile.ts`. Throws `ReviewFailureError` naming the index and the
+ * bad field. */
+export function validateResolvedDiscussion(item: unknown, index: number): ResolvedDiscussion {
+  if (typeof item !== 'object' || item === null) {
+    throw new ReviewFailureError(`Fixed declaration at index ${index} is not an object.`);
+  }
+  const { discussionId, reason } = item as Record<string, unknown>;
+  if (typeof discussionId !== 'string' || discussionId.length === 0) {
+    throw new ReviewFailureError(`Fixed declaration at index ${index} is missing a "discussionId" string.`);
+  }
+  if (typeof reason !== 'string' || reason.trim().length === 0) {
+    throw new ReviewFailureError(`Fixed declaration at index ${index} is missing a "reason" string.`);
+  }
+  return { discussionId, reason };
+}
+
+/** What the agent's final output parses into, before the engine's checks. */
+export interface ParsedReviewOutput {
+  findings: Finding[];
+  resolved: ResolvedDiscussion[];
+}
+
+/** Parses the agent's final output text (optionally wrapped in a ```json
+ * fenced code block). Accepts `{ "findings": [...], "resolved": [...] }`, and
+ * also a bare array, read as findings with no fixed declarations. Throws
+ * `ReviewFailureError` when the text is not JSON, or is neither an array nor
+ * an object with a `findings` array, instead of silently returning nothing.
+ * Each invalid finding or declaration is dropped with one `warn` log line. */
+export function parseReviewOutput(text: string, logger: Logger = silentLogger()): ParsedReviewOutput {
   const jsonText = extractJsonText(text);
 
   let parsed: unknown;
@@ -64,12 +88,19 @@ export function parseFindings(text: string, logger: Logger = silentLogger()): Fi
     throw new ReviewFailureError(`Agent output is not valid JSON: ${(error as Error).message}`);
   }
 
-  if (!Array.isArray(parsed)) {
-    throw new ReviewFailureError('Agent output is not a JSON array of findings.');
+  let rawFindings: unknown[];
+  let rawResolved: unknown = [];
+  if (Array.isArray(parsed)) {
+    rawFindings = parsed;
+  } else if (typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { findings?: unknown }).findings)) {
+    rawFindings = (parsed as { findings: unknown[] }).findings;
+    rawResolved = (parsed as { resolved?: unknown }).resolved ?? [];
+  } else {
+    throw new ReviewFailureError('Agent output is neither a JSON array of findings nor an object with a "findings" array.');
   }
 
   const findings: Finding[] = [];
-  parsed.forEach((item, index) => {
+  rawFindings.forEach((item, index) => {
     try {
       findings.push(validateFinding(withoutAgentAnchor(item), index));
     } catch (error) {
@@ -77,7 +108,27 @@ export function parseFindings(text: string, logger: Logger = silentLogger()): Fi
       logger.warn({ index, reason: error.message }, 'dropped an invalid finding from the agent output');
     }
   });
-  return findings;
+
+  const resolved: ResolvedDiscussion[] = [];
+  if (!Array.isArray(rawResolved)) {
+    logger.warn({ reason: '"resolved" is not an array' }, 'ignored the fixed declarations in the agent output');
+  } else {
+    rawResolved.forEach((item, index) => {
+      try {
+        resolved.push(validateResolvedDiscussion(item, index));
+      } catch (error) {
+        if (!(error instanceof ReviewFailureError)) throw error;
+        logger.warn({ index, reason: error.message }, 'dropped an invalid fixed declaration from the agent output');
+      }
+    });
+  }
+
+  return { findings, resolved };
+}
+
+/** The findings part of `parseReviewOutput`. */
+export function parseFindings(text: string, logger: Logger = silentLogger()): Finding[] {
+  return parseReviewOutput(text, logger).findings;
 }
 
 /** The engine computes `anchor` itself and replaces any value the agent wrote,

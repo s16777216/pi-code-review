@@ -101,6 +101,7 @@ function discussion(id: string, file: string | null, body = 'A note.'): ReviewDi
     positionCommit: file === null ? null : 'h',
     resolved: false,
     fromThisTool: false,
+    anchor: null,
     notes: [{ author: 'alice', body }],
   };
 }

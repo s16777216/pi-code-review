@@ -150,6 +150,7 @@ test('listDiscussions maps GitLab discussions, drops system notes, and marks thi
       positionCommit: 'h0',
       resolved: true,
       fromThisTool: true,
+      anchor: null,
       notes: [
         { author: 'bot', body: '**[important]** Bug.' },
         { author: 'alice', body: 'Fixed, thanks.' },
@@ -162,6 +163,7 @@ test('listDiscussions maps GitLab discussions, drops system notes, and marks thi
       positionCommit: null,
       resolved: false,
       fromThisTool: false,
+      anchor: null,
       notes: [{ author: 'bob', body: 'This is intentional.' }],
     },
   ]);
@@ -201,4 +203,53 @@ test('listDiscussions returns an error object instead of throwing when the API f
   const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
 
   assert.deepEqual(await context.listDiscussions(), { error: 'Failed to list discussions: 403 Forbidden' });
+});
+
+test('listDiscussions reads the anchor from the marker of a discussion this tool started', async () => {
+  const fake = discussionFixture();
+  fake.discussions = [
+    {
+      id: 'with-anchor',
+      position: null,
+      notes: [
+        {
+          author: 'bot',
+          body: '<!-- pi-code-review anchor=3f9a1c0b2d4e5f60 -->\n**[nit]** x',
+          system: false,
+          resolvable: true,
+          resolved: false,
+        },
+      ],
+    },
+    {
+      id: 'without-anchor',
+      position: null,
+      notes: [{ author: 'bot', body: '<!-- pi-code-review -->\n**[nit]** y', system: false, resolvable: true, resolved: false }],
+    },
+  ];
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const result = await context.listDiscussions();
+
+  assert.deepEqual(
+    Array.isArray(result) && result.map((d) => [d.id, d.anchor, d.notes[0]!.body]),
+    [
+      ['with-anchor', '3f9a1c0b2d4e5f60', '**[nit]** x'],
+      ['without-anchor', null, '**[nit]** y'],
+    ],
+  );
+});
+
+test('buildReviewContext marks a file that the change deletes', async () => {
+  const fake = new FakeMergeRequestProvider(
+    { title: 't', description: 'd', diffRefs: { baseSha: 'b', startSha: 's', headSha: 'h' } },
+    [
+      { oldPath: 'gone.ts', newPath: 'gone.ts', diffHunks: '@@ -1,1 +0,0 @@\n-x', deletedFile: true },
+      { oldPath: 'kept.ts', newPath: 'kept.ts', diffHunks: '@@ -1,1 +1,1 @@\n-x\n+y' },
+    ],
+    {},
+  );
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+
+  assert.equal(context.changedFiles[0]!.deleted, true);
+  assert.equal('deleted' in context.changedFiles[1]!, false);
 });

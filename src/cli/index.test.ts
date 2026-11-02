@@ -166,6 +166,7 @@ test('runPublish publishes every finding', async () => {
     [],
   );
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor nit.' }],
   };
@@ -194,6 +195,7 @@ test('runPublish publishes an important finding before failing on it (severity n
     [],
   );
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.' }],
   };
@@ -215,6 +217,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
     [],
   );
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
   };
@@ -247,6 +250,7 @@ test('runPublish still fails on an important finding that relates to an open dis
     },
   ];
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
   };
@@ -255,4 +259,18 @@ test('runPublish still fails on an important finding that relates to an open dis
 
   assert.equal(client.discussions.length, 0);
   assert.equal(passed, false);
+});
+
+test('runPublish decides pass or fail from the findings only, not from fixed declarations', async () => {
+  const client = new FakeClient(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+  const findingsFile: FindingsFile = {
+    resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    findings: [],
+  };
+
+  assert.equal(await runPublish({ config: fixturePublishConfig(), client, findingsFile }), true);
 });

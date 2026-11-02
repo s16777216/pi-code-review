@@ -177,6 +177,8 @@ During `review`, the agent can read the merge request's existing discussions thr
 
 Each comment that `publish` posts starts with a hidden `<!-- pi-code-review -->` marker, so later runs can tell this tool's comments from a person's.
 
+The agent can also declare that one of this tool's own open comments is fixed, with a reason. `review` accepts the declaration only after a check on the code: the exact line that the comment pointed at (same file, same text, ignoring indentation) must no longer be in the current file, or the file must be deleted. `publish` then replies `Resolved: <reason>` and resolves the discussion. This check is strict on purpose: a fix made somewhere else (for example, in a caller) leaves the comment open for a person to resolve. A discussion that a person started is never resolved by this tool. Fixed declarations never affect pass or fail.
+
 **Risk:** anyone who can comment on the merge request writes text that the agent reads. The agent is told to treat that text as information, not instructions, but a crafted comment can still influence the review, for example to leave out a finding. Keep this in mind when `publish`'s exit code gates a merge.
 
 ## Output

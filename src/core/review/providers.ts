@@ -1,4 +1,4 @@
-import type { Finding, ReviewContext } from '../types.ts';
+import type { Finding, ResolvedDiscussion, ReviewContext } from '../types.ts';
 
 /** Produces the engine's input. The engine does not know, and must not need
  * to know, which concrete `SourceProvider` it got a `ReviewContext` from. */
@@ -10,5 +10,7 @@ export interface SourceProvider {
  * implements this however fits its own API; the engine does not depend on
  * any of them. */
 export interface SinkProvider {
-  publish(findings: Finding[]): Promise<void>;
+  /** Publishes the findings, and resolves the discussions that the review
+   * declared fixed (only ones this tool started). */
+  publish(findings: Finding[], resolved?: ResolvedDiscussion[]): Promise<void>;
 }

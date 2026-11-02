@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import type { GitLabDiffRefs } from './providers/index.ts';
-import type { Finding } from './core/types.ts';
-import { validateFinding } from './core/review/findings.ts';
+import type { Finding, ResolvedDiscussion } from './core/types.ts';
+import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
 
 /** What `review` writes and `publish` reads. `diffRefs` is the one thing
  * `publish` cannot get anywhere else — `GitLabSinkProvider` needs it to
@@ -10,6 +10,9 @@ import { validateFinding } from './core/review/findings.ts';
 export interface FindingsFile {
   diffRefs: GitLabDiffRefs;
   findings: Finding[];
+  /** Fixed declarations that passed the engine's checks. A file without this
+   * field (from an older `review`) reads as an empty list. */
+  resolved: ResolvedDiscussion[];
 }
 
 export class FindingsFileError extends Error {}
@@ -66,7 +69,7 @@ function validateFindingsFile(value: unknown): FindingsFile {
     throw new Error('the top-level value is not an object.');
   }
 
-  const { diffRefs, findings } = value;
+  const { diffRefs, findings, resolved = [] } = value;
   if (!isObject(diffRefs)) {
     throw new Error('"diffRefs" is missing or is not an object.');
   }
@@ -80,6 +83,9 @@ function validateFindingsFile(value: unknown): FindingsFile {
   if (!Array.isArray(findings)) {
     throw new Error('"findings" is missing or is not an array.');
   }
+  if (!Array.isArray(resolved)) {
+    throw new Error('"resolved" is not an array.');
+  }
 
   return {
     diffRefs: {
@@ -88,5 +94,6 @@ function validateFindingsFile(value: unknown): FindingsFile {
       headSha: diffRefs.headSha as string,
     },
     findings: findings.map((item, index) => validateFinding(item, index)),
+    resolved: resolved.map((item, index) => validateResolvedDiscussion(item, index)),
   };
 }

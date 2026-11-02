@@ -17,6 +17,8 @@ export interface ChangedFileDiff {
   oldPath: string | null;
   newPath: string | null;
   hunks: string;
+  /** `true` when the change deletes this file. */
+  deleted?: boolean;
 }
 
 /** One note in a `ReviewDiscussion`. */
@@ -41,6 +43,9 @@ export interface ReviewDiscussion {
   resolved: boolean;
   /** `true` when an earlier run of this tool started the discussion. */
   fromThisTool: boolean;
+  /** The anchor this tool recorded when it started the discussion, or `null`
+   * (a person's discussion, or one from a version without anchors). */
+  anchor: string | null;
   notes: ReviewDiscussionNote[];
 }
 
@@ -67,4 +72,18 @@ export interface Finding {
   /** Set by the engine, never by the agent: a hash of the file and the text of
    * the finding's line (see `core/review/anchor.ts`). */
   anchor?: string;
+}
+
+/** The agent's claim that an existing discussion from this tool is fixed. */
+export interface ResolvedDiscussion {
+  discussionId: string;
+  /** One sentence; it becomes the reply that explains the resolve. */
+  reason: string;
+}
+
+/** What one review produces. */
+export interface ReviewResult {
+  findings: Finding[];
+  /** Fixed declarations that passed every check (see `resolve-fixed-discussions`). */
+  resolved: ResolvedDiscussion[];
 }

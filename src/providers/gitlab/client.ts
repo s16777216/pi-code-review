@@ -17,6 +17,7 @@ export interface GitLabChangedFile {
   oldPath: string | null;
   newPath: string | null;
   diffHunks: string;
+  deletedFile?: boolean;
 }
 
 export type FileContentResult = { content: string } | { error: string };
@@ -183,12 +184,14 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
         old_path: string | null;
         new_path: string | null;
         diff: string;
+        deleted_file?: boolean;
       }>;
       for (const entry of batch) {
         files.push({
           oldPath: entry.old_path,
           newPath: entry.new_path,
           diffHunks: entry.diff,
+          ...(entry.deleted_file ? { deletedFile: true } : {}),
         });
       }
       const nextPage = response.headers.get("x-next-page");

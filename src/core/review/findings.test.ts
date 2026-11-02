@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Logger } from '../../logger.ts';
-import { parseFindings, ReviewFailureError, validateFinding } from './findings.ts';
+import { parseFindings, parseReviewOutput, ReviewFailureError, validateFinding } from './findings.ts';
 
 test('parseFindings parses a plain JSON array', () => {
   const findings = parseFindings(
@@ -133,4 +133,55 @@ test('validateFinding keeps a 16-hex anchor and rejects a malformed one (finding
     () => validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: 'nope' }, 0),
     /"anchor"/,
   );
+});
+
+test('parseReviewOutput reads an object with findings and fixed declarations', () => {
+  const output = parseReviewOutput(
+    JSON.stringify({
+      findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }],
+      resolved: [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }],
+    }),
+  );
+  assert.deepEqual(output, {
+    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }],
+    resolved: [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }],
+  });
+});
+
+test('parseReviewOutput reads a bare array as findings with no declarations', () => {
+  const output = parseReviewOutput(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }]));
+  assert.deepEqual(output.resolved, []);
+  assert.equal(output.findings.length, 1);
+});
+
+test('parseReviewOutput reads an object without "resolved" as no declarations', () => {
+  assert.deepEqual(parseReviewOutput('{"findings": []}'), { findings: [], resolved: [] });
+});
+
+test('parseReviewOutput fails for an object without a findings array', () => {
+  assert.throws(() => parseReviewOutput('{"resolved": []}'), ReviewFailureError);
+});
+
+test('parseReviewOutput drops a declaration without a reason or with a non-string ID, and keeps the rest', () => {
+  const { logger, warnings } = warnRecorder();
+  const output = parseReviewOutput(
+    JSON.stringify({
+      findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }],
+      resolved: [{ discussionId: 'd1' }, { discussionId: 7, reason: 'r' }, { discussionId: 'd3', reason: 'Fixed.' }],
+    }),
+    logger,
+  );
+  assert.equal(output.findings.length, 1);
+  assert.deepEqual(output.resolved, [{ discussionId: 'd3', reason: 'Fixed.' }]);
+  assert.deepEqual(
+    warnings.map((w) => w.index),
+    [0, 1],
+  );
+});
+
+test('parseReviewOutput ignores a "resolved" value that is not an array', () => {
+  const { logger, warnings } = warnRecorder();
+  const output = parseReviewOutput('{"findings": [], "resolved": "d1"}', logger);
+  assert.deepEqual(output, { findings: [], resolved: [] });
+  assert.equal(warnings.length, 1);
 });

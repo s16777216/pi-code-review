@@ -2,11 +2,11 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider, TextContent } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
-import type { Finding, ReviewContext } from '../types.ts';
+import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
 import { computeAnchor } from './anchor.ts';
 import { checkNewFileLine, getNewFileLineText } from './diff.ts';
-import { parseFindings, ReviewFailureError } from './findings.ts';
+import { parseReviewOutput, ReviewFailureError } from './findings.ts';
 import { buildReviewPrompt } from './prompt.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
@@ -22,7 +22,9 @@ For each problem, decide a severity:
 - "nit": a minor issue worth a comment but not worth blocking on.
 - "pre_existing": a bug in code the change did not modify.
 
-When you are done, output ONLY a JSON array of findings, with no other text. Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Output "[]" when you find nothing to report.`;
+You can also declare that an existing discussion is fixed. Declare it only for a discussion with "fromThisTool": true that is not resolved, only after you read the current code and confirmed that the problem is gone, and give a one-sentence reason. Never declare a discussion that a person started. Do not declare a discussion fixed and also link a finding to it.
+
+When you are done, output ONLY a JSON object with no other text. It has two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Output {"findings": [], "resolved": []} when you have nothing to report.`;
 
 /** `pi-ai` keeps this many tokens free when it caps the answer size
  * (`CONTEXT_SAFETY_TOKENS` in its `simple-options.js`). */
@@ -40,7 +42,7 @@ export function buildSystemPrompt(language?: string): string {
 }
 
 export interface ReviewEngine {
-  review(context: ReviewContext): Promise<Finding[]>;
+  review(context: ReviewContext): Promise<ReviewResult>;
 }
 
 export interface AgentReviewEngineOptions {
@@ -63,7 +65,7 @@ export interface AgentReviewEngineOptions {
 export class AgentReviewEngine implements ReviewEngine {
   constructor(private readonly options: AgentReviewEngineOptions) {}
 
-  async review(context: ReviewContext): Promise<Finding[]> {
+  async review(context: ReviewContext): Promise<ReviewResult> {
     const { provider, model, apiKey } = this.options;
     const logger = this.options.logger ?? silentLogger();
     const systemPrompt = buildSystemPrompt(this.options.language);
@@ -114,8 +116,8 @@ export class AgentReviewEngine implements ReviewEngine {
       .join('');
 
     logger.debug({ response: text }, 'review response');
-    const findings = await checkRelatesTo(parseFindings(text, logger), context, logger);
-    return findings
+    const output = parseReviewOutput(text, logger);
+    const findings = (await checkRelatesTo(output.findings, context, logger))
       .filter((finding) => {
         const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
         if (reason === 'ok') return true;
@@ -131,6 +133,8 @@ export class AgentReviewEngine implements ReviewEngine {
         const lineText = getNewFileLineText(context.changedFiles, finding.file, finding.line) ?? '';
         return { ...finding, anchor: computeAnchor(finding.file, lineText) };
       });
+    const resolved = await checkResolved(output.resolved, findings, context, logger);
+    return { findings, resolved };
   }
 }
 
@@ -179,4 +183,78 @@ async function checkRelatesTo(findings: Finding[], context: ReviewContext, logge
     const { relatesTo: _removed, ...rest } = finding;
     return rest;
   });
+}
+
+/** Why a fixed declaration was not accepted. The checks run in this order,
+ * and the first failure is the reason. */
+type ResolveRejection =
+  | 'discussion_not_found'
+  | 'not_from_this_tool'
+  | 'already_resolved'
+  | 'no_anchor'
+  | 'linked_by_finding'
+  | 'file_unreadable'
+  | 'anchor_still_present';
+
+/** Accepts a fixed declaration only when every check passes
+ * (`resolve-fixed-discussions` design, Decision 2). The last check is on the
+ * code, not the model: no line of the file's current content may still have
+ * the discussion's anchor, so the exact code the comment pointed at must be
+ * gone or changed. A file that the change deletes passes it without a read.
+ * Each file is read at most once per review. */
+async function checkResolved(
+  declarations: ResolvedDiscussion[],
+  findings: Finding[],
+  context: ReviewContext,
+  logger: Logger,
+): Promise<ResolvedDiscussion[]> {
+  if (declarations.length === 0) return [];
+
+  const discussions = await context.listDiscussions();
+  const byId = new Map(Array.isArray(discussions) ? discussions.map((d) => [d.id, d] as const) : []);
+  const linked = new Set(findings.map((finding) => finding.relatesTo).filter((id) => id !== undefined));
+  const fileContents = new Map<string, Promise<string | { error: string }>>();
+  const readFile = (path: string) => {
+    let content = fileContents.get(path);
+    if (!content) {
+      content = context.getFileContent(path);
+      fileContents.set(path, content);
+    }
+    return content;
+  };
+
+  const check = async (declaration: ResolvedDiscussion): Promise<ResolveRejection | null> => {
+    const discussion = byId.get(declaration.discussionId);
+    if (!discussion) return 'discussion_not_found';
+    if (!discussion.fromThisTool) return 'not_from_this_tool';
+    if (discussion.resolved) return 'already_resolved';
+    if (discussion.anchor === null || discussion.file === null) return 'no_anchor';
+    if (linked.has(discussion.id)) return 'linked_by_finding';
+
+    const file = discussion.file;
+    const deleted = context.changedFiles.some(
+      (changed) => changed.deleted === true && (changed.oldPath === file || changed.newPath === file),
+    );
+    if (deleted) return null;
+
+    const content = await readFile(file);
+    if (typeof content !== 'string') return 'file_unreadable';
+    const anchor = discussion.anchor;
+    if (content.split('\n').some((line) => computeAnchor(file, line) === anchor)) return 'anchor_still_present';
+    return null;
+  };
+
+  const accepted: ResolvedDiscussion[] = [];
+  for (const declaration of declarations) {
+    const rejection = await check(declaration);
+    if (rejection === null) {
+      accepted.push(declaration);
+    } else {
+      logger.warn(
+        { discussionId: declaration.discussionId, reason: rejection },
+        'did not accept a fixed declaration',
+      );
+    }
+  }
+  return accepted;
 }

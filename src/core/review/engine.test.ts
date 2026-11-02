@@ -44,7 +44,7 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
 
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
-  const findings = await engine.review(context);
+  const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [
     { file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' },
@@ -112,7 +112,7 @@ test('AgentReviewEngine drops a finding whose line is not in the diff', async ()
 
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
-  const findings = await engine.review(context);
+  const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), []);
   assert.equal(decidePassFail(findings, 'important'), true);
@@ -158,7 +158,7 @@ test('AgentReviewEngine keeps a valid finding when another finding in the same o
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
-  const findings = await engine.review(smallContext());
+  const { findings } = await engine.review(smallContext());
 
   assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }]);
   assert.equal(warnings.length, 1);
@@ -173,7 +173,7 @@ test('AgentReviewEngine logs a finding on a file the change did not touch, and d
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
-  const findings = await engine.review(smallContext());
+  const { findings } = await engine.review(smallContext());
 
   assert.deepEqual(withoutAnchors(findings), []);
   assert.deepEqual(warnings, [{ file: 'other.ts', line: 1, reason: 'file_not_changed' }]);
@@ -187,7 +187,7 @@ test('AgentReviewEngine logs a finding on a line outside the diff, and does not 
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
-  const findings = await engine.review(smallContext());
+  const { findings } = await engine.review(smallContext());
 
   assert.deepEqual(withoutAnchors(findings), []);
   assert.deepEqual(warnings, [{ file: 'a.ts', line: 999, reason: 'line_not_in_diff' }]);
@@ -198,7 +198,7 @@ test('AgentReviewEngine sends a request whose input fits the context window', as
   faux.setResponses([fauxAssistantMessage('[]')]);
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
-  assert.deepEqual(await engine.review(smallContext()), []);
+  assert.deepEqual((await engine.review(smallContext())).findings, []);
   assert.equal(faux.state.callCount, 1);
 });
 
@@ -296,6 +296,7 @@ const knownDiscussion: ReviewDiscussion = {
   positionCommit: 'h',
   resolved: false,
   fromThisTool: true,
+  anchor: null,
   notes: [{ author: 'bot', body: '**[important]** Real bug.' }],
 };
 
@@ -322,7 +323,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
   };
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
-  const findings = await engine.review(context);
+  const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [
     { file: 'a.ts', line: 1, severity: 'important', summary: 'Still broken.', relatesTo: 'd1' },
@@ -343,7 +344,7 @@ test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and log
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
-  const findings = await engine.review(context);
+  const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
   assert.deepEqual(warnings, [{ file: 'a.ts', line: 1, relatesTo: 'nope', reason: 'unknown_discussion' }]);
@@ -361,7 +362,7 @@ test('AgentReviewEngine removes every relatesTo when the discussions cannot be r
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
-  const findings = await engine.review(context);
+  const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
   assert.equal(warnings[0]!.reason, 'discussions_unavailable');
@@ -403,11 +404,138 @@ test('AgentReviewEngine anchors each finding on its file and the trimmed text of
   ];
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
-  const [first, second] = await engine.review(context);
+  const [first, second] = (await engine.review(context)).findings;
 
   // Same code at a different line and with different indentation: same anchor.
   assert.equal(first!.anchor, computeAnchor('a.ts', 'for (i = 0; i <= n; i++)'));
   assert.equal(second!.anchor, first!.anchor);
   // The agent-supplied anchor was replaced.
   assert.notEqual(second!.anchor, 'ffffffffffffffff');
+});
+
+const FIXED_CODE = 'for (i = 0; i <= n; i++)';
+
+function ownDiscussion(overrides: Partial<ReviewDiscussion> = {}): ReviewDiscussion {
+  return {
+    id: 'd1',
+    file: 'a.ts',
+    line: 1,
+    positionCommit: 'old',
+    resolved: false,
+    fromThisTool: true,
+    anchor: computeAnchor('a.ts', FIXED_CODE),
+    notes: [{ author: 'bot', body: '**[important]** Off-by-one.' }],
+    ...overrides,
+  };
+}
+
+/** Runs one review whose agent declares `d1` fixed, with the given discussion
+ * and current file content, and returns what the engine accepted. */
+async function reviewWithDeclaration(options: {
+  discussion?: ReviewDiscussion;
+  fileContent?: string | { error: string };
+  findings?: unknown[];
+  deleted?: boolean;
+}): Promise<{ resolved: unknown[]; warnings: Record<string, unknown>[]; reads: number }> {
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(
+      JSON.stringify({
+        findings: options.findings ?? [],
+        resolved: [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }],
+      }),
+    ),
+  ]);
+  let reads = 0;
+  const context = smallContext();
+  if (options.deleted) {
+    context.changedFiles = [{ oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +0,0 @@\n-old', deleted: true }];
+  }
+  context.listDiscussions = async () => (options.discussion ? [options.discussion] : []);
+  context.getFileContent = async () => {
+    reads += 1;
+    return options.fileContent ?? 'for (i = 0; i < n; i++)\n  work();\n';
+  };
+  const { logger, warnings } = recordingLogger();
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
+
+  const { resolved } = await engine.review(context);
+  return { resolved, warnings, reads };
+}
+
+test('SYSTEM_PROMPT asks for the findings/resolved object and limits fixed declarations', () => {
+  assert.match(SYSTEM_PROMPT, /"findings" \(an array of findings\) and "resolved"/);
+  assert.match(SYSTEM_PROMPT, /"fromThisTool": true/);
+  assert.match(SYSTEM_PROMPT, /Never declare a discussion that a person started/);
+});
+
+test('AgentReviewEngine accepts a fixed declaration when every check passes', async () => {
+  const { resolved, warnings } = await reviewWithDeclaration({ discussion: ownDiscussion() });
+  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }]);
+  assert.deepEqual(warnings, []);
+});
+
+for (const [name, options, reason] of [
+  ['an unknown discussion', {}, 'discussion_not_found'],
+  ["a person's discussion", { discussion: ownDiscussion({ fromThisTool: false }) }, 'not_from_this_tool'],
+  ['a resolved discussion', { discussion: ownDiscussion({ resolved: true }) }, 'already_resolved'],
+  ['a discussion with no anchor', { discussion: ownDiscussion({ anchor: null }) }, 'no_anchor'],
+  ['a general discussion with no file', { discussion: ownDiscussion({ file: null }) }, 'no_anchor'],
+  [
+    'a discussion a finding links to',
+    {
+      discussion: ownDiscussion(),
+      findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Still here.', relatesTo: 'd1' }],
+    },
+    'linked_by_finding',
+  ],
+  ['a file that cannot be read', { discussion: ownDiscussion(), fileContent: { error: '404' } }, 'file_unreadable'],
+  [
+    'a file that still has the anchored line (re-indented)',
+    { discussion: ownDiscussion(), fileContent: `start();\n    ${FIXED_CODE}\n` },
+    'anchor_still_present',
+  ],
+] as const) {
+  test(`AgentReviewEngine rejects a fixed declaration for ${name}`, async () => {
+    const { resolved, warnings } = await reviewWithDeclaration(options as Parameters<typeof reviewWithDeclaration>[0]);
+    assert.deepEqual(resolved, []);
+    assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason });
+  });
+}
+
+test('AgentReviewEngine accepts a fixed declaration on a deleted file without reading it', async () => {
+  const { resolved, reads } = await reviewWithDeclaration({ discussion: ownDiscussion(), deleted: true });
+  assert.equal(resolved.length, 1);
+  assert.equal(reads, 0);
+});
+
+test('AgentReviewEngine reads each file at most once for several declarations', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(
+      JSON.stringify({
+        findings: [],
+        resolved: [
+          { discussionId: 'd1', reason: 'Fixed one.' },
+          { discussionId: 'd2', reason: 'Fixed two.' },
+        ],
+      }),
+    ),
+  ]);
+  let reads = 0;
+  const context = smallContext();
+  context.listDiscussions = async () => [
+    ownDiscussion(),
+    ownDiscussion({ id: 'd2', anchor: computeAnchor('a.ts', 'other();') }),
+  ];
+  context.getFileContent = async () => {
+    reads += 1;
+    return 'unrelated();\n';
+  };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+
+  const { resolved } = await engine.review(context);
+
+  assert.equal(resolved.length, 2);
+  assert.equal(reads, 1);
 });

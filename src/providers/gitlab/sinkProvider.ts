@@ -1,6 +1,6 @@
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { SinkProvider } from '../../core/review/providers.ts';
-import type { Finding } from '../../core/types.ts';
+import type { Finding, ResolvedDiscussion } from '../../core/types.ts';
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestWriter } from './client.ts';
 import { discussionAnchor, isDiscussionResolved, isFromThisTool } from './discussions.ts';
 import { MARKER } from './marker.ts';
@@ -43,14 +43,63 @@ export class GitLabSinkProvider implements SinkProvider {
    *   anchor → nothing.
    * - otherwise → new discussion.
    *
+   * Then it resolves each discussion in `resolved` (see `resolveDiscussion`).
+   *
    * Pass/fail is not decided here; every finding still counts for it. */
-  async publish(findings: Finding[]): Promise<void> {
+  async publish(findings: Finding[], resolved: ResolvedDiscussion[] = []): Promise<void> {
     const existing = await this.loadExistingDiscussions();
     const outcomes = await Promise.all(findings.map((finding) => this.publishFinding(finding, existing)));
 
     const skipped = outcomes.filter((outcome) => outcome.startsWith('skipped')).length;
     if (skipped > 0) {
       this.logger.info({ skipped }, 'skipped findings that existing discussions already cover');
+    }
+
+    await Promise.all(resolved.map((declaration) => this.resolveDiscussion(declaration, existing)));
+  }
+
+  /** The engine already checked the code. Here, only the facts that can change
+   * between `review` and `publish` are checked again: the discussion still
+   * exists, this tool started it, and it is still open. Then the reason goes
+   * in as a reply, and the discussion is resolved. A discussion from a person
+   * is never touched. If the discussions could not be read, nothing is
+   * resolved: these facts cannot be checked. */
+  private async resolveDiscussion(declaration: ResolvedDiscussion, existing: ExistingDiscussions | null): Promise<void> {
+    const { client, mergeRequestIid } = this.options;
+    const { discussionId } = declaration;
+    const discussion = existing?.byId.get(discussionId);
+
+    if (existing === null) {
+      this.logger.warn({ discussionId, reason: 'discussions_unavailable' }, 'did not resolve a discussion');
+      return;
+    }
+    if (discussion === undefined) {
+      this.logger.warn({ discussionId, reason: 'discussion_not_found' }, 'did not resolve a discussion');
+      return;
+    }
+    if (!isFromThisTool(discussion)) {
+      this.logger.warn({ discussionId, reason: 'not_from_this_tool' }, 'did not resolve a discussion');
+      return;
+    }
+    if (isDiscussionResolved(discussion)) return;
+
+    try {
+      await client.addDiscussionNote(mergeRequestIid, discussionId, `${MARKER}\nResolved: ${declaration.reason}`);
+    } catch (error) {
+      this.logger.warn(
+        { discussionId, error: error instanceof Error ? error.message : String(error) },
+        'could not reply to a discussion declared fixed; it stays open',
+      );
+      return;
+    }
+
+    try {
+      await client.setDiscussionResolved(mergeRequestIid, discussionId, true);
+    } catch (error) {
+      this.logger.warn(
+        { discussionId, error: error instanceof Error ? error.message : String(error) },
+        'replied to a discussion declared fixed but could not resolve it',
+      );
     }
   }
 
