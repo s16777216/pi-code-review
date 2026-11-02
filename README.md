@@ -115,9 +115,6 @@ publish:
   script:
     - npm install -g @s16777216/pi-code-review
     - picr publish
-  artifacts:
-    reports:
-      codequality: gl-code-quality-report.json
 ```
 
 `CI_API_V4_URL`, `CI_PROJECT_ID`, and `CI_MERGE_REQUEST_IID` are already set by GitLab CI. `GITLAB_TOKEN` is not — set it yourself as a masked CI/CD variable (**Settings → CI/CD → Variables**), holding a personal or project access token (see [Auth](#auth)); both jobs need it. Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL` the same way — only the `review` job needs those three.
@@ -179,7 +176,6 @@ Running from source instead of the npm package: replace `picr` with `node dist/i
 
 `publish` writes/does:
 - One inline GitLab merge request comment per finding, with the finding's severity and summary
-- `gl-code-quality-report.json` in the working directory (GitLab Code Quality report format)
 - Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise
 
 ## Development

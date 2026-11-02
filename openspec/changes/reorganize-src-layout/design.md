@@ -4,9 +4,7 @@ See `proposal.md` - Why for the motivation. This section covers only the facts n
 justify the chosen boundaries.
 
 `src/review/` and `src/report/exitCode.ts` do not import anything from `src/gitlab/`. They
-only depend on `src/types.ts` and `src/config.ts`'s `FailOnSeverity` type. `src/report/
-codeQuality.ts` builds GitLab's own "Code Quality" report format (a GitLab CI feature); it
-has no GitHub or Gitea equivalent today. `src/config.ts` declares `GitlabConnectionConfig`
+only depend on `src/types.ts` and `src/config.ts`'s `FailOnSeverity` type. `src/config.ts` declares `GitlabConnectionConfig`
 itself (it does not import it from elsewhere) and uses it inside otherwise generic-sounding
 interfaces (`ReviewConfig`, `PublishConfig`); `src/findingsFile.ts` imports GitLab-specific
 `GitLabDiffRefs` directly from `gitlab/client.ts` inside its otherwise generic-sounding
@@ -35,11 +33,9 @@ interfaces (`ReviewConfig`, `PublishConfig`); `src/findingsFile.ts` imports GitL
 
 **1. Split by actual import coupling, not by current folder name.**
 `core/` gets everything that does not import from `src/gitlab/`: `types.ts`, `review/`
-(unchanged internally), and `report/exitCode.ts`. `providers/gitlab/` gets everything that
-does: the current `gitlab/` folder's three files, plus `report/codeQuality.ts`.
-Alternative considered: keep `report/` as one folder and move it whole into either `core/`
-or `providers/gitlab/`. Rejected - the folder currently mixes one host-agnostic file with
-one GitLab-specific file; moving it whole would misrepresent one of the two.
+(unchanged internally), and `report/exitCode.ts`. `providers/gitlab/` gets the three files
+currently in `gitlab/`. After the separate report removal, `report/` contains only
+`exitCode.ts`, so it can move wholly into `core/`.
 
 **2. `providers/index.ts` re-exports the GitLab provider; it does not select between
 providers.**

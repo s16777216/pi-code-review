@@ -3,9 +3,8 @@
 `src/` groups code by folder (`gitlab/`, `review/`, `report/`) next to five loose top-level
 files (`index.ts`, `config.ts`, `types.ts`, `findingsFile.ts`, `logger.ts`). The grouping does
 not match the real split in the code: most of `review/` and `report/exitCode.ts` never
-reference GitLab, but `report/codeQuality.ts` is GitLab's own Code Quality report format. A
-planned future change adds a GitHub provider (see `TODO.md`). The current layout has no folder
-for a second provider to land in.
+reference GitLab. A planned future change adds a GitHub provider (see `TODO.md`). The current
+layout has no folder for a second provider to land in.
 
 ## What Changes
 
@@ -13,9 +12,8 @@ for a second provider to land in.
   internally), and `report/exitCode.ts`.
 - Move the CLI wiring code into `cli/`: `index.ts` and its three test files.
 - Create `providers/`, with the current GitLab adapter as its first member:
-  `providers/gitlab/` holds `client.ts`, `sourceProvider.ts`, `sinkProvider.ts`, and
-  `report/codeQuality.ts` (moved in, since it is GitLab's own report format, not a
-  host-agnostic one). `providers/index.ts` re-exports the GitLab provider. It does not yet
+  `providers/gitlab/` holds `client.ts`, `sourceProvider.ts`, and `sinkProvider.ts`.
+  `providers/index.ts` re-exports the GitLab provider. It does not yet
   select between providers; a second provider and any selection logic are out of scope here.
 - Delete the now-empty `report/` folder.
 - Update every import path touched by the moves. No runtime behavior changes.
@@ -41,7 +39,7 @@ observable behavior)
 ## Impact
 
 - Affected code: `src/types.ts`, every file under `src/gitlab/`, `src/review/`,
-  `src/report/`, and `src/index.ts` (plus its test files), a new `src/providers/index.ts`,
+  `src/report/exitCode.ts` (and its test), and `src/index.ts` (plus its test files), a new `src/providers/index.ts`,
   and every file elsewhere in `src/` that imports from them (`config.ts`, `findingsFile.ts`,
   `logger.ts` stay in place but may need updated relative import paths to the moved files).
 - `package.json`'s `bin.picr`, `start`, and `dev` entries change target path (moving

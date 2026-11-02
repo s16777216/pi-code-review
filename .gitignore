@@ -1,6 +1,5 @@
 node_modules/
 dist/
-gl-code-quality-report.json
 findings.json
 debug.log
 

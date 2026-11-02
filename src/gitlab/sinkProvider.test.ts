@@ -26,15 +26,10 @@ function findings(): Finding[] {
 
 test('publish posts one discussion per finding with the diff refs and the finding line', async () => {
   const writer = new FakeWriter();
-  let written: { path: string; contents: string } | undefined;
   const provider = new GitLabSinkProvider({
     client: writer,
     mergeRequestIid: '5',
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    codeQualityReportPath: '/tmp/report.json',
-    writeReport: async (path, contents) => {
-      written = { path, contents };
-    },
   });
 
   await provider.publish(findings());
@@ -49,23 +44,15 @@ test('publish posts one discussion per finding with the diff refs and the findin
     newLine: 3,
   });
   assert.match(writer.calls[0]!.body, /Bug A\./);
-  assert.ok(written);
-  assert.equal(written!.path, '/tmp/report.json');
-  assert.equal(JSON.parse(written!.contents).length, 2);
 });
 
-test('publish isolates a failed discussion: the other finding still posts, and the report still writes', async () => {
+test('publish isolates a failed discussion: the other finding still posts', async () => {
   const writer = new FakeWriter((position) => position.newPath === 'a.ts');
   const errors: Finding[] = [];
-  let written: string | undefined;
   const provider = new GitLabSinkProvider({
     client: writer,
     mergeRequestIid: '5',
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    codeQualityReportPath: '/tmp/report.json',
-    writeReport: async (_path, contents) => {
-      written = contents;
-    },
     onDiscussionError: (finding) => errors.push(finding),
   });
 
@@ -74,8 +61,6 @@ test('publish isolates a failed discussion: the other finding still posts, and t
   assert.equal(writer.calls.length, 2); // both attempted
   assert.equal(errors.length, 1);
   assert.equal(errors[0]!.file, 'a.ts');
-  assert.ok(written);
-  assert.equal(JSON.parse(written!).length, 2); // report still covers both findings
 });
 
 test('a failed discussion logs via the injected logger when no onDiscussionError override is given', async () => {
@@ -86,8 +71,6 @@ test('a failed discussion logs via the injected logger when no onDiscussionError
     client: writer,
     mergeRequestIid: '5',
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    codeQualityReportPath: '/tmp/report.json',
-    writeReport: async () => {},
     logger: fakeLogger,
   });
 

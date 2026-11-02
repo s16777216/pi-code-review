@@ -22,7 +22,6 @@ import { decidePassFail } from './report/exitCode.ts';
 import { AgentReviewEngine } from './review/engine.ts';
 
 const DEFAULT_FINDINGS_PATH = 'findings.json';
-const CODE_QUALITY_REPORT_PATH = 'gl-code-quality-report.json';
 
 function buildModel(config: ReviewConfig): Model<Api> {
   return {
@@ -82,9 +81,6 @@ export interface PublishOptions {
   /** GitLab write access. Production passes a real `GitLabClient`; tests pass a fake. */
   client: MergeRequestWriter;
   findingsFile: FindingsFile;
-  /** Where to write the Code Quality report. Defaults to `gl-code-quality-report.json`
-   * in the working directory; tests override it to avoid writing a real file. */
-  codeQualityReportPath?: string;
   /** Logs progress at `info` level. Defaults to a silent logger. */
   logger?: Logger;
 }
@@ -101,7 +97,6 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
     client,
     mergeRequestIid: config.gitlab.mergeRequestIid,
     diffRefs: findingsFile.diffRefs,
-    codeQualityReportPath: options.codeQualityReportPath ?? CODE_QUALITY_REPORT_PATH,
     logger,
   });
   await sinkProvider.publish(findingsFile.findings);

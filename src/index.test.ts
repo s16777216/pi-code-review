@@ -1,8 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
 import pino from 'pino';
 import type { PublishConfig, ReviewConfig } from './config.ts';
@@ -147,7 +144,7 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
   assert.doesNotMatch(output, /sk-super-secret-api-key/);
 });
 
-test('runPublish publishes every finding and writes the Code Quality report', async () => {
+test('runPublish publishes every finding', async () => {
   const client = new FakeClient(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
@@ -157,34 +154,22 @@ test('runPublish publishes every finding and writes the Code Quality report', as
     findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor nit.' }],
   };
 
-  const dir = await mkdtemp(join(tmpdir(), 'pi-code-review-test-'));
-  const reportPath = join(dir, 'report.json');
+  const passed = await runPublish({
+    config: fixturePublishConfig(),
+    client,
+    findingsFile,
+  });
 
-  try {
-    const passed = await runPublish({
-      config: fixturePublishConfig(),
-      client,
-      findingsFile,
-      codeQualityReportPath: reportPath,
-    });
-
-    assert.equal(passed, true); // "nit" is below the default "important" threshold
-    assert.equal(client.discussions.length, 1);
-    assert.deepEqual(client.discussions[0]!.position, {
-      baseSha: 'base',
-      startSha: 'start',
-      headSha: 'head',
-      oldPath: 'a.ts',
-      newPath: 'a.ts',
-      newLine: 1,
-    });
-
-    const report = JSON.parse(await readFile(reportPath, 'utf8'));
-    assert.equal(report.length, 1);
-    assert.equal(report[0].severity, 'minor');
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  assert.equal(passed, true); // "nit" is below the default "important" threshold
+  assert.equal(client.discussions.length, 1);
+  assert.deepEqual(client.discussions[0]!.position, {
+    baseSha: 'base',
+    startSha: 'start',
+    headSha: 'head',
+    oldPath: 'a.ts',
+    newPath: 'a.ts',
+    newLine: 1,
+  });
 });
 
 test('runPublish publishes an important finding before failing on it (severity never blocks publishing)', async () => {
@@ -197,23 +182,15 @@ test('runPublish publishes an important finding before failing on it (severity n
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.' }],
   };
 
-  const dir = await mkdtemp(join(tmpdir(), 'pi-code-review-test-'));
-  const reportPath = join(dir, 'report.json');
+  const passed = await runPublish({
+    config: fixturePublishConfig(),
+    client,
+    findingsFile,
+  });
 
-  try {
-    const passed = await runPublish({
-      config: fixturePublishConfig(),
-      client,
-      findingsFile,
-      codeQualityReportPath: reportPath,
-    });
-
-    // The discussion was posted (publishing happened) even though the final outcome is a fail.
-    assert.equal(client.discussions.length, 1);
-    assert.equal(passed, false);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  // The discussion was posted (publishing happened) even though the final outcome is a fail.
+  assert.equal(client.discussions.length, 1);
+  assert.equal(passed, false);
 });
 
 test('runPublish passes when no finding meets the threshold', async () => {
@@ -226,20 +203,12 @@ test('runPublish passes when no finding meets the threshold', async () => {
     findings: [],
   };
 
-  const dir = await mkdtemp(join(tmpdir(), 'pi-code-review-test-'));
-  const reportPath = join(dir, 'report.json');
-
-  try {
-    const passed = await runPublish({
-      config: fixturePublishConfig(),
-      client,
-      findingsFile,
-      codeQualityReportPath: reportPath,
-    });
-    assert.equal(passed, true);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  const passed = await runPublish({
+    config: fixturePublishConfig(),
+    client,
+    findingsFile,
+  });
+  assert.equal(passed, true);
 });
 
 test('main rejects a missing or unknown subcommand with a clear error', async () => {
