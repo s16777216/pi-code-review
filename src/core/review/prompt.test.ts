@@ -35,3 +35,16 @@ test('buildReviewPrompt falls back to a placeholder for an empty description', (
 
   assert.match(prompt, /no description provided/);
 });
+
+test('buildReviewPrompt prints new-file line numbers on added and context lines only', () => {
+  const context = fixture();
+  context.changedFiles = [
+    { oldPath: 'c.ts', newPath: 'c.ts', hunks: ['@@ -10,2 +10,2 @@', ' keep();', '-old();', '+new();'].join('\n') },
+  ];
+
+  const prompt = buildReviewPrompt(context);
+
+  assert.match(prompt, /^ {2}10 \| {2}keep\(\);$/m);
+  assert.match(prompt, /^ {2}11 \| \+new\(\);$/m);
+  assert.match(prompt, /^ {5}\| -old\(\);$/m);
+});

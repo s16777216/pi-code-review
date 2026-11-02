@@ -41,14 +41,67 @@ export function parseDiffHunks(diffText: string): DiffLine[] {
   return lines;
 }
 
-/** True when `line` is a visible line in the new version of `path`'s diff
- * (an added or context line) — i.e. a line an inline comment can target.
- * False when `path` is not a changed file, or `line` does not appear as a
- * new-file line in any of that file's hunks. */
-export function isValidNewFileLine(files: ChangedFileDiff[], path: string, line: number): boolean {
+const MIN_LINE_NUMBER_WIDTH = 4;
+
+/** Rewrites unified-diff hunk text so every added and context line starts
+ * with its new-file line number and a `|` separator, e.g. `  11 | +foo();`.
+ * Removed lines get a blank gutter of the same width, since they have no
+ * new-file line. `@@` headers and any line outside a hunk stay unchanged.
+ * Walks the hunks with the same rules as `parseDiffHunks`, so the numbers
+ * printed here are exactly the ones `checkNewFileLine` accepts. */
+export function numberDiffHunks(diffText: string): string {
+  // `'verbatim'`: a header or a line before the first hunk, printed as is.
+  // A number: the line's new-file line. `null`: a hunk line with no new-file line.
+  const entries: { rawLine: string; gutter: 'verbatim' | number | null }[] = [];
+  let newLine = 0;
+  let inHunk = false;
+  let maxNumber = 0;
+
+  for (const rawLine of diffText.split('\n')) {
+    const header = HUNK_HEADER.exec(rawLine);
+    if (header) {
+      newLine = Number(header[3]);
+      inHunk = true;
+      entries.push({ rawLine, gutter: 'verbatim' });
+    } else if (!inHunk) {
+      entries.push({ rawLine, gutter: 'verbatim' });
+    } else if (rawLine.startsWith('+') || rawLine.startsWith(' ') || rawLine === '') {
+      entries.push({ rawLine, gutter: newLine });
+      maxNumber = Math.max(maxNumber, newLine);
+      newLine += 1;
+    } else {
+      entries.push({ rawLine, gutter: null }); // removed line or "\ No newline" marker
+    }
+  }
+
+  const width = Math.max(MIN_LINE_NUMBER_WIDTH, String(maxNumber).length);
+  return entries
+    .map(({ rawLine, gutter }) => {
+      if (gutter === 'verbatim') return rawLine;
+      const prefix = gutter === null ? ' '.repeat(width) : String(gutter).padStart(width);
+      return `${prefix} | ${rawLine}`;
+    })
+    .join('\n');
+}
+
+export type NewFileLineCheck = 'ok' | 'file_not_changed' | 'line_not_in_diff';
+
+/** Why `line` can or cannot carry an inline comment on `path`: `'ok'` when it
+ * is a visible line in the new version of the file's diff (an added or
+ * context line), `'file_not_changed'` when `path` is not a changed file, and
+ * `'line_not_in_diff'` when the file changed but `line` is not a new-file
+ * line in any of its hunks. */
+export function checkNewFileLine(files: ChangedFileDiff[], path: string, line: number): NewFileLineCheck {
   const file = files.find((f) => f.newPath === path);
-  if (!file) return false;
-  return parseDiffHunks(file.hunks).some(
+  if (!file) return 'file_not_changed';
+  const visible = parseDiffHunks(file.hunks).some(
     (diffLine) => diffLine.newLine === line && diffLine.type !== 'removed',
   );
+  return visible ? 'ok' : 'line_not_in_diff';
+}
+
+/** True when `checkNewFileLine` returns `'ok'` — i.e. a line an inline
+ * comment can target. */
+export function isValidNewFileLine(files: ChangedFileDiff[], path: string, line: number): boolean {
+  return checkNewFileLine(files, path, line) === 'ok';
 }

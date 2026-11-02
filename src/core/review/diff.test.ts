@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChangedFileDiff } from '../types.ts';
-import { isValidNewFileLine, parseDiffHunks } from './diff.ts';
+import { checkNewFileLine, isValidNewFileLine, numberDiffHunks, parseDiffHunks } from './diff.ts';
 
 test('parseDiffHunks maps a simple hunk to old/new line numbers', () => {
   const diff = ['@@ -1,3 +1,4 @@', ' context1', '-removed1', '+added1', '+added2', ' context2'].join('\n');
@@ -111,4 +111,63 @@ test('isValidNewFileLine rejects a removed-only line (not visible in the new fil
     parseDiffHunks(files[0]!.hunks).some((l) => l.type === 'removed' && l.newLine !== null),
     false,
   );
+});
+
+test('numberDiffHunks numbers context and added lines and leaves removed lines blank', () => {
+  const diff = ['@@ -10,3 +10,3 @@', ' const a = 1;', '+const b = 2;', '-const c = 3;', ' return a;'].join('\n');
+
+  assert.equal(
+    numberDiffHunks(diff),
+    ['@@ -10,3 +10,3 @@', '  10 |  const a = 1;', '  11 | +const b = 2;', '     | -const c = 3;', '  12 |  return a;'].join(
+      '\n',
+    ),
+  );
+});
+
+test('numberDiffHunks restarts numbering at each hunk header', () => {
+  const diff = ['@@ -1,1 +1,1 @@', '+first', '@@ -50,1 +60,1 @@', ' second'].join('\n');
+
+  assert.equal(
+    numberDiffHunks(diff),
+    ['@@ -1,1 +1,1 @@', '   1 | +first', '@@ -50,1 +60,1 @@', '  60 |  second'].join('\n'),
+  );
+});
+
+test('numberDiffHunks widens the gutter for line numbers above 9999', () => {
+  const diff = ['@@ -12345,1 +12345,2 @@', ' a', '+b'].join('\n');
+
+  assert.equal(numberDiffHunks(diff), ['@@ -12345,1 +12345,2 @@', '12345 |  a', '12346 | +b'].join('\n'));
+});
+
+test('numberDiffHunks gives a "no newline" marker a blank gutter and does not count it', () => {
+  const diff = ['@@ -1,1 +1,2 @@', ' a', '\\ No newline at end of file', '+b'].join('\n');
+
+  assert.equal(
+    numberDiffHunks(diff),
+    ['@@ -1,1 +1,2 @@', '   1 |  a', '     | \\ No newline at end of file', '   2 | +b'].join('\n'),
+  );
+});
+
+test('numberDiffHunks prints only lines that checkNewFileLine accepts', () => {
+  const hunks = ['@@ -3,3 +3,3 @@', ' keep', '-gone', '+new', ' tail'].join('\n');
+  const files: ChangedFileDiff[] = [{ oldPath: 'a.ts', newPath: 'a.ts', hunks }];
+
+  const printed = numberDiffHunks(hunks)
+    .split('\n')
+    .map((line) => /^\s*(\d+) \|/.exec(line)?.[1])
+    .filter((n): n is string => n !== undefined)
+    .map(Number);
+
+  assert.deepEqual(printed, [3, 4, 5]);
+  for (const line of printed) assert.equal(checkNewFileLine(files, 'a.ts', line), 'ok');
+});
+
+test('checkNewFileLine returns ok, file_not_changed, or line_not_in_diff', () => {
+  const files: ChangedFileDiff[] = [
+    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,1 +1,2 @@', ' context1', '+added1'].join('\n') },
+  ];
+
+  assert.equal(checkNewFileLine(files, 'a.ts', 2), 'ok');
+  assert.equal(checkNewFileLine(files, 'b.ts', 1), 'file_not_changed');
+  assert.equal(checkNewFileLine(files, 'a.ts', 99), 'line_not_in_diff');
 });
