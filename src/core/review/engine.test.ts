@@ -224,3 +224,16 @@ test('AgentReviewEngine reports a final message cut at the token limit instead o
       /--context-window/.test(error.message),
   );
 });
+
+test('AgentReviewEngine counts the system prompt and tool declarations in the input estimate', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[]')]);
+  // The small user prompt alone (well under 200 tokens) would leave room for
+  // the answer; the system message with the system prompt and the tool
+  // declarations (several hundred tokens) does not.
+  const model = { ...faux.getModel(), contextWindow: 4096 + 4096 + 200 };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'test-key' });
+
+  await assert.rejects(() => engine.review(smallContext()), ReviewFailureError);
+  assert.equal(faux.state.callCount, 0);
+});

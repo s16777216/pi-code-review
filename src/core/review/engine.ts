@@ -1,6 +1,6 @@
 import { Agent } from '@earendil-works/pi-agent-core';
-import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate';
-import type { Api, AssistantMessage, Model, Provider, TextContent } from '@earendil-works/pi-ai';
+import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
+import type { Api, AssistantMessage, Message, Model, Provider, TextContent } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ReviewContext } from '../types.ts';
 import { createGetFileContentTool } from './agent.ts';
@@ -66,7 +66,7 @@ export class AgentReviewEngine implements ReviewEngine {
 
     const prompt = buildReviewPrompt(context);
     logger.debug({ prompt }, 'review prompt');
-    assertInputFits(model, prompt);
+    assertInputFits(model, agent.state.messages, prompt);
     await agent.prompt(prompt);
 
     const lastAssistant = [...agent.state.messages]
@@ -114,13 +114,17 @@ export class AgentReviewEngine implements ReviewEngine {
 }
 
 /** Fails the review before the first model call when the input leaves less
- * than `MIN_ANSWER_TOKENS` for the answer. Uses `pi-ai`'s own estimate, so it
- * agrees with the cap `pi-ai` puts on the answer; it also counts the system
- * prompt, which `pi-ai`'s cap does not, so it is slightly stricter. A model
- * with no known window (`contextWindow <= 0`) is not checked, as in `pi-ai`. */
-function assertInputFits(model: Model<Api>, prompt: string): void {
+ * than `MIN_ANSWER_TOKENS` for the answer. It estimates exactly what the first
+ * request sends: the agent's own transcript so far (its initial system
+ * message, which carries the system prompt and the tool declarations) plus
+ * the user prompt. It uses `pi-ai`'s `estimateContextTokens` and the same
+ * formula as `pi-ai`'s answer cap (`clampMaxTokensToContext`), so the two
+ * agree. A model with no known window (`contextWindow <= 0`) is not checked,
+ * as in `pi-ai`. */
+function assertInputFits(model: Model<Api>, transcript: readonly Message[], prompt: string): void {
   if (model.contextWindow <= 0) return;
-  const estimatedInput = estimateTextTokens(SYSTEM_PROMPT) + estimateTextTokens(prompt);
+  const firstRequest: Message[] = [...transcript, { role: 'user', content: prompt, timestamp: Date.now() }];
+  const estimatedInput = estimateContextTokens(firstRequest).tokens;
   const answerRoom = model.contextWindow - estimatedInput - CONTEXT_SAFETY_TOKENS;
   if (answerRoom < MIN_ANSWER_TOKENS) {
     throw new ReviewFailureError(
