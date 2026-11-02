@@ -52,6 +52,7 @@ function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfi
       model: 'gpt-4.1',
       baseUrl: 'https://api.openai.com/v1',
       maxTokens: 32_000,
+      contextWindow: 128_000,
     },
     ...overrides,
   };
@@ -118,7 +119,7 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
       mergeRequestIid: '5',
       token: 'super-secret-token',
     },
-    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000 },
+    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000, contextWindow: 128_000 },
   });
 
   // Use a real, non-silent (debug-level) logger — the same kind `--debug`

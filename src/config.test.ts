@@ -22,7 +22,7 @@ function withFullEnv(overrides: Record<string, string | undefined> = {}): void {
 }
 
 function clearEnv(): void {
-  for (const key of [...GITLAB_VARS, ...OPENAI_VARS, 'FAIL_ON_SEVERITY', 'OPENAI_MAX_TOKENS']) {
+  for (const key of [...GITLAB_VARS, ...OPENAI_VARS, 'FAIL_ON_SEVERITY', 'OPENAI_MAX_TOKENS', 'OPENAI_CONTEXT_WINDOW']) {
     delete process.env[key];
   }
 }
@@ -192,5 +192,45 @@ test('loadReviewConfig and loadPublishConfig use CLI values for the secrets when
   withFullEnv({ GITLAB_TOKEN: undefined });
   const publishConfig = loadPublishConfig({ token: 'token-from-cli' });
   assert.equal(publishConfig.gitlab.token, 'token-from-cli');
+  clearEnv();
+});
+
+test('loadReviewConfig defaults contextWindow to 128000', () => {
+  clearEnv();
+  withFullEnv();
+  assert.equal(loadReviewConfig().openai.contextWindow, 128_000);
+  clearEnv();
+});
+
+test('loadReviewConfig uses OPENAI_CONTEXT_WINDOW when set', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_CONTEXT_WINDOW: '200000' });
+  assert.equal(loadReviewConfig().openai.contextWindow, 200_000);
+  clearEnv();
+});
+
+test('loadReviewConfig prefers a CLI --context-window value over OPENAI_CONTEXT_WINDOW', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_CONTEXT_WINDOW: '200000' });
+  assert.equal(loadReviewConfig({ contextWindow: '400000' }).openai.contextWindow, 400_000);
+  clearEnv();
+});
+
+test('loadReviewConfig rejects a non-integer or non-positive OPENAI_CONTEXT_WINDOW value', () => {
+  for (const bad of ['abc', '0', '-5', '1.5']) {
+    clearEnv();
+    withFullEnv({ OPENAI_CONTEXT_WINDOW: bad });
+    assert.throws(() => loadReviewConfig(), ConfigError, `expected ConfigError for ${bad}`);
+  }
+  clearEnv();
+});
+
+test('loadReviewConfig rejects a context window that is not larger than maxTokens', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_CONTEXT_WINDOW: '32000' });
+  assert.throws(() => loadReviewConfig(), /Must be larger than OPENAI_MAX_TOKENS \(32000\)/);
+  clearEnv();
+  withFullEnv({ OPENAI_MAX_TOKENS: '200000' });
+  assert.throws(() => loadReviewConfig(), /Set OPENAI_CONTEXT_WINDOW/);
   clearEnv();
 });

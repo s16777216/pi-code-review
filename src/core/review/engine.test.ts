@@ -4,6 +4,7 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-work
 import type { ReviewContext } from '../types.ts';
 import { decidePassFail } from '../exitCode.ts';
 import { AgentReviewEngine, SYSTEM_PROMPT } from './engine.ts';
+import { ReviewFailureError } from './findings.ts';
 
 test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API involved', async () => {
   const faux = fauxProvider();
@@ -179,4 +180,47 @@ test('AgentReviewEngine logs a finding on a line outside the diff, and does not 
 
   assert.deepEqual(findings, []);
   assert.deepEqual(warnings, [{ file: 'a.ts', line: 999, reason: 'line_not_in_diff' }]);
+});
+
+test('AgentReviewEngine sends a request whose input fits the context window', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[]')]);
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+
+  assert.deepEqual(await engine.review(smallContext()), []);
+  assert.equal(faux.state.callCount, 1);
+});
+
+test('AgentReviewEngine refuses an input that leaves too little room for the answer, without calling the model', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[]')]);
+  const model = { ...faux.getModel(), contextWindow: 10_000 };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'test-key' });
+  const context = smallContext();
+  context.changedFiles = [
+    { oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-old\n+' + 'x'.repeat(30_000) },
+  ];
+
+  await assert.rejects(
+    () => engine.review(context),
+    (error: unknown) =>
+      error instanceof ReviewFailureError &&
+      /10000-token context window/.test(error.message) &&
+      /--context-window/.test(error.message),
+  );
+  assert.equal(faux.state.callCount, 0);
+});
+
+test('AgentReviewEngine reports a final message cut at the token limit instead of parsing it', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[{"file":"a.ts","li', { stopReason: 'length' })]);
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+
+  await assert.rejects(
+    () => engine.review(smallContext()),
+    (error: unknown) =>
+      error instanceof ReviewFailureError &&
+      /--max-tokens/.test(error.message) &&
+      /--context-window/.test(error.message),
+  );
 });

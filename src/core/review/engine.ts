@@ -1,4 +1,5 @@
 import { Agent } from '@earendil-works/pi-agent-core';
+import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Model, Provider, TextContent } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ReviewContext } from '../types.ts';
@@ -19,6 +20,13 @@ For each problem, decide a severity:
 - "pre_existing": a bug in code the change did not modify.
 
 When you are done, output ONLY a JSON array of findings, with no other text. Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Output "[]" when you find nothing to report.`;
+
+/** `pi-ai` keeps this many tokens free when it caps the answer size
+ * (`CONTEXT_SAFETY_TOKENS` in its `simple-options.js`). */
+const CONTEXT_SAFETY_TOKENS = 4096;
+/** The review fails up front when the first request would leave fewer
+ * answer tokens than this. */
+export const MIN_ANSWER_TOKENS = 4096;
 
 export interface ReviewEngine {
   review(context: ReviewContext): Promise<Finding[]>;
@@ -58,6 +66,7 @@ export class AgentReviewEngine implements ReviewEngine {
 
     const prompt = buildReviewPrompt(context);
     logger.debug({ prompt }, 'review prompt');
+    assertInputFits(model, prompt);
     await agent.prompt(prompt);
 
     const lastAssistant = [...agent.state.messages]
@@ -69,6 +78,11 @@ export class AgentReviewEngine implements ReviewEngine {
     if (lastAssistant.stopReason === 'error' || lastAssistant.stopReason === 'aborted') {
       throw new ReviewFailureError(
         `The agent run failed (stopReason: ${lastAssistant.stopReason}): ${lastAssistant.errorMessage ?? 'no error message'}`,
+      );
+    }
+    if (lastAssistant.stopReason === 'length') {
+      throw new ReviewFailureError(
+        'The model stopped at its output token limit, so its answer is cut and cannot be parsed. Raise --max-tokens (OPENAI_MAX_TOKENS), or set --context-window (OPENAI_CONTEXT_WINDOW) to the model\'s real context window.',
       );
     }
     logger.debug(
@@ -96,5 +110,21 @@ export class AgentReviewEngine implements ReviewEngine {
       );
       return false;
     });
+  }
+}
+
+/** Fails the review before the first model call when the input leaves less
+ * than `MIN_ANSWER_TOKENS` for the answer. Uses `pi-ai`'s own estimate, so it
+ * agrees with the cap `pi-ai` puts on the answer; it also counts the system
+ * prompt, which `pi-ai`'s cap does not, so it is slightly stricter. A model
+ * with no known window (`contextWindow <= 0`) is not checked, as in `pi-ai`. */
+function assertInputFits(model: Model<Api>, prompt: string): void {
+  if (model.contextWindow <= 0) return;
+  const estimatedInput = estimateTextTokens(SYSTEM_PROMPT) + estimateTextTokens(prompt);
+  const answerRoom = model.contextWindow - estimatedInput - CONTEXT_SAFETY_TOKENS;
+  if (answerRoom < MIN_ANSWER_TOKENS) {
+    throw new ReviewFailureError(
+      `The review input is too large for the model: about ${estimatedInput} tokens in a ${model.contextWindow}-token context window, leaving ${Math.max(0, answerRoom)} tokens for the answer (at least ${MIN_ANSWER_TOKENS} needed). Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
+    );
   }
 }

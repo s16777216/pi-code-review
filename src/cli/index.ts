@@ -32,7 +32,7 @@ function buildModel(config: ReviewConfig): Model<Api> {
     baseUrl: config.openai.baseUrl,
     input: ['text'],
     reasoning: false,
-    contextWindow: 128_000,
+    contextWindow: config.openai.contextWindow,
     maxTokens: config.openai.maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
@@ -121,6 +121,7 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
       'openai-base-url': { type: 'string' },
       'openai-api-key': { type: 'string' },
       'max-tokens': { type: 'string' },
+      'context-window': { type: 'string' },
       out: { type: 'string' },
       debug: { type: 'boolean' },
     },
@@ -135,6 +136,7 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
     openaiBaseUrl: values['openai-base-url'],
     apiKey: values['openai-api-key'],
     maxTokens: values['max-tokens'],
+    contextWindow: values['context-window'],
     out: values.out,
     debug: values.debug,
   };
