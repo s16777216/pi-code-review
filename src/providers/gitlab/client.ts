@@ -1,5 +1,5 @@
-import { ConfigError } from "../config.ts";
-import { silentLogger, type Logger } from "../logger.ts";
+import { ConfigError } from "../../config.ts";
+import { silentLogger, type Logger } from "../../logger.ts";
 
 export interface GitLabDiffRefs {
   baseSha: string;

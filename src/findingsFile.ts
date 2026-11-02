@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import type { GitLabDiffRefs } from './gitlab/client.ts';
-import type { Finding } from './types.ts';
+import type { GitLabDiffRefs } from './providers/index.ts';
+import type { Finding } from './core/types.ts';
 
 /** What `review` writes and `publish` reads. `diffRefs` is the one thing
  * `publish` cannot get anywhere else — `GitLabSinkProvider` needs it to

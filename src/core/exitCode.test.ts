@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Finding } from '../types.ts';
+import type { Finding } from './types.ts';
 import { decidePassFail } from './exitCode.ts';
 
 function finding(severity: Finding['severity']): Finding {

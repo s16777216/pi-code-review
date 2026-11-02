@@ -1,12 +1,12 @@
 ## 1. Move core (host-agnostic) code
 
-- [ ] 1.1 Move `src/types.ts` to `src/core/types.ts`.
-- [ ] 1.2 Move `src/review/` (all six non-test files, including `providers.ts`, and their
+- [x] 1.1 Move `src/types.ts` to `src/core/types.ts`.
+- [x] 1.2 Move `src/review/` (all six non-test files, including `providers.ts`, and their
       five `.test.ts` files - `providers.ts` has no test file of its own) to
       `src/core/review/`, unchanged internally.
-- [ ] 1.3 Move `src/report/exitCode.ts` and `src/report/exitCode.test.ts` to
+- [x] 1.3 Move `src/report/exitCode.ts` and `src/report/exitCode.test.ts` to
       `src/core/exitCode.ts` and `src/core/exitCode.test.ts`.
-- [ ] 1.4 Fix every import broken by 1.1-1.3:
+- [x] 1.4 Fix every import broken by 1.1-1.3:
       - `core/types.ts`'s own new relative path (no internal change needed; it has no
         internal imports).
       - `core/review/engine.ts`'s import of `../logger.ts`, which becomes `../../logger.ts`
@@ -34,50 +34,50 @@
       Verify `npm run build` passes. None of `gitlab/`'s own
       file locations change in this section (that is section 2); only the import lines
       above, in files that are not yet moving, change to follow the files that did move.
-- [ ] 1.5 Run `npm test` and verify all existing tests still pass.
+- [x] 1.5 Run `npm test` and verify all existing tests still pass.
 
 ## 2. Move the GitLab provider
 
-- [ ] 2.1 Move `src/gitlab/` (all three non-test files and their three `.test.ts` files) to
+- [x] 2.1 Move `src/gitlab/` (all three non-test files and their three `.test.ts` files) to
       `src/providers/gitlab/`.
-- [ ] 2.2 Delete the now-empty `src/report/` folder and verify it no longer exists.
-- [ ] 2.3 Fix every import broken by step 2.1: paths into `core/types.ts`,
+- [x] 2.2 Delete the now-empty `src/report/` folder and verify it no longer exists.
+- [x] 2.3 Fix every import broken by step 2.1: paths into `core/types.ts`,
       `core/review/providers.ts`, and `logger.ts`/`config.ts` at the top level of `src/`,
       Also fix `src/index.ts`'s and `src/index.test.ts`'s imports of `./gitlab/client.ts`, `./gitlab/
       sinkProvider.ts`, and `./gitlab/sourceProvider.ts` (these files are not moving yet,
       but now point at `providers/gitlab/`; task 3.2 later switches them to go through
       `providers/index.ts` once `index.ts` itself moves). Do not run a build gate yet:
       `src/findingsFile.ts` still imports the now-moved `./gitlab/client.ts` until task 2.6.
-- [ ] 2.4 Create `src/providers/index.ts` re-exporting the GitLab provider's public surface:
+- [x] 2.4 Create `src/providers/index.ts` re-exporting the GitLab provider's public surface:
       `GitLabClient`, `GitLabSourceProvider`, `GitLabSinkProvider`, and the
       `MergeRequestProvider`/`MergeRequestWriter`/`GitLabDiffRefs`/`DiscussionPosition`/
       `FileContentResult`/`GitLabChangedFile`/`MergeRequestMetadata` types (the full set
       `src/index.test.ts` imports from `gitlab/client.ts` today), with a comment stating it
       has no provider-selection logic yet (see `design.md` - Decision 2).
-- [ ] 2.5 Fix `src/findingsFile.ts`'s remaining `GitLabDiffRefs` import, from
+- [x] 2.5 Fix `src/findingsFile.ts`'s remaining `GitLabDiffRefs` import, from
       `./gitlab/client.ts` to `./providers/index.ts`. Verify `npm run build` passes (this is
       the first build gate since task 2.1; it covers 2.4-2.6 together, since 2.4's fixes
       alone leave `findingsFile.ts` broken until 2.6).
-- [ ] 2.6 Run `npm test` and verify all existing tests still pass.
+- [x] 2.6 Run `npm test` and verify all existing tests still pass.
 
 ## 3. Move the CLI wiring
 
-- [ ] 3.1 Move `src/index.ts`, `src/index.test.ts`, `src/index.cli.test.ts`, and
+- [x] 3.1 Move `src/index.ts`, `src/index.test.ts`, `src/index.cli.test.ts`, and
       `src/index.entrypoint.test.ts` to `src/cli/index.ts`,
       `src/cli/index.test.ts`, `src/cli/index.cli.test.ts`, and
       `src/cli/index.entrypoint.test.ts`.
-- [ ] 3.2 Fix every import broken by the move: `config.ts`, `findingsFile.ts`, and
+- [x] 3.2 Fix every import broken by the move: `config.ts`, `findingsFile.ts`, and
       `logger.ts` at the top level of `src/`; `core/exitCode.ts` and
       `core/review/engine.ts`; and the GitLab provider imports, switched to go through
       `providers/index.ts` instead of reaching into `providers/gitlab/` directly. Verify
       `npm run build` passes.
-- [ ] 3.3 Fix `src/cli/index.entrypoint.test.ts`'s hardcoded paths, which do not change via
+- [x] 3.3 Fix `src/cli/index.entrypoint.test.ts`'s hardcoded paths, which do not change via
       import rewriting: `projectRoot` (`fileURLToPath(new URL('../', import.meta.url))`)
       must become `'../../'` to still resolve the repo root, and the subprocess's
       entrypoint path must become `src/cli/index.ts`. This is a mechanical path fix: the
       test's assertions and behavior are unchanged, only the two literal path values are
       (see `proposal.md` - Impact).
-- [ ] 3.4 Moving `src/index.ts` to `src/cli/index.ts` changes `tsc`'s compiled output path
+- [x] 3.4 Moving `src/index.ts` to `src/cli/index.ts` changes `tsc`'s compiled output path
       from `dist/index.js` to `dist/cli/index.js` (compiled output mirrors `src/`'s
       structure). Update every reference to the old compiled path outside `src/`:
       `package.json`'s `bin.picr` entry, its `start` script (`node dist/index.js`), its `dev`
@@ -99,18 +99,18 @@
         `cli/index.entrypoint.test.ts` already makes against the TypeScript source) -
         this proves the compiled JS entrypoint actually runs, not just that a file exists at
         the path.
-- [ ] 3.5 Run `npm test` and verify all 91 existing tests still pass, with no test added,
+- [x] 3.5 Run `npm test` and verify all 91 existing tests still pass, with no test added,
       removed, or changed in behavior (`cli/index.entrypoint.test.ts`'s two literal path
       values from task 3.3 are the only exception).
 
 ## 4. Final verification
 
-- [ ] 4.1 Confirm `src/logger.ts` needs no changes (it has no internal imports).
-- [ ] 4.2 Run `npm run build` once from a clean `dist/` and verify zero TypeScript errors.
-- [ ] 4.3 Run `npm test` and verify all tests pass, including `cli/index.entrypoint.test.ts`'s
+- [x] 4.1 Confirm `src/logger.ts` needs no changes (it has no internal imports).
+- [x] 4.2 Run `npm run build` once from a clean `dist/` and verify zero TypeScript errors.
+- [x] 4.3 Run `npm test` and verify all tests pass, including `cli/index.entrypoint.test.ts`'s
       real-subprocess tests (these catch a broken `cli/index.ts` entrypoint path that a
       type-check alone would not).
-- [ ] 4.4 Before starting section 1, record a baseline: `git status` and `git stash` (or a
+- [x] 4.4 Before starting section 1, record a baseline: `git status` and `git stash` (or a
       throwaway commit) of whatever this change's implementation branch starts from, so
       this task's comparisons are against that recorded baseline, not against whatever else
       happens to be in the working tree by the time this task runs (e.g. unrelated

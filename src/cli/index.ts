@@ -12,14 +12,14 @@ import {
   isMergeRequestPipeline,
   loadPublishConfig,
   loadReviewConfig,
-} from './config.ts';
-import { type FindingsFile, readFindingsFile, writeFindingsFile } from './findingsFile.ts';
-import { GitLabClient, type MergeRequestProvider, type MergeRequestWriter } from './gitlab/client.ts';
-import { GitLabSinkProvider } from './gitlab/sinkProvider.ts';
-import { GitLabSourceProvider } from './gitlab/sourceProvider.ts';
-import { buildLogger, silentLogger, type Logger } from './logger.ts';
-import { decidePassFail } from './report/exitCode.ts';
-import { AgentReviewEngine } from './review/engine.ts';
+} from '../config.ts';
+import { type FindingsFile, readFindingsFile, writeFindingsFile } from '../findingsFile.ts';
+import { GitLabClient, type MergeRequestProvider, type MergeRequestWriter } from '../providers/index.ts';
+import { GitLabSinkProvider } from '../providers/index.ts';
+import { GitLabSourceProvider } from '../providers/index.ts';
+import { buildLogger, silentLogger, type Logger } from '../logger.ts';
+import { decidePassFail } from '../core/exitCode.ts';
+import { AgentReviewEngine } from '../core/review/engine.ts';
 
 const DEFAULT_FINDINGS_PATH = 'findings.json';
 
@@ -245,7 +245,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   throw new Error(`Unknown command "${command ?? ''}". Expected "review" or "publish".`);
 }
 
-/** Only run `main()` when this module is the process entrypoint (`node dist/index.js`),
+/** Only run `main()` when this module is the process entrypoint (`node dist/cli/index.js`),
  * not when a test imports `runReview`/`main` from it. Compares resolved file URLs
  * (not raw path strings) so this works correctly on Windows too. `realpathSync` on
  * `argv[1]` matters: `import.meta.url` is already symlink-resolved by the ESM loader,
