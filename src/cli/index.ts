@@ -215,6 +215,10 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
   const logger = buildLogger(resolveDebug(cliOptions.debug));
 
   const config = loadPublishConfig(cliOptions);
+  // Read and validate the findings file before the GitLab client exists, so a
+  // bad file can never reach the GitLab API (see the `review-cli` spec's
+  // "Publish reads findings from a file" requirement).
+  const findingsFile = await readFindingsFile(fromPath);
   const client = await GitLabClient.create({
     apiUrl: config.gitlab.apiUrl,
     projectId: config.gitlab.projectId,
@@ -222,7 +226,6 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
     logger,
   });
 
-  const findingsFile = await readFindingsFile(fromPath);
   const passed = await runPublish({ config, client, findingsFile, logger });
   return passed ? 0 : 1;
 }

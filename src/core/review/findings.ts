@@ -10,7 +10,11 @@ function extractJsonText(text: string): string {
   return (fenced ? fenced[1]! : text).trim();
 }
 
-function validateFinding(item: unknown, index: number): Finding {
+/** Checks one finding's shape and returns it with only the known fields. Shared by
+ * the engine (agent output) and `findingsFile.ts` (the file `publish` reads), so the
+ * two can never disagree on what a valid finding is. Throws `ReviewFailureError`
+ * naming the index and the bad field. */
+export function validateFinding(item: unknown, index: number): Finding {
   if (typeof item !== 'object' || item === null) {
     throw new ReviewFailureError(`Finding at index ${index} is not an object.`);
   }
