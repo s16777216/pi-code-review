@@ -105,3 +105,14 @@ export function checkNewFileLine(files: ChangedFileDiff[], path: string, line: n
 export function isValidNewFileLine(files: ChangedFileDiff[], path: string, line: number): boolean {
   return checkNewFileLine(files, path, line) === 'ok';
 }
+
+/** The text of `line` in the new version of `path`, taken from the diff (an
+ * added or context line), or `null` when that line is not in the diff. */
+export function getNewFileLineText(files: ChangedFileDiff[], path: string, line: number): string | null {
+  const file = files.find((f) => f.newPath === path);
+  if (!file) return null;
+  const match = parseDiffHunks(file.hunks).find(
+    (diffLine) => diffLine.newLine === line && diffLine.type !== 'removed',
+  );
+  return match ? match.content : null;
+}

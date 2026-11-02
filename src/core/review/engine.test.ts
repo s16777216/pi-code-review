@@ -1,11 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
-import type { ReviewDiscussion } from '../types.ts';
+import type { Finding, ReviewDiscussion } from '../types.ts';
+import { computeAnchor } from './anchor.ts';
 import type { ReviewContext } from '../types.ts';
 import { decidePassFail } from '../exitCode.ts';
 import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
+
+/** Most tests check what the agent reported; the anchor has its own tests. */
+function withoutAnchors(findings: Finding[]): Omit<Finding, 'anchor'>[] {
+  return findings.map(({ anchor: _anchor, ...rest }) => rest);
+}
 
 test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API involved', async () => {
   const faux = fauxProvider();
@@ -40,7 +46,7 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
 
   const findings = await engine.review(context);
 
-  assert.deepEqual(findings, [
+  assert.deepEqual(withoutAnchors(findings), [
     { file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' },
   ]);
   assert.equal(fileContentRequested, 'a.ts');
@@ -108,7 +114,7 @@ test('AgentReviewEngine drops a finding whose line is not in the diff', async ()
 
   const findings = await engine.review(context);
 
-  assert.deepEqual(findings, []);
+  assert.deepEqual(withoutAnchors(findings), []);
   assert.equal(decidePassFail(findings, 'important'), true);
 });
 
@@ -154,7 +160,7 @@ test('AgentReviewEngine keeps a valid finding when another finding in the same o
 
   const findings = await engine.review(smallContext());
 
-  assert.deepEqual(findings, [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }]);
+  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }]);
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0]!.index, 0);
 });
@@ -169,7 +175,7 @@ test('AgentReviewEngine logs a finding on a file the change did not touch, and d
 
   const findings = await engine.review(smallContext());
 
-  assert.deepEqual(findings, []);
+  assert.deepEqual(withoutAnchors(findings), []);
   assert.deepEqual(warnings, [{ file: 'other.ts', line: 1, reason: 'file_not_changed' }]);
 });
 
@@ -183,7 +189,7 @@ test('AgentReviewEngine logs a finding on a line outside the diff, and does not 
 
   const findings = await engine.review(smallContext());
 
-  assert.deepEqual(findings, []);
+  assert.deepEqual(withoutAnchors(findings), []);
   assert.deepEqual(warnings, [{ file: 'a.ts', line: 999, reason: 'line_not_in_diff' }]);
 });
 
@@ -318,7 +324,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
 
   const findings = await engine.review(context);
 
-  assert.deepEqual(findings, [
+  assert.deepEqual(withoutAnchors(findings), [
     { file: 'a.ts', line: 1, severity: 'important', summary: 'Still broken.', relatesTo: 'd1' },
   ]);
   assert.equal(faux.state.callCount, 2);
@@ -339,7 +345,7 @@ test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and log
 
   const findings = await engine.review(context);
 
-  assert.deepEqual(findings, [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
+  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
   assert.deepEqual(warnings, [{ file: 'a.ts', line: 1, relatesTo: 'nope', reason: 'unknown_discussion' }]);
 });
 
@@ -357,7 +363,7 @@ test('AgentReviewEngine removes every relatesTo when the discussions cannot be r
 
   const findings = await engine.review(context);
 
-  assert.deepEqual(findings, [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
+  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
   assert.equal(warnings[0]!.reason, 'discussions_unavailable');
 });
 
@@ -375,4 +381,33 @@ test('AgentReviewEngine does not read discussions when no finding has relatesTo'
   await engine.review(context);
 
   assert.equal(reads, 0);
+});
+
+test('AgentReviewEngine anchors each finding on its file and the trimmed text of its line', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(
+      JSON.stringify([
+        { file: 'a.ts', line: 2, severity: 'important', summary: 'One.' },
+        { file: 'a.ts', line: 4, severity: 'nit', summary: 'Two.', anchor: 'ffffffffffffffff' },
+      ]),
+    ),
+  ]);
+  const context = smallContext();
+  context.changedFiles = [
+    {
+      oldPath: 'a.ts',
+      newPath: 'a.ts',
+      hunks: ['@@ -1,3 +1,4 @@', ' start();', '+  for (i = 0; i <= n; i++)', ' middle();', '+for (i = 0; i <= n; i++)'].join('\n'),
+    },
+  ];
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+
+  const [first, second] = await engine.review(context);
+
+  // Same code at a different line and with different indentation: same anchor.
+  assert.equal(first!.anchor, computeAnchor('a.ts', 'for (i = 0; i <= n; i++)'));
+  assert.equal(second!.anchor, first!.anchor);
+  // The agent-supplied anchor was replaced.
+  assert.notEqual(second!.anchor, 'ffffffffffffffff');
 });

@@ -82,6 +82,10 @@ export interface DiscussionPosition {
  * (read-only) since only the sink adapter needs it. */
 export interface MergeRequestWriter {
   createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void>;
+  /** The sink reads the existing discussions to decide what to post. */
+  listDiscussions(mergeRequestIid: string): Promise<GitLabDiscussion[]>;
+  addDiscussionNote(mergeRequestIid: string, discussionId: string, body: string): Promise<void>;
+  setDiscussionResolved(mergeRequestIid: string, discussionId: string, resolved: boolean): Promise<void>;
 }
 
 export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
@@ -278,6 +282,34 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     if (!response.ok) {
       throw new GitLabApiError(
         `Failed to create discussion on merge request ${mergeRequestIid}: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+  }
+
+  async addDiscussionNote(mergeRequestIid: string, discussionId: string, body: string): Promise<void> {
+    const response = await this.request(
+      `/merge_requests/${mergeRequestIid}/discussions/${encodeURIComponent(discussionId)}/notes`,
+      undefined,
+      { method: "POST", body: JSON.stringify({ body }) },
+    );
+    if (!response.ok) {
+      throw new GitLabApiError(
+        `Failed to reply to discussion ${discussionId} on merge request ${mergeRequestIid}: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+  }
+
+  async setDiscussionResolved(mergeRequestIid: string, discussionId: string, resolved: boolean): Promise<void> {
+    const response = await this.request(
+      `/merge_requests/${mergeRequestIid}/discussions/${encodeURIComponent(discussionId)}`,
+      new URLSearchParams({ resolved: String(resolved) }),
+      { method: "PUT" },
+    );
+    if (!response.ok) {
+      throw new GitLabApiError(
+        `Failed to set discussion ${discussionId} on merge request ${mergeRequestIid} to resolved=${resolved}: ${response.status} ${response.statusText}`,
         response.status,
       );
     }

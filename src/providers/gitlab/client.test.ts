@@ -294,3 +294,41 @@ test('listDiscussions throws GitLabApiError on a non-ok response', async () => {
     restore();
   }
 });
+
+test('addDiscussionNote posts the body to the discussion notes endpoint', async () => {
+  const { calls, restore } = mockFetch(() => jsonResponse({}, { status: 201 }));
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    await client.addDiscussionNote('5', 'abc123', 'Reply.');
+
+    assert.equal(calls[0]!.method, 'POST');
+    assert.match(calls[0]!.url, /\/projects\/1\/merge_requests\/5\/discussions\/abc123\/notes$/);
+    assert.deepEqual(JSON.parse(calls[0]!.body!), { body: 'Reply.' });
+  } finally {
+    restore();
+  }
+});
+
+test('setDiscussionResolved sends PUT with the resolved flag', async () => {
+  const { calls, restore } = mockFetch(() => jsonResponse({}));
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    await client.setDiscussionResolved('5', 'abc123', false);
+
+    assert.equal(calls[0]!.method, 'PUT');
+    assert.match(calls[0]!.url, /\/projects\/1\/merge_requests\/5\/discussions\/abc123\?resolved=false$/);
+  } finally {
+    restore();
+  }
+});
+
+test('addDiscussionNote and setDiscussionResolved throw GitLabApiError on a non-ok response', async () => {
+  const { restore } = mockFetch(() => new Response('nope', { status: 403, statusText: 'Forbidden' }));
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    await assert.rejects(() => client.addDiscussionNote('5', 'abc123', 'x'), GitLabApiError);
+    await assert.rejects(() => client.setDiscussionResolved('5', 'abc123', false), GitLabApiError);
+  } finally {
+    restore();
+  }
+});

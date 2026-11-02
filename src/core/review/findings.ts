@@ -18,7 +18,7 @@ export function validateFinding(item: unknown, index: number): Finding {
   if (typeof item !== 'object' || item === null) {
     throw new ReviewFailureError(`Finding at index ${index} is not an object.`);
   }
-  const { file, line, severity, summary, relatesTo } = item as Record<string, unknown>;
+  const { file, line, severity, summary, relatesTo, anchor } = item as Record<string, unknown>;
 
   if (typeof file !== 'string' || file.length === 0) {
     throw new ReviewFailureError(`Finding at index ${index} is missing a "file" string.`);
@@ -39,8 +39,13 @@ export function validateFinding(item: unknown, index: number): Finding {
     throw new ReviewFailureError(`Finding at index ${index} has a "relatesTo" that is not a non-empty string.`);
   }
 
+  if (anchor !== undefined && (typeof anchor !== 'string' || !/^[0-9a-f]{16}$/.test(anchor))) {
+    throw new ReviewFailureError(`Finding at index ${index} has an "anchor" that is not 16 hexadecimal characters.`);
+  }
+
   const finding: Finding = { file, line, severity: severity as Severity, summary };
   if (relatesTo !== undefined) finding.relatesTo = relatesTo;
+  if (anchor !== undefined) finding.anchor = anchor;
   return finding;
 }
 
@@ -66,11 +71,20 @@ export function parseFindings(text: string, logger: Logger = silentLogger()): Fi
   const findings: Finding[] = [];
   parsed.forEach((item, index) => {
     try {
-      findings.push(validateFinding(item, index));
+      findings.push(validateFinding(withoutAgentAnchor(item), index));
     } catch (error) {
       if (!(error instanceof ReviewFailureError)) throw error;
       logger.warn({ index, reason: error.message }, 'dropped an invalid finding from the agent output');
     }
   });
   return findings;
+}
+
+/** The engine computes `anchor` itself and replaces any value the agent wrote,
+ * so a stray or malformed `anchor` in the agent's output must not make an
+ * otherwise valid finding invalid. */
+function withoutAgentAnchor(item: unknown): unknown {
+  if (typeof item !== 'object' || item === null || !('anchor' in item)) return item;
+  const { anchor: _ignored, ...rest } = item as Record<string, unknown>;
+  return rest;
 }

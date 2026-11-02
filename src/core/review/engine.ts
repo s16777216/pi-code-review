@@ -4,7 +4,8 @@ import type { Api, AssistantMessage, Message, Model, Provider, TextContent } fro
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ReviewContext } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
-import { checkNewFileLine } from './diff.ts';
+import { computeAnchor } from './anchor.ts';
+import { checkNewFileLine, getNewFileLineText } from './diff.ts';
 import { parseFindings, ReviewFailureError } from './findings.ts';
 import { buildReviewPrompt } from './prompt.ts';
 
@@ -114,15 +115,22 @@ export class AgentReviewEngine implements ReviewEngine {
 
     logger.debug({ response: text }, 'review response');
     const findings = await checkRelatesTo(parseFindings(text, logger), context, logger);
-    return findings.filter((finding) => {
-      const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
-      if (reason === 'ok') return true;
-      logger.warn(
-        { file: finding.file, line: finding.line, reason },
-        'discarded a finding that cannot be placed on the diff',
-      );
-      return false;
-    });
+    return findings
+      .filter((finding) => {
+        const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
+        if (reason === 'ok') return true;
+        logger.warn(
+          { file: finding.file, line: finding.line, reason },
+          'discarded a finding that cannot be placed on the diff',
+        );
+        return false;
+      })
+      .map((finding) => {
+        // The diff check above guarantees the line is in the diff. Any anchor
+        // the agent wrote is replaced: only the engine computes it.
+        const lineText = getNewFileLineText(context.changedFiles, finding.file, finding.line) ?? '';
+        return { ...finding, anchor: computeAnchor(finding.file, lineText) };
+      });
   }
 }
 

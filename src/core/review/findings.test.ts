@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Logger } from '../../logger.ts';
-import { parseFindings, ReviewFailureError } from './findings.ts';
+import { parseFindings, ReviewFailureError, validateFinding } from './findings.ts';
 
 test('parseFindings parses a plain JSON array', () => {
   const findings = parseFindings(
@@ -106,4 +106,31 @@ test('parseFindings treats a non-string relatesTo as an invalid finding', () => 
   );
   assert.deepEqual(findings, []);
   assert.match(warnings[0]!.reason, /"relatesTo"/);
+});
+
+test('parseFindings ignores any anchor the agent writes, valid or not', () => {
+  const findings = parseFindings(
+    JSON.stringify([
+      { file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: '0123456789abcdef' },
+      { file: 'a.ts', line: 2, severity: 'nit', summary: 'y', anchor: 'nope' },
+    ]),
+  );
+  assert.deepEqual(findings, [
+    { file: 'a.ts', line: 1, severity: 'nit', summary: 'x' },
+    { file: 'a.ts', line: 2, severity: 'nit', summary: 'y' },
+  ]);
+});
+
+test('validateFinding keeps a 16-hex anchor and rejects a malformed one (findings file path)', () => {
+  assert.deepEqual(validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: '0123456789abcdef' }, 0), {
+    file: 'a.ts',
+    line: 1,
+    severity: 'nit',
+    summary: 'x',
+    anchor: '0123456789abcdef',
+  });
+  assert.throws(
+    () => validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: 'nope' }, 0),
+    /"anchor"/,
+  );
 });

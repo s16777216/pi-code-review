@@ -185,8 +185,13 @@ Each comment that `publish` posts starts with a hidden `<!-- pi-code-review -->`
 - A findings file (default `findings.json`) — the findings plus the diff refs `publish` needs
 
 `publish` writes/does:
-- One inline GitLab merge request comment per finding, with the finding's severity and summary
-- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise
+- One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
+  - a finding whose `relatesTo` names an **open** discussion posts nothing (it is already being discussed);
+  - a finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened;
+  - a finding without `relatesTo` posts nothing when an open discussion from this tool already sits on the same code (same file and same line text, so a reworded finding or a moved line still matches).
+
+  Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
+- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise. Every finding in the file counts, including the ones that posted nothing
 
 ## Development
 

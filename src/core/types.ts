@@ -64,4 +64,7 @@ export interface Finding {
   summary: string;
   /** The ID of an existing discussion that covers the same problem. */
   relatesTo?: string;
+  /** Set by the engine, never by the agent: a hash of the file and the text of
+   * the finding's line (see `core/review/anchor.ts`). */
+  anchor?: string;
 }

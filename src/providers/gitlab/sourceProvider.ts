@@ -1,7 +1,8 @@
 import type { SourceProvider } from '../../core/review/providers.ts';
 import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../../core/types.ts';
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestProvider } from './client.ts';
-import { hasMarker, stripMarker } from './marker.ts';
+import { isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
+import { stripMarker } from './marker.ts';
 
 export class GitLabSourceProvider implements SourceProvider {
   private lastDiffRefs?: GitLabDiffRefs;
@@ -64,21 +65,17 @@ export class GitLabSourceProvider implements SourceProvider {
 }
 
 /** Maps a GitLab discussion to the host-free `ReviewDiscussion`. System notes
- * ("added 1 commit", ...) describe events, not opinions, so they are left
- * out, and a discussion with only system notes is dropped. A discussion is
- * resolved when it has resolvable notes and all of them are resolved. */
+ * are left out, and a discussion with only system notes is dropped. */
 function toReviewDiscussion(discussion: GitLabDiscussion): ReviewDiscussion | null {
-  const notes = discussion.notes.filter((note) => !note.system);
-  const first = notes[0];
-  if (!first) return null;
-  const resolvable = notes.filter((note) => note.resolvable);
+  const notes = userNotes(discussion);
+  if (notes.length === 0) return null;
   return {
     id: discussion.id,
     file: discussion.position?.newPath ?? null,
     line: discussion.position?.newLine ?? null,
     positionCommit: discussion.position?.headSha ?? null,
-    resolved: resolvable.length > 0 && resolvable.every((note) => note.resolved),
-    fromThisTool: hasMarker(first.body),
+    resolved: isDiscussionResolved(discussion),
+    fromThisTool: isFromThisTool(discussion),
     notes: notes.map((note) => ({ author: note.author, body: stripMarker(note.body) })),
   };
 }
