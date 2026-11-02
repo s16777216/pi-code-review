@@ -17,7 +17,7 @@ After `review-with-existing-discussions`:
 - Add a fixed check that does not depend on wording or line number, for findings with no `relatesTo`.
 
 **Non-Goals:**
-- Resolve a discussion when its problem is gone. That needs a judgment that the problem is fixed. A wrong judgment closes a real problem.
+- Resolve a discussion when its problem is gone. That needs a judgment that the problem is fixed, and a wrong judgment closes a real problem. The `resolve-fixed-discussions` change covers it, with an explicit declaration from the agent and a check on the code.
 - Edit an old comment.
 - Match a finding to a discussion from a person in `publish`. Only the agent makes that link, through `relatesTo`.
 
