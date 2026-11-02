@@ -1,0 +1,38 @@
+## 1. Remove the Code Quality report module
+
+- [ ] 1.1 Delete `src/report/codeQuality.ts` and `src/report/codeQuality.test.ts`, and
+      verify `src/report/` now contains only `exitCode.ts`/`exitCode.test.ts`.
+
+## 2. Remove the write step from the GitLab sink
+
+- [ ] 2.1 In `src/gitlab/sinkProvider.ts`, remove the `buildCodeQualityReport` import,
+      the `codeQualityReportPath` and `writeReport` options from
+      `GitLabSinkProviderOptions`, the `writeCodeQualityReport` method, and its call in
+      `publish()`. Verify `npm run build` reports no error.
+- [ ] 2.2 In `src/gitlab/sinkProvider.test.ts`, remove every test and option that exists
+      only to exercise the Code Quality report write (the `writeReport` injection and any
+      assertion on its output). Verify the remaining tests for inline-comment publishing
+      are untouched and still pass.
+
+## 3. Remove the CLI wiring
+
+- [ ] 3.1 In `src/index.ts`, remove the `CODE_QUALITY_REPORT_PATH` constant and the
+      `codeQualityReportPath` field passed into `GitLabSinkProvider`. Verify
+      `npm run build` reports no error.
+- [ ] 3.2 In `src/index.test.ts`, remove any option or assertion tied to the Code Quality
+      report path. Verify the remaining `runPublish` tests still pass.
+
+## 4. Update docs
+
+- [ ] 4.1 In `README.md`, remove the `artifacts: reports: codequality` block from the
+      `publish` job in the `.gitlab-ci.yml` example, and remove the Code Quality report
+      line from the "Output" section's list of what `publish` writes.
+
+## 5. Final verification
+
+- [ ] 5.1 Run `npm run build` and verify zero TypeScript errors.
+- [ ] 5.2 Run `npm test` and verify every remaining test passes, with the Code
+      Quality-specific tests gone (not skipped, not failing - removed).
+- [ ] 5.3 Confirm no file in the repository still references `codeQuality`,
+      `CODE_QUALITY_REPORT_PATH`, or `gl-code-quality-report.json` (search the repo for
+      each string).
