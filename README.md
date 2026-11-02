@@ -1,6 +1,6 @@
 # pi-code-review
 
-AI code review for GitLab merge requests. Two commands: `review` fetches a merge request's diff and runs an AI agent (`pi-agent-core` + `pi-ai`, OpenAI) over it; `publish` posts the findings back to GitLab as inline comments and a Code Quality report, then decides pass or fail.
+AI code review for GitLab merge requests. Two commands: `review` fetches a merge request's diff and runs an AI agent (`pi-agent-core` + `pi-ai`, OpenAI) over it; `publish` posts the findings back to GitLab as inline comments, then decides pass or fail.
 
 The core review logic (`ReviewEngine`) is platform-agnostic; this repository ships the GitLab adapter (`gitlab-mr-context` / `review-output`) on top of it. See `openspec/specs/` for the capability specs, and `openspec/changes/archive/2026-10-29-gitlab-ai-code-review/design.md` for the original architecture decisions.
 
@@ -37,7 +37,7 @@ This produces `dist/cli/index.js`, runnable with `node dist/cli/index.js` in pla
 
 ```
 picr review   [flags]   # fetch the MR, run the AI review, write findings.json
-picr publish  [flags]   # read findings.json, post comments + Code Quality report, decide pass/fail
+picr publish  [flags]   # read findings.json, post inline comments, decide pass/fail
 ```
 
 - **`review`** never contacts GitLab to publish anything, and never decides pass or fail. Its exit code reflects only whether the review process itself completed (a GitLab or OpenAI API error) — not the severity of what it found. Running it locally and stopping there is the normal way to just see what the AI found, with no side effect on the merge request.
