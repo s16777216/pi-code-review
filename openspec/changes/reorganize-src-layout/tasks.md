@@ -29,11 +29,9 @@
         moving yet, but both imports now point at `core/`, so their relative paths change.
       - `gitlab/sourceProvider.ts`'s imports of `../review/providers.ts` and `../types.ts`,
         for the same reason.
-      - `report/codeQuality.ts`'s and `report/codeQuality.test.ts`'s imports of
-        `../types.ts`, for the same reason.
       - `src/index.ts`'s imports of `./review/engine.ts` and `./report/exitCode.ts`, which
         now point at `core/review/engine.ts` and `core/exitCode.ts`.
-      Verify `npm run build` passes. None of `gitlab/`'s or `report/codeQuality.ts`'s own
+      Verify `npm run build` passes. None of `gitlab/`'s own
       file locations change in this section (that is section 2); only the import lines
       above, in files that are not yet moving, change to follow the files that did move.
 - [ ] 1.5 Run `npm test` and verify all existing tests still pass.
@@ -42,28 +40,25 @@
 
 - [ ] 2.1 Move `src/gitlab/` (all three non-test files and their three `.test.ts` files) to
       `src/providers/gitlab/`.
-- [ ] 2.2 Move `src/report/codeQuality.ts` and `src/report/codeQuality.test.ts` to
-      `src/providers/gitlab/codeQuality.ts` and `src/providers/gitlab/codeQuality.test.ts`.
-- [ ] 2.3 Delete the now-empty `src/report/` folder and verify it no longer exists.
-- [ ] 2.4 Fix every import broken by steps 2.1-2.2: paths into `core/types.ts`,
+- [ ] 2.2 Delete the now-empty `src/report/` folder and verify it no longer exists.
+- [ ] 2.3 Fix every import broken by step 2.1: paths into `core/types.ts`,
       `core/review/providers.ts`, and `logger.ts`/`config.ts` at the top level of `src/`,
-      plus the `codeQuality.ts` import inside `sinkProvider.ts` (now same-folder). Also fix
-      `src/index.ts`'s and `src/index.test.ts`'s imports of `./gitlab/client.ts`, `./gitlab/
+      Also fix `src/index.ts`'s and `src/index.test.ts`'s imports of `./gitlab/client.ts`, `./gitlab/
       sinkProvider.ts`, and `./gitlab/sourceProvider.ts` (these files are not moving yet,
       but now point at `providers/gitlab/`; task 3.2 later switches them to go through
       `providers/index.ts` once `index.ts` itself moves). Do not run a build gate yet:
       `src/findingsFile.ts` still imports the now-moved `./gitlab/client.ts` until task 2.6.
-- [ ] 2.5 Create `src/providers/index.ts` re-exporting the GitLab provider's public surface:
+- [ ] 2.4 Create `src/providers/index.ts` re-exporting the GitLab provider's public surface:
       `GitLabClient`, `GitLabSourceProvider`, `GitLabSinkProvider`, and the
       `MergeRequestProvider`/`MergeRequestWriter`/`GitLabDiffRefs`/`DiscussionPosition`/
       `FileContentResult`/`GitLabChangedFile`/`MergeRequestMetadata` types (the full set
       `src/index.test.ts` imports from `gitlab/client.ts` today), with a comment stating it
       has no provider-selection logic yet (see `design.md` - Decision 2).
-- [ ] 2.6 Fix `src/findingsFile.ts`'s remaining `GitLabDiffRefs` import, from
+- [ ] 2.5 Fix `src/findingsFile.ts`'s remaining `GitLabDiffRefs` import, from
       `./gitlab/client.ts` to `./providers/index.ts`. Verify `npm run build` passes (this is
       the first build gate since task 2.1; it covers 2.4-2.6 together, since 2.4's fixes
       alone leave `findingsFile.ts` broken until 2.6).
-- [ ] 2.7 Run `npm test` and verify all existing tests still pass.
+- [ ] 2.6 Run `npm test` and verify all existing tests still pass.
 
 ## 3. Move the CLI wiring
 
