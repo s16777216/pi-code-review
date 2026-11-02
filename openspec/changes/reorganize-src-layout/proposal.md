@@ -40,12 +40,17 @@ observable behavior)
 
 ## Impact
 
-- Affected code: every file under `src/gitlab/`, `src/review/`, `src/report/`, and
-  `src/index.ts` (plus its test files), and every file elsewhere in `src/` that imports
-  from them (`config.ts`, `findingsFile.ts`, `logger.ts` stay in place but may need updated
-  relative import paths to the moved files).
-- No changes to `package.json` (`bin`, `files`, scripts), published package contents, CLI
+- Affected code: `src/types.ts`, every file under `src/gitlab/`, `src/review/`,
+  `src/report/`, and `src/index.ts` (plus its test files), a new `src/providers/index.ts`,
+  and every file elsewhere in `src/` that imports from them (`config.ts`, `findingsFile.ts`,
+  `logger.ts` stay in place but may need updated relative import paths to the moved files).
+- `package.json`'s `bin.picr`, `start`, and `dev` entries change target path (moving
+  `src/index.ts` moves its compiled output from `dist/index.js` to `dist/cli/index.js`);
+  `README.md`'s references to those paths change to match. No changes to `package.json`'s
+  `files` field, published package contents (beyond the internal path within `dist/`), CLI
   flags, or environment variables.
-- No test behavior changes: test files move with their source files; test bodies are
-  unchanged.
+- No test behavior changes: test files move with their source files; test assertions are
+  unchanged. The one exception is `cli/index.entrypoint.test.ts`'s two literal path values
+  (its `projectRoot` resolution and the subprocess entrypoint path), which must change to
+  still point at the right files after the move - see `tasks.md` task 3.3.
 - `openspec/specs/**` are unaffected — this change carries no requirement changes.

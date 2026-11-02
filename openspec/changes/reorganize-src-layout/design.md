@@ -6,9 +6,11 @@ justify the chosen boundaries.
 `src/review/` and `src/report/exitCode.ts` do not import anything from `src/gitlab/`. They
 only depend on `src/types.ts` and `src/config.ts`'s `FailOnSeverity` type. `src/report/
 codeQuality.ts` builds GitLab's own "Code Quality" report format (a GitLab CI feature); it
-has no GitHub or Gitea equivalent today. `src/config.ts` and `src/findingsFile.ts` both
-import GitLab-specific types directly (`GitlabConnectionConfig`, `GitLabDiffRefs`) inside
-otherwise generic-sounding interfaces (`ReviewConfig`, `PublishConfig`, `FindingsFile`).
+has no GitHub or Gitea equivalent today. `src/config.ts` declares `GitlabConnectionConfig`
+itself (it does not import it from elsewhere) and uses it inside otherwise generic-sounding
+interfaces (`ReviewConfig`, `PublishConfig`); `src/findingsFile.ts` imports GitLab-specific
+`GitLabDiffRefs` directly from `gitlab/client.ts` inside its otherwise generic-sounding
+`FindingsFile` interface. Either way, both files are coupled to GitLab-specific types today.
 
 ## Goals / Non-Goals
 
@@ -21,7 +23,8 @@ otherwise generic-sounding interfaces (`ReviewConfig`, `PublishConfig`, `Finding
 
 **Non-Goals:**
 - Do not decouple `config.ts` or `findingsFile.ts` from GitLab-specific types. They stay at
-  the top level of `src/`, unchanged in content.
+  the top level of `src/`, with their import paths updated to the moved files they
+  reference but no other content change.
 - Do not build a provider registry or selection logic. `providers/index.ts` re-exports the
   GitLab provider only.
 - Do not rename `core/review/providers.ts` (the `SourceProvider`/`SinkProvider` port
@@ -48,8 +51,12 @@ instead of GitLab's numeric `project-id`) exists to design against.
 
 **3. `config.ts`, `findingsFile.ts`, and `logger.ts` stay at the top level of `src/`, not
 inside `core/`.**
-`config.ts` and `findingsFile.ts` import GitLab-specific types directly. Moving them into
-`core/` would label them host-agnostic when they are not. Alternative considered: move them
+`config.ts` declares a GitLab-specific type (`GitlabConnectionConfig`) itself, and
+`findingsFile.ts` imports one (`GitLabDiffRefs`) from the GitLab provider; either way, both
+are coupled to GitLab-specific types today. Moving them into `core/` would label them
+host-agnostic when they are not - this does not forbid the import-path updates these files
+otherwise need as other files move around them (see `tasks.md` tasks 1.4, 2.6). Alternative
+considered: move them
 into `providers/gitlab/` instead, since that is what they actually depend on today.
 Rejected - `ReviewConfig`/`PublishConfig`/`FindingsFile` are still the CLI's own config and
 findings-file shapes, used directly by `cli/index.ts`; filing them under a specific
