@@ -1,6 +1,6 @@
-import { silentLogger, type Logger } from '../logger.ts';
-import type { SinkProvider } from '../review/providers.ts';
-import type { Finding } from '../types.ts';
+import { silentLogger, type Logger } from '../../logger.ts';
+import type { SinkProvider } from '../../core/review/providers.ts';
+import type { Finding } from '../../core/types.ts';
 import type { GitLabDiffRefs, MergeRequestWriter } from './client.ts';
 
 export interface GitLabSinkProviderOptions {

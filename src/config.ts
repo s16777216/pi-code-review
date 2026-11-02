@@ -1,4 +1,4 @@
-import type { Severity } from "./types.ts";
+import type { Severity } from "./core/types.ts";
 
 export type FailOnSeverity = Severity | "none";
 

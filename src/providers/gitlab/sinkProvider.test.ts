@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Finding } from '../types.ts';
+import type { Finding } from '../../core/types.ts';
 import type { DiscussionPosition, MergeRequestWriter } from './client.ts';
 import { GitLabSinkProvider } from './sinkProvider.ts';
 
@@ -66,7 +66,7 @@ test('publish isolates a failed discussion: the other finding still posts', asyn
 test('a failed discussion logs via the injected logger when no onDiscussionError override is given', async () => {
   const writer = new FakeWriter((position) => position.newPath === 'a.ts');
   const errorCalls: unknown[] = [];
-  const fakeLogger = { error: (obj: unknown) => errorCalls.push(obj) } as unknown as import('../logger.ts').Logger;
+  const fakeLogger = { error: (obj: unknown) => errorCalls.push(obj) } as unknown as import('../../logger.ts').Logger;
   const provider = new GitLabSinkProvider({
     client: writer,
     mergeRequestIid: '5',

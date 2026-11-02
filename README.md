@@ -31,7 +31,7 @@ npm install
 npm run build
 ```
 
-This produces `dist/index.js`, runnable with `node dist/index.js` in place of the `picr` command below.
+This produces `dist/cli/index.js`, runnable with `node dist/cli/index.js` in place of the `picr` command below.
 
 ## The two commands
 
@@ -167,7 +167,7 @@ picr publish `
   --mr 7
 ```
 
-Running from source instead of the npm package: replace `picr` with `node dist/index.js` everywhere above.
+Running from source instead of the npm package: replace `picr` with `node dist/cli/index.js` everywhere above.
 
 ## Output
 
@@ -181,7 +181,7 @@ Running from source instead of the npm package: replace `picr` with `node dist/i
 ## Development
 
 ```bash
-npm run dev    # run src/index.ts directly with tsx, no build step
+npm run dev    # run src/cli/index.ts directly with tsx, no build step
 npm test       # run the test suite (node:test)
 npm run build  # type-check and compile to dist/
 ```

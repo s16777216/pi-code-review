@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import type { ReviewContext } from '../types.ts';
-import { decidePassFail } from '../report/exitCode.ts';
+import { decidePassFail } from '../exitCode.ts';
 import { AgentReviewEngine } from './engine.ts';
 
 test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API involved', async () => {
@@ -61,7 +61,7 @@ test('AgentReviewEngine logs the prompt and raw response, and never logs the api
   };
 
   const debugCalls: unknown[] = [];
-  const fakeLogger = { debug: (obj: unknown) => debugCalls.push(obj) } as unknown as import('../logger.ts').Logger;
+  const fakeLogger = { debug: (obj: unknown) => debugCalls.push(obj) } as unknown as import('../../logger.ts').Logger;
   const engine = new AgentReviewEngine({
     provider: faux.provider,
     model: faux.getModel(),

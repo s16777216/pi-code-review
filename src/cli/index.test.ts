@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
 import pino from 'pino';
-import type { PublishConfig, ReviewConfig } from './config.ts';
+import type { PublishConfig, ReviewConfig } from '../config.ts';
 import type {
   DiscussionPosition,
   FileContentResult,
@@ -10,8 +10,8 @@ import type {
   MergeRequestMetadata,
   MergeRequestProvider,
   MergeRequestWriter,
-} from './gitlab/client.ts';
-import type { FindingsFile } from './findingsFile.ts';
+} from '../providers/index.ts';
+import type { FindingsFile } from '../findingsFile.ts';
 import { main, runPublish, runReview } from './index.ts';
 
 class FakeClient implements MergeRequestProvider, MergeRequestWriter {

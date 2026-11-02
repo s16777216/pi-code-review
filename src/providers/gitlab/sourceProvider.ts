@@ -1,5 +1,5 @@
-import type { SourceProvider } from '../review/providers.ts';
-import type { ChangedFileDiff, ReviewContext } from '../types.ts';
+import type { SourceProvider } from '../../core/review/providers.ts';
+import type { ChangedFileDiff, ReviewContext } from '../../core/types.ts';
 import type { GitLabDiffRefs, MergeRequestProvider } from './client.ts';
 
 export class GitLabSourceProvider implements SourceProvider {

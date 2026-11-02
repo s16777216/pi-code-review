@@ -9,8 +9,8 @@ import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
-/** `src/index.ts`'s own `isEntrypoint` check decides whether running it directly
- * (`node src/index.ts ...` / `node dist/index.js ...`) actually calls `main()`.
+/** `src/cli/index.ts`'s own `isEntrypoint` check decides whether running it directly
+ * (`node src/cli/index.ts ...` / `node dist/cli/index.js ...`) actually calls `main()`.
  * A broken check fails silently — no exception, no log, just exit 0 having done
  * nothing — which is exactly what happened when `process.argv[1]` reached this
  * file through a symlink/junction (e.g. nvm-windows' "C:\Program Files\nodejs"
@@ -41,13 +41,13 @@ test('running index.ts as a subprocess actually invokes main(), not just exits 0
  * runs. The test above alone would pass even with that bug, since it never goes
  * through a symlink. */
 test('running index.ts through a symlinked directory still invokes main() (regression: version-manager symlinks)', async () => {
-  const projectRoot = fileURLToPath(new URL('../', import.meta.url));
+  const projectRoot = fileURLToPath(new URL('../../', import.meta.url));
   const scratchDir = mkdtempSync(join(tmpdir(), 'picr-symlink-test-'));
   const linkPath = join(scratchDir, 'repo-link');
   symlinkSync(projectRoot, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
 
   try {
-    const entrypointThroughLink = join(linkPath, 'src', 'index.ts');
+    const entrypointThroughLink = join(linkPath, 'src', 'cli', 'index.ts');
     const cleanEnv = { ...process.env };
     delete cleanEnv.CI_MERGE_REQUEST_IID;
     delete cleanEnv.CI_API_V4_URL;

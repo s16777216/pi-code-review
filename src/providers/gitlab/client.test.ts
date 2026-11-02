@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigError } from '../config.ts';
+import { ConfigError } from '../../config.ts';
 import { GitLabApiError, GitLabClient } from './client.ts';
 
 type FetchCall = { url: string; headers: Record<string, string>; method?: string; body?: string };
@@ -67,7 +67,7 @@ test('GitLabClient logs method/url/status via its logger, and never logs headers
     jsonResponse({ title: 't', description: 'd', diff_refs: { base_sha: 'b', start_sha: 's', head_sha: 'h' } }),
   );
   const debugCalls: unknown[] = [];
-  const fakeLogger = { debug: (obj: unknown) => debugCalls.push(obj) } as unknown as import('../logger.ts').Logger;
+  const fakeLogger = { debug: (obj: unknown) => debugCalls.push(obj) } as unknown as import('../../logger.ts').Logger;
   try {
     const client = await GitLabClient.create({
       apiUrl: 'https://gitlab.example.com/api/v4',
