@@ -171,6 +171,14 @@ picr publish `
 
 Running from source instead of the npm package: replace `picr` with `node dist/cli/index.js` everywhere above.
 
+## Existing discussions
+
+During `review`, the agent can read the merge request's existing discussions through a `list_discussions` tool: comments from people and from earlier runs of this tool, with file, line, resolved state, and authors. It uses them to avoid repeating a problem that a discussion already covers, and to respect explanations such as "this is intentional". A finding that covers the same problem as an existing discussion carries `relatesTo: <discussion id>` in `findings.json`.
+
+Each comment that `publish` posts starts with a hidden `<!-- pi-code-review -->` marker, so later runs can tell this tool's comments from a person's.
+
+**Risk:** anyone who can comment on the merge request writes text that the agent reads. The agent is told to treat that text as information, not instructions, but a crafted comment can still influence the review, for example to leave out a finding. Keep this in mind when `publish`'s exit code gates a merge.
+
 ## Output
 
 `review` writes:

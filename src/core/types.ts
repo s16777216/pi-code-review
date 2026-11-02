@@ -19,6 +19,31 @@ export interface ChangedFileDiff {
   hunks: string;
 }
 
+/** One note in a `ReviewDiscussion`. */
+export interface ReviewDiscussionNote {
+  author: string;
+  body: string;
+}
+
+/** An existing discussion on the change under review, from a person or from an
+ * earlier run of this tool. Platform-agnostic: a GitHub review thread fits the
+ * same shape as a GitLab merge request discussion. */
+export interface ReviewDiscussion {
+  id: string;
+  /** The file a diff discussion is on, or `null` for a general comment. */
+  file: string | null;
+  /** The new-file line of the discussion's position, or `null`. */
+  line: number | null;
+  /** The head commit `line` refers to. On an older commit, the line can point
+   * at different code than today. */
+  positionCommit: string | null;
+  /** `false` for a discussion that cannot be resolved. */
+  resolved: boolean;
+  /** `true` when an earlier run of this tool started the discussion. */
+  fromThisTool: boolean;
+  notes: ReviewDiscussionNote[];
+}
+
 /** The engine's input. Platform-agnostic: nothing here names GitLab, GitHub,
  * or any other host. */
 export interface ReviewContext {
@@ -26,6 +51,8 @@ export interface ReviewContext {
   description: string;
   changedFiles: ChangedFileDiff[];
   getFileContent(path: string): Promise<string | { error: string }>;
+  /** The change's existing discussions. Fetched at most once per review. */
+  listDiscussions(): Promise<ReviewDiscussion[] | { error: string }>;
 }
 
 /** The engine's output. Also pulled forward from task 4.0, for the same
@@ -35,4 +62,6 @@ export interface Finding {
   line: number;
   severity: Severity;
   summary: string;
+  /** The ID of an existing discussion that covers the same problem. */
+  relatesTo?: string;
 }

@@ -7,6 +7,7 @@ import type {
   DiscussionPosition,
   FileContentResult,
   GitLabChangedFile,
+  GitLabDiscussion,
   MergeRequestMetadata,
   MergeRequestProvider,
   MergeRequestWriter,
@@ -32,6 +33,10 @@ class FakeClient implements MergeRequestProvider, MergeRequestWriter {
 
   async getFileContent(): Promise<FileContentResult> {
     return { error: 'not used in this test' };
+  }
+
+  async listDiscussions(): Promise<GitLabDiscussion[]> {
+    return [];
   }
 
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {

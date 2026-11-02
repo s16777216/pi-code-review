@@ -2,6 +2,7 @@ import { silentLogger, type Logger } from '../../logger.ts';
 import type { SinkProvider } from '../../core/review/providers.ts';
 import type { Finding } from '../../core/types.ts';
 import type { GitLabDiffRefs, MergeRequestWriter } from './client.ts';
+import { MARKER } from './marker.ts';
 
 export interface GitLabSinkProviderOptions {
   client: MergeRequestWriter;
@@ -46,6 +47,8 @@ export class GitLabSinkProvider implements SinkProvider {
   }
 }
 
+/** The marker line comes first so a later run can recognize this comment
+ * (see `marker.ts`). GitLab does not render it. */
 function formatDiscussionBody(finding: Finding): string {
-  return `**[${finding.severity}]** ${finding.summary}`;
+  return `${MARKER}\n**[${finding.severity}]** ${finding.summary}`;
 }

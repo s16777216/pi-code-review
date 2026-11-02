@@ -223,3 +223,74 @@ test('createDiscussion throws GitLabApiError on a non-ok response', async () => 
     restore();
   }
 });
+
+const API = 'https://gitlab.example.com/api/v4';
+
+function discussionJson(id: string, notes: unknown[]): unknown {
+  return { id, notes };
+}
+
+test('listDiscussions maps notes and the first note position, and follows pagination', async () => {
+  const page1 = [
+    discussionJson('d1', [
+      {
+        body: 'Looks off by one.',
+        author: { username: 'alice' },
+        system: false,
+        resolvable: true,
+        resolved: false,
+        position: { new_path: 'a.ts', new_line: 12, head_sha: 'h1' },
+      },
+    ]),
+  ];
+  const page2 = [discussionJson('d2', [{ body: 'General question.', author: { username: 'bob' } }])];
+  const { calls, restore } = mockFetch((url) =>
+    url.searchParams.get('page') === '1'
+      ? jsonResponse(page1, { headers: { 'x-next-page': '2' } })
+      : jsonResponse(page2),
+  );
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    const discussions = await client.listDiscussions('5');
+
+    assert.equal(calls.length, 2);
+    assert.match(calls[0]!.url, /\/projects\/1\/merge_requests\/5\/discussions\?page=1&per_page=100$/);
+    assert.deepEqual(discussions, [
+      {
+        id: 'd1',
+        position: { newPath: 'a.ts', newLine: 12, headSha: 'h1' },
+        notes: [{ author: 'alice', body: 'Looks off by one.', system: false, resolvable: true, resolved: false }],
+      },
+      {
+        id: 'd2',
+        position: null,
+        notes: [{ author: 'bob', body: 'General question.', system: false, resolvable: false, resolved: false }],
+      },
+    ]);
+  } finally {
+    restore();
+  }
+});
+
+test('listDiscussions keeps the system flag so the source provider can drop system notes', async () => {
+  const { restore } = mockFetch(() =>
+    jsonResponse([discussionJson('d1', [{ body: 'added 1 commit', author: { username: 'alice' }, system: true }])]),
+  );
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    const [discussion] = await client.listDiscussions('5');
+    assert.equal(discussion!.notes[0]!.system, true);
+  } finally {
+    restore();
+  }
+});
+
+test('listDiscussions throws GitLabApiError on a non-ok response', async () => {
+  const { restore } = mockFetch(() => new Response('nope', { status: 403, statusText: 'Forbidden' }));
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    await assert.rejects(() => client.listDiscussions('5'), GitLabApiError);
+  } finally {
+    restore();
+  }
+});

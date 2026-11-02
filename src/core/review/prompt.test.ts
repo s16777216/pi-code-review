@@ -11,6 +11,7 @@ function fixture(): ReviewContext {
       { oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-for (i=0;i<=n;i++)\n+for (i=0;i<n;i++)' },
       { oldPath: null, newPath: 'b.ts', hunks: '@@ -0,0 +1,1 @@\n+export const b = 1;' },
     ],
+    listDiscussions: async () => [],
     async getFileContent() {
       return { error: 'not used in this test' };
     },

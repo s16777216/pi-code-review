@@ -85,3 +85,25 @@ test('parseFindings returns an empty array and logs every element when all eleme
 test('parseFindings drops invalid elements without a logger', () => {
   assert.deepEqual(parseFindings(JSON.stringify([{ file: 'a.ts' }])), []);
 });
+
+test('parseFindings keeps a string relatesTo', () => {
+  const findings = parseFindings(
+    JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', relatesTo: 'd1' }]),
+  );
+  assert.deepEqual(findings, [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', relatesTo: 'd1' }]);
+});
+
+test('parseFindings leaves relatesTo out when the agent does not set it', () => {
+  const [finding] = parseFindings(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }]));
+  assert.equal('relatesTo' in finding!, false);
+});
+
+test('parseFindings treats a non-string relatesTo as an invalid finding', () => {
+  const { logger, warnings } = warnRecorder();
+  const findings = parseFindings(
+    JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', relatesTo: 42 }]),
+    logger,
+  );
+  assert.deepEqual(findings, []);
+  assert.match(warnings[0]!.reason, /"relatesTo"/);
+});

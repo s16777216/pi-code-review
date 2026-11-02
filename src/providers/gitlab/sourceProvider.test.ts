@@ -1,10 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { FileContentResult, GitLabChangedFile, MergeRequestMetadata, MergeRequestProvider } from './client.ts';
+import type {
+  FileContentResult,
+  GitLabChangedFile,
+  GitLabDiscussion,
+  MergeRequestMetadata,
+  MergeRequestProvider,
+} from './client.ts';
 import { GitLabSourceProvider } from './sourceProvider.ts';
 
 class FakeMergeRequestProvider implements MergeRequestProvider {
   calls: { method: string; args: unknown[] }[] = [];
+  /** What `listDiscussions` returns, or an error it throws. */
+  discussions: GitLabDiscussion[] | Error = [];
 
   constructor(
     private readonly metadata: MergeRequestMetadata,
@@ -25,6 +33,12 @@ class FakeMergeRequestProvider implements MergeRequestProvider {
   async getFileContent(path: string, ref: string): Promise<FileContentResult> {
     this.calls.push({ method: 'getFileContent', args: [path, ref] });
     return this.files[path] ?? { error: `no fixture for ${path}` };
+  }
+
+  async listDiscussions(mergeRequestIid: string): Promise<GitLabDiscussion[]> {
+    this.calls.push({ method: 'listDiscussions', args: [mergeRequestIid] });
+    if (this.discussions instanceof Error) throw this.discussions;
+    return this.discussions;
   }
 }
 
@@ -91,4 +105,100 @@ test('getDiffRefs returns the diff refs from the most recent buildReviewContext(
   await provider.buildReviewContext();
 
   assert.deepEqual(provider.getDiffRefs(), { baseSha: 'base123', startSha: 'start123', headSha: 'head123' });
+});
+
+function discussionFixture(): FakeMergeRequestProvider {
+  return new FakeMergeRequestProvider(
+    { title: 't', description: 'd', diffRefs: { baseSha: 'b', startSha: 's', headSha: 'h' } },
+    [],
+    {},
+  );
+}
+
+test('listDiscussions maps GitLab discussions, drops system notes, and marks this tool\'s own discussions', async () => {
+  const fake = discussionFixture();
+  fake.discussions = [
+    {
+      id: 'own',
+      position: { newPath: 'a.ts', newLine: 3, headSha: 'h0' },
+      notes: [
+        { author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Bug.', system: false, resolvable: true, resolved: true },
+        { author: 'alice', body: 'Fixed, thanks.', system: false, resolvable: true, resolved: true },
+      ],
+    },
+    {
+      id: 'person',
+      position: null,
+      notes: [
+        { author: 'carol', body: 'added 1 commit', system: true, resolvable: false, resolved: false },
+        { author: 'bob', body: 'This is intentional.', system: false, resolvable: false, resolved: false },
+      ],
+    },
+    {
+      id: 'only-system',
+      position: null,
+      notes: [{ author: 'carol', body: 'changed the description', system: true, resolvable: false, resolved: false }],
+    },
+  ];
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+
+  assert.deepEqual(await context.listDiscussions(), [
+    {
+      id: 'own',
+      file: 'a.ts',
+      line: 3,
+      positionCommit: 'h0',
+      resolved: true,
+      fromThisTool: true,
+      notes: [
+        { author: 'bot', body: '**[important]** Bug.' },
+        { author: 'alice', body: 'Fixed, thanks.' },
+      ],
+    },
+    {
+      id: 'person',
+      file: null,
+      line: null,
+      positionCommit: null,
+      resolved: false,
+      fromThisTool: false,
+      notes: [{ author: 'bob', body: 'This is intentional.' }],
+    },
+  ]);
+});
+
+test('listDiscussions treats a discussion as open while any resolvable note is unresolved', async () => {
+  const fake = discussionFixture();
+  fake.discussions = [
+    {
+      id: 'd',
+      position: null,
+      notes: [
+        { author: 'a', body: 'x', system: false, resolvable: true, resolved: true },
+        { author: 'b', body: 'y', system: false, resolvable: true, resolved: false },
+      ],
+    },
+  ];
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const result = await context.listDiscussions();
+
+  assert.equal(Array.isArray(result) && result[0]!.resolved, false);
+});
+
+test('listDiscussions calls the GitLab API once, however often it is called', async () => {
+  const fake = discussionFixture();
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+
+  await context.listDiscussions();
+  await context.listDiscussions();
+
+  assert.equal(fake.calls.filter((call) => call.method === 'listDiscussions').length, 1);
+});
+
+test('listDiscussions returns an error object instead of throwing when the API fails', async () => {
+  const fake = discussionFixture();
+  fake.discussions = new Error('403 Forbidden');
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+
+  assert.deepEqual(await context.listDiscussions(), { error: 'Failed to list discussions: 403 Forbidden' });
 });

@@ -44,6 +44,7 @@ test('publish posts one discussion per finding with the diff refs and the findin
     newLine: 3,
   });
   assert.match(writer.calls[0]!.body, /Bug A\./);
+  assert.equal(writer.calls[0]!.body.startsWith('<!-- pi-code-review -->\n**['), true);
 });
 
 test('publish isolates a failed discussion: the other finding still posts', async () => {

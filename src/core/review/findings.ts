@@ -18,7 +18,7 @@ export function validateFinding(item: unknown, index: number): Finding {
   if (typeof item !== 'object' || item === null) {
     throw new ReviewFailureError(`Finding at index ${index} is not an object.`);
   }
-  const { file, line, severity, summary } = item as Record<string, unknown>;
+  const { file, line, severity, summary, relatesTo } = item as Record<string, unknown>;
 
   if (typeof file !== 'string' || file.length === 0) {
     throw new ReviewFailureError(`Finding at index ${index} is missing a "file" string.`);
@@ -35,7 +35,13 @@ export function validateFinding(item: unknown, index: number): Finding {
     throw new ReviewFailureError(`Finding at index ${index} is missing a "summary" string.`);
   }
 
-  return { file, line, severity: severity as Severity, summary };
+  if (relatesTo !== undefined && (typeof relatesTo !== 'string' || relatesTo.length === 0)) {
+    throw new ReviewFailureError(`Finding at index ${index} has a "relatesTo" that is not a non-empty string.`);
+  }
+
+  const finding: Finding = { file, line, severity: severity as Severity, summary };
+  if (relatesTo !== undefined) finding.relatesTo = relatesTo;
+  return finding;
 }
 
 /** Parses the agent's final output text into `Finding[]`. Expects a JSON

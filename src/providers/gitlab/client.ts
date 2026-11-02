@@ -21,6 +21,22 @@ export interface GitLabChangedFile {
 
 export type FileContentResult = { content: string } | { error: string };
 
+export interface GitLabDiscussionNote {
+  author: string;
+  body: string;
+  system: boolean;
+  resolvable: boolean;
+  resolved: boolean;
+}
+
+/** One merge request discussion. `position` comes from the first note, and is
+ * `null` for a general (non-diff) comment. */
+export interface GitLabDiscussion {
+  id: string;
+  position: { newPath: string | null; newLine: number | null; headSha: string | null } | null;
+  notes: GitLabDiscussionNote[];
+}
+
 export class GitLabApiError extends Error {
   constructor(
     message: string,
@@ -49,6 +65,7 @@ export interface MergeRequestProvider {
   getMergeRequest(mergeRequestIid: string): Promise<MergeRequestMetadata>;
   getMergeRequestDiff(mergeRequestIid: string): Promise<GitLabChangedFile[]>;
   getFileContent(path: string, ref: string): Promise<FileContentResult>;
+  listDiscussions(mergeRequestIid: string): Promise<GitLabDiscussion[]>;
 }
 
 export interface DiscussionPosition {
@@ -188,6 +205,58 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
       };
     }
     return { content: await response.text() };
+  }
+
+  async listDiscussions(mergeRequestIid: string): Promise<GitLabDiscussion[]> {
+    const discussions: GitLabDiscussion[] = [];
+    let page = 1;
+    for (;;) {
+      const response = await this.request(
+        `/merge_requests/${mergeRequestIid}/discussions`,
+        new URLSearchParams({ page: String(page), per_page: "100" }),
+      );
+      if (!response.ok) {
+        throw new GitLabApiError(
+          `Failed to list discussions on merge request ${mergeRequestIid}: ${response.status} ${response.statusText}`,
+          response.status,
+        );
+      }
+      const batch = (await response.json()) as Array<{
+        id: string;
+        notes: Array<{
+          body: string;
+          author?: { username?: string } | null;
+          system?: boolean;
+          resolvable?: boolean;
+          resolved?: boolean;
+          position?: { new_path?: string | null; new_line?: number | null; head_sha?: string | null } | null;
+        }>;
+      }>;
+      for (const entry of batch) {
+        const position = entry.notes[0]?.position ?? null;
+        discussions.push({
+          id: entry.id,
+          position: position
+            ? {
+                newPath: position.new_path ?? null,
+                newLine: position.new_line ?? null,
+                headSha: position.head_sha ?? null,
+              }
+            : null,
+          notes: entry.notes.map((note) => ({
+            author: note.author?.username ?? "unknown",
+            body: note.body,
+            system: note.system ?? false,
+            resolvable: note.resolvable ?? false,
+            resolved: note.resolved ?? false,
+          })),
+        });
+      }
+      const nextPage = response.headers.get("x-next-page");
+      if (!nextPage) break;
+      page = Number(nextPage);
+    }
+    return discussions;
   }
 
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {

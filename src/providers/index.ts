@@ -4,6 +4,8 @@ export type {
   DiscussionPosition,
   FileContentResult,
   GitLabChangedFile,
+  GitLabDiscussion,
+  GitLabDiscussionNote,
   GitLabDiffRefs,
   MergeRequestMetadata,
   MergeRequestProvider,
