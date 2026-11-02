@@ -68,6 +68,7 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile> {
     provider,
     model: buildModel(config),
     apiKey: config.openai.apiKey,
+    language: config.language,
     logger,
   });
   const findings = await engine.review(context);
@@ -122,6 +123,7 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
       'openai-api-key': { type: 'string' },
       'max-tokens': { type: 'string' },
       'context-window': { type: 'string' },
+      language: { type: 'string' },
       out: { type: 'string' },
       debug: { type: 'boolean' },
     },
@@ -137,6 +139,7 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
     apiKey: values['openai-api-key'],
     maxTokens: values['max-tokens'],
     contextWindow: values['context-window'],
+    language: values.language,
     out: values.out,
     debug: values.debug,
   };

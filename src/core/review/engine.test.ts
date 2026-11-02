@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import type { ReviewContext } from '../types.ts';
 import { decidePassFail } from '../exitCode.ts';
-import { AgentReviewEngine, SYSTEM_PROMPT } from './engine.ts';
+import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
 
 test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API involved', async () => {
@@ -236,4 +236,44 @@ test('AgentReviewEngine counts the system prompt and tool declarations in the in
 
   await assert.rejects(() => engine.review(smallContext()), ReviewFailureError);
   assert.equal(faux.state.callCount, 0);
+});
+
+test('buildSystemPrompt returns SYSTEM_PROMPT unchanged when no language is set', () => {
+  assert.equal(buildSystemPrompt(), SYSTEM_PROMPT);
+  assert.equal(buildSystemPrompt(undefined), SYSTEM_PROMPT);
+});
+
+test('buildSystemPrompt appends the language sentence when a language is set', () => {
+  const prompt = buildSystemPrompt('Traditional Chinese');
+
+  assert.equal(prompt.startsWith(SYSTEM_PROMPT), true);
+  assert.match(
+    prompt,
+    /Write every "summary" in Traditional Chinese\. Keep the JSON field names and the "severity" values exactly as specified above\.$/,
+  );
+});
+
+test('AgentReviewEngine sends the language sentence to the model only when a language is set', async () => {
+  const requests: string[] = [];
+  const capture = (context: unknown) => {
+    requests.push(JSON.stringify(context));
+    return fauxAssistantMessage('[]');
+  };
+
+  const faux = fauxProvider();
+  faux.setResponses([capture, capture]);
+  const plain = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+  const localized = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'test-key',
+    language: 'Japanese',
+  });
+
+  await plain.review(smallContext());
+  await localized.review(smallContext());
+
+  assert.equal(requests.length, 2);
+  assert.doesNotMatch(requests[0]!, /Write every \\"summary\\" in/);
+  assert.match(requests[1]!, /Write every \\"summary\\" in Japanese\. Keep the JSON field names/);
 });

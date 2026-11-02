@@ -28,6 +28,14 @@ const CONTEXT_SAFETY_TOKENS = 4096;
  * answer tokens than this. */
 export const MIN_ANSWER_TOKENS = 4096;
 
+/** The system prompt for one review: `SYSTEM_PROMPT` unchanged when no
+ * language is set, otherwise `SYSTEM_PROMPT` plus one sentence that asks for
+ * summaries in that language and keeps field names and severities as they are. */
+export function buildSystemPrompt(language?: string): string {
+  if (language === undefined) return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}\n\nWrite every "summary" in ${language}. Keep the JSON field names and the "severity" values exactly as specified above.`;
+}
+
 export interface ReviewEngine {
   review(context: ReviewContext): Promise<Finding[]>;
 }
@@ -38,6 +46,9 @@ export interface AgentReviewEngineOptions {
   provider: Provider;
   model: Model<Api>;
   apiKey: string;
+  /** Optional language for finding summaries. Undefined leaves the system
+   * prompt exactly as `SYSTEM_PROMPT`. */
+  language?: string;
   /** Logs the built prompt and the agent's raw response under `--debug`.
    * Defaults to a silent logger, so existing call sites and tests are
    * unaffected. */
@@ -53,12 +64,13 @@ export class AgentReviewEngine implements ReviewEngine {
     const { provider, model, apiKey } = this.options;
     const logger = this.options.logger ?? silentLogger();
     const tool = createGetFileContentTool(context);
+    const systemPrompt = buildSystemPrompt(this.options.language);
 
     const agent = new Agent({
       streamFn: (streamModel, streamContext, streamOptions) =>
         provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
       initialState: {
-        systemPrompt: SYSTEM_PROMPT,
+        systemPrompt,
         model,
         tools: [tool],
       },

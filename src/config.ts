@@ -21,6 +21,9 @@ export interface GitlabConnectionConfig {
 
 export interface ReviewConfig {
   gitlab: GitlabConnectionConfig;
+  /** Optional language for finding summaries, e.g. "Traditional Chinese".
+   * Undefined keeps the default (English) output. */
+  language?: string;
   openai: {
     apiKey: string;
     model: string;
@@ -65,6 +68,7 @@ export interface ReviewConfigOverrides extends GitlabConnectionOverrides {
   maxTokens?: string;
   /** Raw string from the CLI flag; `loadReviewConfig()` parses and validates it. */
   contextWindow?: string;
+  language?: string;
 }
 
 export interface PublishConfigOverrides extends GitlabConnectionOverrides {
@@ -138,12 +142,35 @@ function resolveContextWindow(override: string | undefined, maxTokens: number): 
   return value;
 }
 
+const MAX_LANGUAGE_LENGTH = 64;
+
+/** `--language`/`REVIEW_LANGUAGE` is optional with no default. The value goes
+ * into the system prompt as written, so it must stay one short name: not
+ * empty, at most 64 characters, and no line break. */
+function resolveLanguage(override: string | undefined): string | undefined {
+  const raw = override ?? process.env.REVIEW_LANGUAGE;
+  if (raw === undefined) return undefined;
+  const value = raw.trim();
+  if (value.length === 0) {
+    throw new ConfigError("Invalid REVIEW_LANGUAGE value: it is empty. Unset it, or give a language name.");
+  }
+  if (value.length > MAX_LANGUAGE_LENGTH) {
+    throw new ConfigError(`Invalid REVIEW_LANGUAGE value: it is longer than ${MAX_LANGUAGE_LENGTH} characters.`);
+  }
+  if (/[\r\n]/.test(value)) {
+    throw new ConfigError("Invalid REVIEW_LANGUAGE value: it contains a line break.");
+  }
+  return value;
+}
+
 /** Resolves config for the `review` command: GitLab connection + OpenAI.
  * Never requires `FAIL_ON_SEVERITY` — `review` has no pass/fail concept. */
 export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewConfig {
   const maxTokens = resolveMaxTokens(overrides.maxTokens);
+  const language = resolveLanguage(overrides.language);
   return {
     gitlab: loadGitlabConnectionConfig(overrides),
+    ...(language === undefined ? {} : { language }),
     openai: {
       apiKey: resolve("OPENAI_API_KEY", overrides.apiKey),
       model: resolve("OPENAI_MODEL", overrides.model),

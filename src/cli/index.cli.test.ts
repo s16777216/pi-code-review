@@ -22,6 +22,8 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     '64000',
     '--context-window',
     '400000',
+    '--language',
+    'Traditional Chinese',
     '--out',
     'my-findings.json',
     '--debug',
@@ -37,6 +39,7 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     apiKey: 'sk-from-cli',
     maxTokens: '64000',
     contextWindow: '400000',
+    language: 'Traditional Chinese',
     out: 'my-findings.json',
     debug: true,
   });
@@ -53,6 +56,7 @@ test('parseReviewCliOptions returns all-undefined fields when no flags are given
     apiKey: undefined,
     maxTokens: undefined,
     contextWindow: undefined,
+    language: undefined,
     out: undefined,
     debug: undefined,
   });
@@ -109,4 +113,5 @@ test('parsePublishCliOptions rejects a review-only flag', () => {
   assert.throws(() => parsePublishCliOptions(['--openai-api-key', 'sk-should-not-exist']));
   assert.throws(() => parsePublishCliOptions(['--max-tokens', '64000']));
   assert.throws(() => parsePublishCliOptions(['--context-window', '400000']));
+  assert.throws(() => parsePublishCliOptions(['--language', 'Japanese']));
 });
