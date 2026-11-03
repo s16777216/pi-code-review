@@ -2,6 +2,17 @@ import type { ChangedFileDiff, DiffLine } from '../types.ts';
 
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
+/** The diff text's lines. GitLab's diff text ends with a line break, and
+ * splitting on it leaves one empty string after the last line. That string is
+ * not a line of the diff: without this, it would count as a blank context
+ * line, one past the end of the hunk. An empty line inside the text stays: it
+ * is a blank context line whose leading space was removed. */
+function splitDiffLines(diffText: string): string[] {
+  const lines = diffText.split('\n');
+  if (diffText.endsWith('\n')) lines.pop();
+  return lines;
+}
+
 /** Parses unified-diff hunk text (as returned by GitLab's diff API) into one
  * `DiffLine` per added, removed, or context line, each tagged with its old
  * and/or new line number. Lines outside any `@@ ... @@` hunk, and
@@ -12,7 +23,7 @@ export function parseDiffHunks(diffText: string): DiffLine[] {
   let newLine = 0;
   let inHunk = false;
 
-  for (const rawLine of diffText.split('\n')) {
+  for (const rawLine of splitDiffLines(diffText)) {
     const header = HUNK_HEADER.exec(rawLine);
     if (header) {
       oldLine = Number(header[1]);
@@ -57,7 +68,7 @@ export function numberDiffHunks(diffText: string): string {
   let inHunk = false;
   let maxNumber = 0;
 
-  for (const rawLine of diffText.split('\n')) {
+  for (const rawLine of splitDiffLines(diffText)) {
     const header = HUNK_HEADER.exec(rawLine);
     if (header) {
       newLine = Number(header[3]);

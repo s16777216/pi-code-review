@@ -188,3 +188,50 @@ test('getNewFileLineText returns the text of an added or context line, and null 
   assert.equal(getNewFileLineText(files, 'a.ts', 3), null);
   assert.equal(getNewFileLineText(files, 'b.ts', 1), null);
 });
+
+// GitLab's diff text ends with a line break (seen on gitlab.com). The empty
+// string after it is not a line of the diff.
+test('parseDiffHunks ignores the line break at the end of the diff text', () => {
+  const diff = '@@ -1 +1,2 @@\n // a\n+b\n';
+
+  assert.deepEqual(
+    parseDiffHunks(diff).map((l) => [l.type, l.newLine]),
+    [
+      ['context', 1],
+      ['added', 2],
+    ],
+  );
+});
+
+test('parseDiffHunks still reads an empty line inside a hunk as a blank context line', () => {
+  const diff = '@@ -1,3 +1,3 @@\n a\n\n b\n';
+
+  assert.deepEqual(
+    parseDiffHunks(diff).map((l) => [l.type, l.newLine]),
+    [
+      ['context', 1],
+      ['context', 2],
+      ['context', 3],
+    ],
+  );
+});
+
+test('numberDiffHunks prints no line past the end of the hunk', () => {
+  assert.equal(numberDiffHunks('@@ -1 +1,2 @@\n // a\n+b\n'), '@@ -1 +1,2 @@\n   1 |  // a\n   2 | +b');
+});
+
+test('a deleted file has no new-file line, not even line 0', () => {
+  const hunks = '@@ -1,3 +0,0 @@\n-export function oldHelper(x) {\n-  return x * 2;\n-}\n';
+  const files: ChangedFileDiff[] = [{ oldPath: 'old.js', newPath: 'old.js', hunks, deleted: true }];
+
+  assert.equal(checkNewFileLine(files, 'old.js', 0), 'line_not_in_diff');
+  assert.equal(getNewFileLineText(files, 'old.js', 0), null);
+  assert.doesNotMatch(numberDiffHunks(hunks), /\d+ \|/);
+});
+
+test('checkNewFileLine rejects the line one past the end of a diff that ends with a line break', () => {
+  const files: ChangedFileDiff[] = [{ oldPath: 'a.js', newPath: 'a.js', hunks: '@@ -0,0 +1,2 @@\n+a\n+b\n' }];
+
+  assert.equal(checkNewFileLine(files, 'a.js', 2), 'ok');
+  assert.equal(checkNewFileLine(files, 'a.js', 3), 'line_not_in_diff');
+});
