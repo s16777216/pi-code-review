@@ -43,3 +43,37 @@ The system SHALL authenticate every GitLab API call with the `GITLAB_TOKEN` envi
 #### Scenario: Token is missing
 - **WHEN** neither `GITLAB_TOKEN` nor `--token` is set
 - **THEN** the system stops before it calls the GitLab API, and reports a clear configuration error
+
+### Requirement: Fetch merge request discussions on demand
+The system SHALL fetch the merge request's discussions from the GitLab API when the review step requests them, with pagination. The system SHALL return each discussion's ID, its file and new-file line when it is a diff discussion, the head commit SHA of its position, its resolved state, and its notes with author username and body. The system MUST leave out GitLab system notes. The system SHALL fetch the discussions at most one time per review.
+
+#### Scenario: Discussions fetch succeeds
+- **WHEN** the review step requests the discussions of a merge request with one diff discussion and one general discussion
+- **THEN** the system returns two discussions, and only the diff discussion has a file and a line
+
+#### Scenario: System notes are left out
+- **WHEN** a discussion contains a GitLab system note, for example "added 1 commit"
+- **THEN** the system does not return that note
+
+#### Scenario: A discussion was started by this tool
+- **WHEN** the first note of a discussion contains the marker that this tool adds to its comments
+- **THEN** the system marks that discussion as started by this tool
+
+#### Scenario: Discussions fetch fails
+- **WHEN** the GitLab API returns an error for the discussions request
+- **THEN** the system returns an error message instead of the discussions, and the review step continues
+
+#### Scenario: Discussions are requested two times
+- **WHEN** the review step requests the discussions two times in one review
+- **THEN** the system calls the GitLab discussions API for the first request only
+
+### Requirement: Expose the anchor of a discussion started by this tool
+The system SHALL read the anchor from the marker in the first note of each discussion that this tool started, and return it with the discussion. A discussion with no anchor in its marker SHALL have no anchor.
+
+#### Scenario: Marker contains an anchor
+- **WHEN** the first note of a discussion starts with `<!-- pi-code-review anchor=3f9a1c0b2d4e5f60 -->`
+- **THEN** the system returns the discussion with the anchor `3f9a1c0b2d4e5f60`
+
+#### Scenario: Marker has no anchor
+- **WHEN** the first note of a discussion starts with `<!-- pi-code-review -->`
+- **THEN** the system returns the discussion with no anchor

@@ -16,15 +16,19 @@ The system SHALL expose two commands: `review` and `publish`. The system MUST NO
 - **THEN** the system publishes findings to GitLab without running the AI review or contacting OpenAI
 
 ### Requirement: Review writes findings to a file
-The `review` command SHALL write the findings and the diff refs needed to publish them to a JSON file. The default file path MUST be `findings.json` in the working directory.
+The `review` command SHALL write the findings, the accepted fixed declarations, and the diff refs needed to publish them to a JSON file. The default file path MUST be `findings.json` in the working directory.
 
 #### Scenario: Review produces a findings file
 - **WHEN** the `review` command finishes a review
-- **THEN** the system writes a JSON file containing every valid finding and the diff refs for the reviewed merge request
+- **THEN** the system writes a JSON file containing every valid finding, every accepted fixed declaration, and the diff refs for the reviewed merge request
 
 #### Scenario: Review produces no findings
 - **WHEN** the `review` command finds no valid findings
 - **THEN** the system still writes a findings file, with an empty list of findings
+
+#### Scenario: Review produces no fixed declarations
+- **WHEN** the `review` command accepts no fixed declaration
+- **THEN** the system writes an empty `resolved` list
 
 ### Requirement: Publish reads findings from a file
 The `publish` command SHALL read findings and diff refs from a JSON file given by a command-line flag, defaulting to `findings.json`.
