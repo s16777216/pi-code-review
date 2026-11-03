@@ -234,6 +234,7 @@ test('listDiscussions maps notes and the first note position, and follows pagina
   const page1 = [
     discussionJson('d1', [
       {
+        id: 1,
         body: 'Looks off by one.',
         author: { username: 'alice' },
         system: false,
@@ -243,7 +244,7 @@ test('listDiscussions maps notes and the first note position, and follows pagina
       },
     ]),
   ];
-  const page2 = [discussionJson('d2', [{ body: 'General question.', author: { username: 'bob' } }])];
+  const page2 = [discussionJson('d2', [{ id: 1, body: 'General question.', author: { username: 'bob' } }])];
   const { calls, restore } = mockFetch((url) =>
     url.searchParams.get('page') === '1'
       ? jsonResponse(page1, { headers: { 'x-next-page': '2' } })
@@ -259,12 +260,12 @@ test('listDiscussions maps notes and the first note position, and follows pagina
       {
         id: 'd1',
         position: { newPath: 'a.ts', newLine: 12, headSha: 'h1' },
-        notes: [{ author: 'alice', body: 'Looks off by one.', system: false, resolvable: true, resolved: false }],
+        notes: [{ id: 1, author: 'alice', body: 'Looks off by one.', system: false, resolvable: true, resolved: false }],
       },
       {
         id: 'd2',
         position: null,
-        notes: [{ author: 'bob', body: 'General question.', system: false, resolvable: false, resolved: false }],
+        notes: [{ id: 1, author: 'bob', body: 'General question.', system: false, resolvable: false, resolved: false }],
       },
     ]);
   } finally {
@@ -328,6 +329,60 @@ test('addDiscussionNote and setDiscussionResolved throw GitLabApiError on a non-
     const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
     await assert.rejects(() => client.addDiscussionNote('5', 'abc123', 'x'), GitLabApiError);
     await assert.rejects(() => client.setDiscussionResolved('5', 'abc123', false), GitLabApiError);
+  } finally {
+    restore();
+  }
+});
+
+test('getMergeRequestDiff reads too_large and generated_file', async () => {
+  const { restore } = mockFetch(() =>
+    jsonResponse([
+      { old_path: 'big.js', new_path: 'big.js', diff: '', too_large: true, generated_file: false },
+      { old_path: 'package-lock.json', new_path: 'package-lock.json', diff: '@@ -1 +1 @@\n-a\n+b', generated_file: true },
+      { old_path: 'a.ts', new_path: 'a.ts', diff: '@@ -1 +1 @@\n-a\n+b', too_large: false, generated_file: false },
+    ]),
+  );
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    const files = await client.getMergeRequestDiff('5');
+
+    assert.deepEqual(
+      files.map((file) => [file.newPath, file.tooLarge ?? false, file.generatedFile ?? false]),
+      [
+        ['big.js', true, false],
+        ['package-lock.json', false, true],
+        ['a.ts', false, false],
+      ],
+    );
+  } finally {
+    restore();
+  }
+});
+
+test('createNote posts a general comment, and updateNote replaces a comment body', async () => {
+  const { calls, restore } = mockFetch(() => jsonResponse({}, { status: 201 }));
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    await client.createNote('5', 'Hello.');
+    await client.updateNote('5', 42, 'Updated.');
+
+    assert.equal(calls[0]!.method, 'POST');
+    assert.match(calls[0]!.url, /\/projects\/1\/merge_requests\/5\/notes$/);
+    assert.deepEqual(JSON.parse(calls[0]!.body!), { body: 'Hello.' });
+    assert.equal(calls[1]!.method, 'PUT');
+    assert.match(calls[1]!.url, /\/projects\/1\/merge_requests\/5\/notes\/42$/);
+    assert.deepEqual(JSON.parse(calls[1]!.body!), { body: 'Updated.' });
+  } finally {
+    restore();
+  }
+});
+
+test('createNote and updateNote throw GitLabApiError on a non-ok response', async () => {
+  const { restore } = mockFetch(() => new Response('nope', { status: 403, statusText: 'Forbidden' }));
+  try {
+    const client = await GitLabClient.create({ apiUrl: API, projectId: '1', token: 'tok' });
+    await assert.rejects(() => client.createNote('5', 'x'), GitLabApiError);
+    await assert.rejects(() => client.updateNote('5', 1, 'x'), GitLabApiError);
   } finally {
     restore();
   }

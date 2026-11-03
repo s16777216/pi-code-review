@@ -18,11 +18,16 @@ export interface GitLabChangedFile {
   newPath: string | null;
   diffHunks: string;
   deletedFile?: boolean;
+  /** GitLab left the diff out because it is over its size limit. */
+  tooLarge?: boolean;
+  /** GitLab marks the file as generated (for example, a lock file). */
+  generatedFile?: boolean;
 }
 
 export type FileContentResult = { content: string } | { error: string };
 
 export interface GitLabDiscussionNote {
+  id: number;
   author: string;
   body: string;
   system: boolean;
@@ -87,6 +92,10 @@ export interface MergeRequestWriter {
   listDiscussions(mergeRequestIid: string): Promise<GitLabDiscussion[]>;
   addDiscussionNote(mergeRequestIid: string, discussionId: string, body: string): Promise<void>;
   setDiscussionResolved(mergeRequestIid: string, discussionId: string, resolved: boolean): Promise<void>;
+  /** Creates a general (non-diff) comment on the merge request. */
+  createNote(mergeRequestIid: string, body: string): Promise<void>;
+  /** Replaces the body of a comment on the merge request. */
+  updateNote(mergeRequestIid: string, noteId: number, body: string): Promise<void>;
 }
 
 export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
@@ -185,6 +194,8 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
         new_path: string | null;
         diff: string;
         deleted_file?: boolean;
+        too_large?: boolean;
+        generated_file?: boolean;
       }>;
       for (const entry of batch) {
         files.push({
@@ -192,6 +203,8 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
           newPath: entry.new_path,
           diffHunks: entry.diff,
           ...(entry.deleted_file ? { deletedFile: true } : {}),
+          ...(entry.too_large ? { tooLarge: true } : {}),
+          ...(entry.generated_file ? { generatedFile: true } : {}),
         });
       }
       const nextPage = response.headers.get("x-next-page");
@@ -231,6 +244,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
       const batch = (await response.json()) as Array<{
         id: string;
         notes: Array<{
+          id: number;
           body: string;
           author?: { username?: string } | null;
           system?: boolean;
@@ -251,6 +265,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
               }
             : null,
           notes: entry.notes.map((note) => ({
+            id: note.id,
             author: note.author?.username ?? "unknown",
             body: note.body,
             system: note.system ?? false,
@@ -313,6 +328,32 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     if (!response.ok) {
       throw new GitLabApiError(
         `Failed to set discussion ${discussionId} on merge request ${mergeRequestIid} to resolved=${resolved}: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+  }
+
+  async createNote(mergeRequestIid: string, body: string): Promise<void> {
+    const response = await this.request(`/merge_requests/${mergeRequestIid}/notes`, undefined, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+    if (!response.ok) {
+      throw new GitLabApiError(
+        `Failed to create a comment on merge request ${mergeRequestIid}: ${response.status} ${response.statusText}`,
+        response.status,
+      );
+    }
+  }
+
+  async updateNote(mergeRequestIid: string, noteId: number, body: string): Promise<void> {
+    const response = await this.request(`/merge_requests/${mergeRequestIid}/notes/${noteId}`, undefined, {
+      method: "PUT",
+      body: JSON.stringify({ body }),
+    });
+    if (!response.ok) {
+      throw new GitLabApiError(
+        `Failed to update comment ${noteId} on merge request ${mergeRequestIid}: ${response.status} ${response.statusText}`,
         response.status,
       );
     }

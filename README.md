@@ -181,6 +181,8 @@ Running from source instead of the npm package: replace `picr` with `node dist/c
 - At most 20 batches, and at most 3 run at the same time. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
 - A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with a non-zero code without writing a findings file.
 
+Files whose diff is not reviewed (too large, or generated; see [Output](#output)) are not counted in the estimate and are never part of a batch.
+
 **Limit:** a problem that needs code from two batches can be missed. A merge request that fits half of the window is reviewed in one run, as before.
 
 ## Existing discussions
@@ -196,7 +198,13 @@ The agent can also declare that one of this tool's own open comments is fixed, w
 ## Output
 
 `review` writes:
-- A findings file (default `findings.json`) — the findings plus the diff refs `publish` needs
+- A findings file (default `findings.json`) — the findings, the fixed declarations, the unreviewed files, and the diff refs `publish` needs
+
+Some changed files are not reviewed, and are listed in the findings file as `unreviewedFiles`:
+- `too_large`: GitLab does not return a diff that is over its size limit. `review` logs a warning for each such file.
+- `generated`: GitLab marks the file as generated, for example a lock file. Its diff is left out of the review on purpose.
+
+The review input shows these files with the reason and no diff, and a finding on them is dropped. The agent can still read them with `get_file_content`.
 
 `publish` writes/does:
 - One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
@@ -207,6 +215,7 @@ The agent can also declare that one of this tool's own open comments is fixed, w
   Findings that would post on the same file and line become one comment, and findings that would reply to the same discussion become one reply. The comment has one paragraph for each finding, each with its own severity.
 
   Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
+- One general merge request comment that lists the files too large to review, when there are any. Later runs update the same comment instead of adding another one, and when no file is too large any more, it says that every changed file was reviewed. Generated files are not listed.
 - Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise. Every finding in the file counts, including the ones that posted nothing
 
 ## Development

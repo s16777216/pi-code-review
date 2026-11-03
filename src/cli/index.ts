@@ -71,10 +71,10 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile> {
     language: config.language,
     logger,
   });
-  const { findings, resolved } = await engine.review(context);
+  const { findings, resolved, unreviewedFiles } = await engine.review(context);
   logger.info(`Review produced ${findings.length} finding(s) and ${resolved.length} fixed discussion(s).`);
 
-  return { diffRefs: sourceProvider.getDiffRefs(), findings, resolved };
+  return { diffRefs: sourceProvider.getDiffRefs(), findings, resolved, unreviewedFiles };
 }
 
 export interface PublishOptions {
@@ -100,7 +100,7 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
     diffRefs: findingsFile.diffRefs,
     logger,
   });
-  await sinkProvider.publish(findingsFile.findings, findingsFile.resolved);
+  await sinkProvider.publish(findingsFile.findings, findingsFile.resolved, findingsFile.unreviewedFiles);
 
   const passed = decidePassFail(findingsFile.findings, config.failOnSeverity);
   logger.info(`Result: ${passed ? 'pass' : 'fail'} (threshold: ${config.failOnSeverity}).`);

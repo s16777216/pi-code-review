@@ -92,3 +92,28 @@ test('buildReviewPrompt names a part of a split file and keeps its line numbers'
   assert.match(prompt, /^### a\.ts \(part 2 of 3\)$/m);
   assert.match(prompt, /^ 200 \| \+new$/m);
 });
+
+test('buildReviewPrompt shows an omitted file with its reason and no diff', () => {
+  const context = fixture();
+  context.changedFiles.push(
+    { oldPath: 'big.js', newPath: 'big.js', hunks: '', omitted: 'too_large' },
+    { oldPath: 'yarn.lock', newPath: 'yarn.lock', hunks: '@@ -1 +1 @@\n-secret-old\n+secret-new', omitted: 'generated' },
+  );
+
+  const prompt = buildReviewPrompt(context);
+
+  assert.match(prompt, /^### big\.js\n\(diff not shown: too large\)$/m);
+  assert.match(prompt, /^### yarn\.lock\n\(diff not shown: generated file\)$/m);
+  assert.doesNotMatch(prompt, /secret-/);
+});
+
+test('buildReviewPrompt lists an omitted file with its reason in the batch file list', () => {
+  const context = fixture();
+  context.changedFiles.push({ oldPath: 'yarn.lock', newPath: 'yarn.lock', hunks: '@@ -1 +1 @@\n-x\n+y', omitted: 'generated' });
+  const a = context.changedFiles[0]!;
+
+  const prompt = buildReviewPrompt(context, { items: [{ file: a, hunks: a.hunks }], index: 1, count: 2 });
+
+  assert.match(prompt, /^- yarn\.lock \(modified, diff not shown: generated file\)$/m);
+  assert.doesNotMatch(prompt, /^### yarn\.lock/m);
+});

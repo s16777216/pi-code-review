@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Finding } from '../../core/types.ts';
 import type { DiscussionPosition, GitLabDiscussion, MergeRequestWriter } from './client.ts';
-import { GitLabSinkProvider } from './sinkProvider.ts';
+import { GitLabSinkProvider, UNREVIEWED_MARKER } from './sinkProvider.ts';
 
 class FakeWriter implements MergeRequestWriter {
   calls: { mergeRequestIid: string; body: string; position: DiscussionPosition }[] = [];
@@ -28,6 +28,20 @@ class FakeWriter implements MergeRequestWriter {
   async setDiscussionResolved(_mergeRequestIid: string, discussionId: string, resolved: boolean): Promise<void> {
     if (this.failReopen) throw new Error('403 Forbidden');
     this.resolvedChanges.push({ discussionId, resolved });
+  }
+
+  createdNotes: string[] = [];
+  updatedNotes: { noteId: number; body: string }[] = [];
+  failNote = false;
+
+  async createNote(_mergeRequestIid: string, body: string): Promise<void> {
+    if (this.failNote) throw new Error('500 note failed');
+    this.createdNotes.push(body);
+  }
+
+  async updateNote(_mergeRequestIid: string, noteId: number, body: string): Promise<void> {
+    if (this.failNote) throw new Error('500 note failed');
+    this.updatedNotes.push({ noteId, body });
   }
 
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {
@@ -115,6 +129,7 @@ function existingDiscussion(
     position: { newPath: 'a.ts', newLine: options.newLine ?? 3, headSha: 'old-head' },
     notes: [
       {
+        id: 1,
         author: options.own ? 'bot' : 'alice',
         body: `${marker}**[important]** Bug A.`,
         system: false,
@@ -471,4 +486,113 @@ test('publish resolves nothing when the discussions cannot be read', async () =>
 
   assert.equal(writer.replies.length, 0);
   assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason: 'discussions_unavailable' });
+});
+
+// --- Comment on files too large to review (`handle-omitted-diffs`) ---
+
+const tooLarge = (path: string) => ({ path, reason: 'too_large' as const });
+
+function unreviewedNoteDiscussion(id: string, noteId: number, body: string): GitLabDiscussion {
+  return {
+    id,
+    position: null,
+    notes: [{ id: noteId, author: 'bot', body, system: false, resolvable: false, resolved: false }],
+  };
+}
+
+async function publishUnreviewed(writer: FakeWriter, files: { path: string; reason: 'too_large' | 'generated' }[]) {
+  const { logger, warnings } = recordingLogger();
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [], files);
+  return warnings;
+}
+
+test('publish creates one comment that lists the files too large to review', async () => {
+  const writer = new FakeWriter();
+
+  await publishUnreviewed(writer, [tooLarge('big.js'), { path: 'yarn.lock', reason: 'generated' }, tooLarge('huge.sql')]);
+
+  assert.equal(writer.createdNotes.length, 1);
+  const body = writer.createdNotes[0]!;
+  assert.ok(body.startsWith(`${UNREVIEWED_MARKER}\n`));
+  assert.match(body, /^- `big\.js`$/m);
+  assert.match(body, /^- `huge\.sql`$/m);
+  assert.doesNotMatch(body, /yarn\.lock/);
+});
+
+test('publish leaves the comment alone when its body is already the one it would write', async () => {
+  const first = new FakeWriter();
+  await publishUnreviewed(first, [tooLarge('big.js')]);
+  const writer = new FakeWriter();
+  writer.existing = [unreviewedNoteDiscussion('n1', 77, first.createdNotes[0]!)];
+
+  await publishUnreviewed(writer, [tooLarge('big.js')]);
+
+  assert.deepEqual(writer.createdNotes, []);
+  assert.deepEqual(writer.updatedNotes, []);
+});
+
+test('publish updates the last such comment when the files too large change', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [
+    unreviewedNoteDiscussion('n1', 70, `${UNREVIEWED_MARKER}\nold`),
+    unreviewedNoteDiscussion('n2', 71, `${UNREVIEWED_MARKER}\nolder edit`),
+  ];
+
+  await publishUnreviewed(writer, [tooLarge('other.js')]);
+
+  assert.deepEqual(writer.createdNotes, []);
+  assert.equal(writer.updatedNotes.length, 1);
+  assert.equal(writer.updatedNotes[0]!.noteId, 71);
+  assert.match(writer.updatedNotes[0]!.body, /`other\.js`/);
+});
+
+test('publish updates the comment to say every file was reviewed when no file is too large any more', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [unreviewedNoteDiscussion('n1', 70, `${UNREVIEWED_MARKER}\n- \`big.js\``)];
+
+  await publishUnreviewed(writer, []);
+
+  assert.deepEqual(writer.updatedNotes, [
+    { noteId: 70, body: `${UNREVIEWED_MARKER}\nEvery changed file was reviewed in the latest review.` },
+  ]);
+});
+
+test('publish posts no comment when no file is too large and there is no comment yet', async () => {
+  const writer = new FakeWriter();
+
+  await publishUnreviewed(writer, [{ path: 'yarn.lock', reason: 'generated' }]);
+
+  assert.deepEqual(writer.createdNotes, []);
+  assert.deepEqual(writer.updatedNotes, []);
+});
+
+test('publish ignores a diff discussion or a comment without the marker', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [
+    unreviewedNoteDiscussion('person', 5, 'big.js was not reviewed, please check'),
+    { ...unreviewedNoteDiscussion('diff', 6, `${UNREVIEWED_MARKER}\nx`), position: { newPath: 'a.ts', newLine: 1, headSha: 'h' } },
+  ];
+
+  await publishUnreviewed(writer, [tooLarge('big.js')]);
+
+  assert.equal(writer.createdNotes.length, 1);
+  assert.deepEqual(writer.updatedNotes, []);
+});
+
+test('publish creates the comment when the discussions cannot be read', async () => {
+  const writer = new FakeWriter();
+  writer.existing = new Error('500');
+
+  await publishUnreviewed(writer, [tooLarge('big.js')]);
+
+  assert.equal(writer.createdNotes.length, 1);
+});
+
+test('publish logs a warning and goes on when the comment request fails', async () => {
+  const writer = new FakeWriter();
+  writer.failNote = true;
+
+  const warnings = await publishUnreviewed(writer, [tooLarge('big.js')]);
+
+  assert.deepEqual(warnings, [{ files: ['big.js'], error: '500 note failed' }]);
 });
