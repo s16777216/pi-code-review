@@ -31,7 +31,7 @@ The `review` command SHALL write the findings, the accepted fixed declarations, 
 - **THEN** the system writes an empty `resolved` list
 
 ### Requirement: Publish reads findings from a file
-The `publish` command SHALL read findings and diff refs from a JSON file given by a command-line flag, defaulting to `findings.json`.
+The `publish` command SHALL read findings and diff refs from a JSON file given by a command-line flag, defaulting to `findings.json`. The `publish` command SHALL reject a findings file with an invalid structure before it calls the GitLab API.
 
 #### Scenario: Publish reads the default file
 - **WHEN** the `publish` command runs without specifying a file
@@ -44,6 +44,22 @@ The `publish` command SHALL read findings and diff refs from a JSON file given b
 #### Scenario: Findings file is missing or unreadable
 - **WHEN** the `publish` command cannot read the findings file
 - **THEN** the system stops before it calls the GitLab API, and reports a clear error
+
+#### Scenario: Findings file has no diff refs
+- **WHEN** the findings file is valid JSON but has no `diffRefs` object, or one of its three SHA fields is not a non-empty string
+- **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, and reports an error that names the file and the missing field
+
+#### Scenario: Findings file has an invalid finding
+- **WHEN** the findings file contains a finding with a missing field, a non-integer line, or a severity that is not `important`, `nit`, or `pre_existing`
+- **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, posts no discussion, and reports an error that names the finding's index and field
+
+#### Scenario: Findings file is not an object
+- **WHEN** the findings file is valid JSON but its top-level value is not an object with a `findings` array
+- **THEN** the system stops before it calls the GitLab API, and reports a clear error
+
+#### Scenario: Findings file has extra fields
+- **WHEN** the findings file is valid and also contains fields that the system does not know
+- **THEN** the system ignores the extra fields and publishes the findings
 
 ### Requirement: Review's exit code reflects only process success
 The `review` command's exit code MUST NOT depend on the severity of any finding. It SHALL be non-zero only when the review process itself fails (for example, a GitLab or OpenAI API error).
@@ -68,7 +84,7 @@ The `publish` command SHALL decide a pass or fail outcome from the findings it r
 - **THEN** the `publish` command exits with code 0
 
 ### Requirement: Each command accepts only the configuration it needs
-The `review` command SHALL accept GitLab connection configuration and OpenAI configuration. The `publish` command SHALL accept GitLab connection configuration and the severity threshold. Neither command SHALL accept configuration that only the other command uses.
+The `review` command SHALL accept GitLab connection configuration, OpenAI configuration, and the review language. The `publish` command SHALL accept GitLab connection configuration and the severity threshold. Neither command SHALL accept configuration that only the other command uses.
 
 #### Scenario: Review does not accept the severity threshold
 - **WHEN** a person passes a severity-threshold flag to the `review` command
@@ -76,4 +92,8 @@ The `review` command SHALL accept GitLab connection configuration and OpenAI con
 
 #### Scenario: Publish does not accept OpenAI configuration
 - **WHEN** a person passes an OpenAI model or API key flag to the `publish` command
+- **THEN** the system rejects the command line with a clear error
+
+#### Scenario: Publish does not accept the review language
+- **WHEN** a person passes the `--language` flag to the `publish` command
 - **THEN** the system rejects the command line with a clear error
