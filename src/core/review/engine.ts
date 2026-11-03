@@ -223,7 +223,9 @@ export class AgentReviewEngine implements ReviewEngine {
   ): Promise<RunOutcome> {
     const agent = this.createAgent(context, batch);
     const prompt = buildReviewPrompt(context, batch);
-    logger.debug({ ...batchField(batch), prompt }, 'review prompt');
+    // The system prompt as the agent holds it, so the log shows exactly what
+    // this run sends (`log-system-prompt` design, Decision 1).
+    logger.debug({ ...batchField(batch), systemPrompt: agent.state.systemPrompt, prompt }, 'review prompt');
 
     active.add(agent);
     try {

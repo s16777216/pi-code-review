@@ -76,7 +76,7 @@ Used by both commands:
 | `OPENAI_MODEL` | `--model` | Yes | No default on purpose — pick the model explicitly. |
 | `OPENAI_BASE_URL` | `--openai-base-url` | Yes | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint. |
 | `OPENAI_MAX_TOKENS` | `--max-tokens` | No (default `32000`) | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this. |
-| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window. |
+| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window, and to at least about twice `4096` plus `OPENAI_MAX_TOKENS`. |
 | `REVIEW_LANGUAGE` | `--language` | No | The language for finding summaries, e.g. `Traditional Chinese`, `zh-TW`, or `繁體中文`. At most 64 characters, one line. JSON field names, severity values, and the `**[severity]**` label in comments stay in English. Unset keeps English summaries. `review` only. |
 | (n/a) | `--out` | No (default `findings.json`) | Where `review` writes its findings file. |
 
@@ -99,7 +99,7 @@ To create one: **User Settings → Access Tokens** (personal) or **Project Setti
 
 Under `--debug` you get:
 - Every GitLab API call's HTTP method, URL, and response status (never headers or request/response bodies)
-- The exact prompt sent to the AI agent, and its raw response text, before that text is parsed into findings
+- The exact system prompt and prompt sent to the AI agent for each model run (the system prompt shows the `--language` sentence and, in [batches](#large-merge-requests), the batch paragraph), and its raw response text, before that text is parsed into findings
 
 `GITLAB_TOKEN`/`OPENAI_API_KEY`/the `PRIVATE-TOKEN` header are never printed, with or without `--debug` — this is enforced structurally (via [`pino`](https://getpino.io/)'s `redact` option), not by each log call remembering to omit them.
 
@@ -199,6 +199,8 @@ Running from source instead of the npm package: replace `picr` with `node dist/c
 - A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with code `2` without writing a findings file.
 
 Files whose diff is not reviewed (too large, or generated; see [Output](#output)) are not counted in the estimate and are never part of a batch.
+
+**Room for the answer:** a run can answer with at most the context window minus its input minus 4,096 tokens, which `pi-ai` keeps free. The first request of a batch can use up to half of the window, and each file read adds to the input. So set `--context-window` to the model's real window, and to at least about twice `4096 + --max-tokens`. The defaults (`128000` and `32000`) meet this. With a smaller window, a run can stop at the token limit, and `review` fails with an error that names `--max-tokens` and `--context-window`.
 
 **Limit:** a problem that needs code from two batches can be missed. A merge request that fits half of the window is reviewed in one run, as before.
 

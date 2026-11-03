@@ -929,3 +929,52 @@ test('AgentReviewEngine keeps an omitted file out of every batch, and drops its 
     ['diff_omitted', 'diff_omitted'],
   );
 });
+
+// --- System prompt under debug (`log-system-prompt`) ---
+
+test('AgentReviewEngine logs the system prompt of a single run on the review prompt line', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const { logger, debugs } = fullLogger();
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', logger });
+
+  await engine.review(smallContext());
+
+  assert.equal(debugs.length, 3);
+  assert.equal(debugs[0]!.systemPrompt, buildSystemPrompt());
+  assert.equal(debugs[0]!.prompt, buildReviewPrompt(smallContext()));
+});
+
+test('AgentReviewEngine logs the language sentence in the system prompt', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const { logger, debugs } = fullLogger();
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    language: '繁體中文',
+    logger,
+  });
+
+  await engine.review(smallContext());
+
+  assert.equal(debugs[0]!.systemPrompt, buildSystemPrompt('繁體中文'));
+  assert.match(String(debugs[0]!.systemPrompt), /Write every "summary" in 繁體中文\./);
+});
+
+test('AgentReviewEngine logs each batch its own system prompt', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(steps(2, () => fauxAssistantMessage('{"findings": [], "resolved": []}')));
+  const { logger, debugs } = fullLogger();
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
+
+  await engine.review(bigContext(2));
+
+  const lines = debugs.filter((d) => 'prompt' in d) as { batch: number; systemPrompt: string }[];
+  assert.equal(lines.length, 2);
+  for (const line of lines) {
+    assert.equal(line.systemPrompt, buildSystemPrompt(undefined, { index: line.batch, count: 2 }));
+  }
+});
