@@ -24,9 +24,13 @@ The system SHALL build the agent's input from the `ReviewContext`'s title, descr
 ### Requirement: Fail before the model call when the input is too large
 The system SHALL estimate the token size of the first model request of every run before it sends any request. The system MUST fail the review before the first model call when one hunk does not fit the batch budget alone, or when the review needs more than 20 batches. The batch budget is half of the context window, rounded down.
 
-#### Scenario: Input fits the batch budget
+#### Scenario: Input fits the context window
 - **WHEN** the estimated first request of a single run is within the batch budget
 - **THEN** the system sends the request as one run
+
+#### Scenario: Input is too large
+- **WHEN** the estimated first request of a single run is larger than the batch budget, and every hunk fits the batch budget alone
+- **THEN** the system does not fail the review, and reviews the change in batches
 
 #### Scenario: One hunk is too large
 - **WHEN** a hunk's estimated first request, as the only item of a batch, is larger than the batch budget
