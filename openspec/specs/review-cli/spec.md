@@ -16,11 +16,11 @@ The system SHALL expose two commands: `review` and `publish`. The system MUST NO
 - **THEN** the system publishes findings to GitLab without running the AI review or contacting OpenAI
 
 ### Requirement: Review writes findings to a file
-The `review` command SHALL write the findings, the accepted fixed declarations, and the diff refs needed to publish them to a JSON file. The default file path MUST be `findings.json` in the working directory.
+The `review` command SHALL write the findings, the accepted fixed declarations, the unreviewed files, and the diff refs needed to publish them to a JSON file. The default file path MUST be `findings.json` in the working directory.
 
 #### Scenario: Review produces a findings file
 - **WHEN** the `review` command finishes a review
-- **THEN** the system writes a JSON file containing every valid finding, every accepted fixed declaration, and the diff refs for the reviewed merge request
+- **THEN** the system writes a JSON file containing every valid finding, every accepted fixed declaration, every unreviewed file, and the diff refs for the reviewed merge request
 
 #### Scenario: Review produces no findings
 - **WHEN** the `review` command finds no valid findings
@@ -29,6 +29,10 @@ The `review` command SHALL write the findings, the accepted fixed declarations, 
 #### Scenario: Review produces no fixed declarations
 - **WHEN** the `review` command accepts no fixed declaration
 - **THEN** the system writes an empty `resolved` list
+
+#### Scenario: Review omits no file
+- **WHEN** no changed file is omitted
+- **THEN** the system writes an empty `unreviewedFiles` list
 
 ### Requirement: Publish reads findings from a file
 The `publish` command SHALL read findings and diff refs from a JSON file given by a command-line flag, defaulting to `findings.json`. The `publish` command SHALL reject a findings file with an invalid structure before it calls the GitLab API.
@@ -61,8 +65,16 @@ The `publish` command SHALL read findings and diff refs from a JSON file given b
 - **WHEN** the findings file is valid and also contains fields that the system does not know
 - **THEN** the system ignores the extra fields and publishes the findings
 
+#### Scenario: Findings file has no unreviewed files
+- **WHEN** the findings file has no `unreviewedFiles` field
+- **THEN** the system reads it as an empty list of unreviewed files
+
+#### Scenario: Findings file has an invalid unreviewed file
+- **WHEN** an entry in `unreviewedFiles` has no string `path`, or a `reason` that is not `too_large` or `generated`
+- **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, and reports an error that names the entry's index and field
+
 ### Requirement: Review's exit code reflects only process success
-The `review` command's exit code MUST NOT depend on the severity of any finding. It SHALL be non-zero only when the review process itself fails (for example, a GitLab or OpenAI API error).
+The `review` command's exit code MUST NOT depend on the severity of any finding. It SHALL be 0 when the review completes, and 2 when the review process itself fails (for example, a GitLab or OpenAI API error). The `review` command MUST NOT exit with code 1.
 
 #### Scenario: Review finds a severe bug
 - **WHEN** the `review` command completes and writes a findings file containing a finding with severity `important`
@@ -70,18 +82,30 @@ The `review` command's exit code MUST NOT depend on the severity of any finding.
 
 #### Scenario: Review's own process fails
 - **WHEN** the `review` command cannot complete the review (for example, the GitLab API is unreachable)
-- **THEN** the `review` command exits with a non-zero code, and does not write a findings file
+- **THEN** the `review` command exits with code 2, and does not write a findings file
 
 ### Requirement: Publish's exit code reflects the severity-threshold decision
-The `publish` command SHALL decide a pass or fail outcome from the findings it reads and a severity threshold, using the same decision described previously in the `ai-diff-review` capability (see that capability's removed requirement). The `publish` command's exit code SHALL reflect that outcome, after publishing completes.
+The `publish` command SHALL decide a pass or fail outcome from the findings it reads and a severity threshold, using the same decision described previously in the `ai-diff-review` capability (see that capability's removed requirement). After publishing completes, the `publish` command SHALL exit with code 0 for a pass and code 1 for a fail. It SHALL exit with code 2 when an error stops it, and MUST NOT use code 1 for an error.
 
 #### Scenario: A published finding meets the threshold
 - **WHEN** the `publish` command publishes at least one finding whose severity meets or exceeds the configured threshold
-- **THEN** the `publish` command exits with a non-zero code, after publishing every finding
+- **THEN** the `publish` command exits with code 1, after publishing every finding
 
 #### Scenario: No published finding meets the threshold
 - **WHEN** every published finding's severity is below the configured threshold
 - **THEN** the `publish` command exits with code 0
+
+#### Scenario: The findings file is invalid
+- **WHEN** the `publish` command stops because the findings file is invalid
+- **THEN** the `publish` command exits with code 2
+
+#### Scenario: The configuration is invalid
+- **WHEN** the `publish` command stops because a required setting is missing
+- **THEN** the `publish` command exits with code 2
+
+#### Scenario: A discussion fails to post
+- **WHEN** the GitLab API rejects one finding's discussion, and no finding meets the threshold
+- **THEN** the `publish` command logs the failure and exits with code 0
 
 ### Requirement: Each command accepts only the configuration it needs
 The `review` command SHALL accept GitLab connection configuration, OpenAI configuration, and the review language. The `publish` command SHALL accept GitLab connection configuration and the severity threshold. Neither command SHALL accept configuration that only the other command uses.

@@ -5,7 +5,7 @@ The GitLab sink adapter for the `ReviewEngine`. Publishes the engine's findings 
 ## Requirements
 
 ### Requirement: Publish findings as inline merge request comments
-The system SHALL create one GitLab merge request discussion per valid finding, positioned at the finding's file and line, except in the cases below. A finding whose `relatesTo` names an open discussion MUST NOT create a discussion. A finding whose `relatesTo` names a resolved discussion SHALL become a reply in that discussion, and the system SHALL reopen it. A finding with no `relatesTo` MUST NOT create a discussion when an open discussion from this tool has the same anchor.
+The system SHALL create one GitLab merge request discussion per valid finding, at the finding's file and line, except in the cases below. A finding whose `relatesTo` names an open discussion MUST NOT create a discussion. A finding whose `relatesTo` names a resolved discussion SHALL become a reply in that discussion, and the system SHALL reopen it. A finding with no `relatesTo` SHALL be handled in the same way when a discussion from this tool has the same anchor.
 
 #### Scenario: Valid finding becomes an inline comment
 - **WHEN** the system has a valid finding for a changed file and line
@@ -37,7 +37,15 @@ The system SHALL create one GitLab merge request discussion per valid finding, p
 
 #### Scenario: Finding matches a resolved discussion from this tool by anchor
 - **WHEN** a finding has no `relatesTo`, and only a resolved discussion from this tool has the same anchor
-- **THEN** the system creates a new discussion for that finding
+- **THEN** the system adds a reply with the finding's severity and summary to that discussion, and marks the discussion as not resolved
+
+#### Scenario: Finding matches an open and a resolved discussion by anchor
+- **WHEN** a finding has no `relatesTo`, and both an open and a resolved discussion from this tool have the same anchor
+- **THEN** the system does not create a discussion or a reply for that finding
+
+#### Scenario: Finding matches two resolved discussions by anchor
+- **WHEN** a finding has no `relatesTo`, and two resolved discussions from this tool have the same anchor
+- **THEN** the system replies in, and reopens, the one that comes last in the merge request's list of discussions
 
 #### Scenario: Finding is on the same line as a person's discussion
 - **WHEN** a finding has no `relatesTo`, and a discussion from a person is on the same line
@@ -94,3 +102,49 @@ For each fixed declaration in the findings file, the system SHALL add a reply wi
 #### Scenario: Pass or fail ignores declarations
 - **WHEN** the findings file has declarations and findings
 - **THEN** the system decides pass or fail from the findings only
+
+### Requirement: Merge findings on the same line into one comment
+After the system decides what to do with each finding, it SHALL create one discussion for all findings that would each create a discussion on the same file and line, and one reply for all findings that would each reply to the same discussion. The comment MUST start with one marker line, followed by one `**[severity]** summary` paragraph for each finding, in findings file order.
+
+#### Scenario: Two findings on the same line
+- **WHEN** two findings without `relatesTo` are on the same file and line, and no discussion from this tool has their anchor
+- **THEN** the system creates one discussion at that position, whose body has the marker line and then both findings, each with its own severity
+
+#### Scenario: Two findings on different lines with the same text
+- **WHEN** two findings are on different lines of the same file, and the two lines have the same text
+- **THEN** the system creates one discussion for each finding
+
+#### Scenario: Two findings reply to the same discussion
+- **WHEN** two findings would each reply to the same resolved discussion
+- **THEN** the system adds one reply with both findings, and reopens the discussion once
+
+#### Scenario: One finding in a group
+- **WHEN** only one finding would create a discussion at a file and line
+- **THEN** the discussion body is the marker line followed by that finding's severity and summary, as before
+
+### Requirement: Keep one comment that lists files too large to review
+When the findings file has unreviewed files with the reason `too_large`, the system SHALL keep one general merge request comment from this tool that starts with `<!-- pi-code-review unreviewed -->` and lists their paths. The system SHALL update that comment instead of creating a second one. Files with the reason `generated` MUST NOT be listed. A failure MUST NOT stop `publish`.
+
+#### Scenario: First run with a file too large
+- **WHEN** the findings file has one file with the reason `too_large`, and the merge request has no such comment from this tool
+- **THEN** the system creates one general comment that starts with the marker and names that file
+
+#### Scenario: Same files on a later run
+- **WHEN** the merge request already has the comment, and its body is the body that the system would write
+- **THEN** the system does not create or update a comment
+
+#### Scenario: Different files on a later run
+- **WHEN** the merge request already has the comment, and the files too large are different
+- **THEN** the system updates that comment to list the current files, and creates no other comment
+
+#### Scenario: No file is too large any more
+- **WHEN** the merge request has the comment, and the findings file has no file with the reason `too_large`
+- **THEN** the system updates the comment to say that every changed file was reviewed
+
+#### Scenario: Only generated files
+- **WHEN** the findings file has only files with the reason `generated`, and the merge request has no such comment
+- **THEN** the system creates no comment
+
+#### Scenario: Creating the comment fails
+- **WHEN** the GitLab API rejects the request to create or update the comment
+- **THEN** the system writes one `warn` log line and continues
