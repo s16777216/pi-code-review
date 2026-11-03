@@ -71,10 +71,10 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile> {
     language: config.language,
     logger,
   });
-  const { findings, resolved } = await engine.review(context);
+  const { findings, resolved, unreviewedFiles } = await engine.review(context);
   logger.info(`Review produced ${findings.length} finding(s) and ${resolved.length} fixed discussion(s).`);
 
-  return { diffRefs: sourceProvider.getDiffRefs(), findings, resolved };
+  return { diffRefs: sourceProvider.getDiffRefs(), findings, resolved, unreviewedFiles };
 }
 
 export interface PublishOptions {
@@ -100,7 +100,7 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
     diffRefs: findingsFile.diffRefs,
     logger,
   });
-  await sinkProvider.publish(findingsFile.findings, findingsFile.resolved);
+  await sinkProvider.publish(findingsFile.findings, findingsFile.resolved, findingsFile.unreviewedFiles);
 
   const passed = decidePassFail(findingsFile.findings, config.failOnSeverity);
   logger.info(`Result: ${passed ? 'pass' : 'fail'} (threshold: ${config.failOnSeverity}).`);
@@ -180,9 +180,18 @@ function resolveDebug(flag: boolean | undefined): boolean {
   return flag ?? (process.env.DEBUG === 'true' || process.env.DEBUG === '1');
 }
 
+/** Exit codes (`distinguish-exit-codes` design, Decision 1): `publish` uses
+ * `EXIT_PASS` and `EXIT_FAIL` for the severity-threshold decision, and every
+ * error that stops either command exits with `EXIT_ERROR`, so a CI job can
+ * tell a failed review gate from a failed tool. */
+export const EXIT_PASS = 0;
+export const EXIT_FAIL = 1;
+export const EXIT_ERROR = 2;
+
 /** Real wiring for `review`: builds the real GitLab client and the real
  * OpenAI provider, then delegates to `runReview()`. Exits 0 whenever the
- * review process itself completes, regardless of what it found — see the
+ * review process itself completes, regardless of what it found, and never
+ * exits 1; an error exits 2 at the entrypoint — see the
  * `review-cli` spec's "Review's exit code reflects only process success"
  * requirement. Exits 0 without writing a findings file when the pipeline is
  * not a merge request pipeline. */
@@ -193,7 +202,7 @@ export async function runReviewCommand(argv: string[]): Promise<number> {
 
   if (!isMergeRequestPipeline(cliOptions)) {
     logger.info('Not a merge request pipeline; skipping review.');
-    return 0;
+    return EXIT_PASS;
   }
 
   const config = loadReviewConfig(cliOptions);
@@ -207,7 +216,7 @@ export async function runReviewCommand(argv: string[]): Promise<number> {
   const findingsFile = await runReview({ config, client, provider: openaiProvider(), logger });
   await writeFindingsFile(outPath, findingsFile);
   logger.info(`Wrote findings to "${outPath}".`);
-  return 0;
+  return EXIT_PASS;
 }
 
 /** Real wiring for `publish`: reads the findings file, builds the real
@@ -232,7 +241,7 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
   });
 
   const passed = await runPublish({ config, client, findingsFile, logger });
-  return passed ? 0 : 1;
+  return passed ? EXIT_PASS : EXIT_FAIL;
 }
 
 /** Dispatches to `review` or `publish` by the first positional argument.
@@ -273,6 +282,6 @@ if (isEntrypoint) {
       // failed) — `error`-level output is shown at either log level, so a
       // plain `info`-level logger is enough here.
       buildLogger(false).error(error instanceof Error ? error.message : String(error));
-      process.exitCode = 1;
+      process.exitCode = EXIT_ERROR;
     });
 }

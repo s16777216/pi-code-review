@@ -2,10 +2,17 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider, TextContent } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
-import type { ChangedFileDiff, Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
+import type {
+  ChangedFileDiff,
+  Finding,
+  ResolvedDiscussion,
+  ReviewContext,
+  ReviewResult,
+  UnreviewedFile,
+} from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
 import { computeAnchor } from './anchor.ts';
-import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
+import { itemPath, MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { checkNewFileLine, getNewFileLineText } from './diff.ts';
 import { parseReviewOutput, ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { buildReviewPrompt, type PromptBatch } from './prompt.ts';
@@ -86,6 +93,7 @@ export class AgentReviewEngine implements ReviewEngine {
    * runs the checks once on the merged output (Decision 6). */
   async review(context: ReviewContext): Promise<ReviewResult> {
     const logger = this.options.logger ?? silentLogger();
+    const unreviewedFiles = listUnreviewedFiles(context, logger);
     const runs = this.planRuns(context, logger);
     const outputs = await this.runAll(context, runs, logger);
 
@@ -99,7 +107,8 @@ export class AgentReviewEngine implements ReviewEngine {
       }
     });
 
-    return runChecks({ findings, resolved: [...resolvedById.values()] }, context, logger);
+    const checked = await runChecks({ findings, resolved: [...resolvedById.values()] }, context, logger);
+    return { ...checked, unreviewedFiles };
   }
 
   /** One `undefined` for a single run, or one batch for each run
@@ -115,7 +124,8 @@ export class AgentReviewEngine implements ReviewEngine {
     // shorter text than the real one.
     const fits = (items: BatchItem[]) =>
       this.estimateFirstRequest(context, { items, index: MAX_BATCHES, count: MAX_BATCHES }) <= budget;
-    const batches = planBatches(context.changedFiles, fits, contextWindow);
+    const reviewable = context.changedFiles.filter((file) => file.omitted === undefined);
+    const batches = planBatches(reviewable, fits, contextWindow);
     logger.info({ batches: batches.length }, `Reviewing the change in ${batches.length} batches.`);
     return batches.map((items, i) => ({ items, index: i + 1, count: batches.length }));
   }
@@ -213,7 +223,9 @@ export class AgentReviewEngine implements ReviewEngine {
   ): Promise<RunOutcome> {
     const agent = this.createAgent(context, batch);
     const prompt = buildReviewPrompt(context, batch);
-    logger.debug({ ...batchField(batch), prompt }, 'review prompt');
+    // The system prompt as the agent holds it, so the log shows exactly what
+    // this run sends (`log-system-prompt` design, Decision 1).
+    logger.debug({ ...batchField(batch), systemPrompt: agent.state.systemPrompt, prompt }, 'review prompt');
 
     active.add(agent);
     try {
@@ -289,6 +301,7 @@ function keepOwnLines(findings: Finding[], batch: PromptBatch, context: ReviewCo
   const ownFiles = [...own.values()];
 
   return findings.filter((finding) => {
+    if (isOmitted(context, finding.file)) return true; // dropped by `runChecks` as `diff_omitted`
     if (checkNewFileLine(context.changedFiles, finding.file, finding.line) !== 'ok') return true;
     if (checkNewFileLine(ownFiles, finding.file, finding.line) === 'ok') return true;
     logger.warn(
@@ -299,12 +312,41 @@ function keepOwnLines(findings: Finding[], batch: PromptBatch, context: ReviewCo
   });
 }
 
+/** True when `path` is a changed file whose diff is omitted. */
+function isOmitted(context: ReviewContext, path: string): boolean {
+  return context.changedFiles.some((file) => file.omitted !== undefined && file.newPath === path);
+}
+
+/** Every omitted changed file, in path order, with one `warn` line for each
+ * file that is too large. A generated file is expected, so it gets no `warn`
+ * line (`handle-omitted-diffs` design, Decision 4). */
+function listUnreviewedFiles(context: ReviewContext, logger: Logger): UnreviewedFile[] {
+  const unreviewed = context.changedFiles
+    .filter((file): file is ChangedFileDiff & { omitted: NonNullable<ChangedFileDiff['omitted']> } => file.omitted !== undefined)
+    .map((file) => ({ path: itemPath(file), reason: file.omitted }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  for (const file of unreviewed) {
+    if (file.reason === 'too_large') {
+      logger.warn({ file: file.path, reason: file.reason }, 'did not review a changed file: its diff is too large');
+    }
+  }
+  return unreviewed;
+}
+
 /** The fixed checks, in their existing order, on one merged output:
  * `relatesTo`, the diff line check, the anchor, and the fixed declarations. */
-async function runChecks(output: ParsedReviewOutput, context: ReviewContext, logger: Logger): Promise<ReviewResult> {
+async function runChecks(
+  output: ParsedReviewOutput,
+  context: ReviewContext,
+  logger: Logger,
+): Promise<Omit<ReviewResult, 'unreviewedFiles'>> {
   const findings = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
-      const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
+      // The review did not show this file's diff, so it does not report on it
+      // (`handle-omitted-diffs` design, Decision 3).
+      const reason = isOmitted(context, finding.file)
+        ? 'diff_omitted'
+        : checkNewFileLine(context.changedFiles, finding.file, finding.line);
       if (reason === 'ok') return true;
       logger.warn(
         { file: finding.file, line: finding.line, reason },

@@ -9,6 +9,7 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
   const data: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 3, severity: 'important', summary: 'Off-by-one.' }],
@@ -27,6 +28,7 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
   const data: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
@@ -128,7 +130,7 @@ test('readFindingsFile ignores unknown extra fields', async () => {
     findings: [{ ...validFinding, note: 'extra' }],
   });
 
-  assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding], resolved: [] });
+  assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding], resolved: [], unreviewedFiles: [] });
 });
 
 test('readFindingsFile keeps a finding\'s relatesTo', async () => {
@@ -156,3 +158,31 @@ test('readFindingsFile rejects an invalid fixed declaration', async () => {
     (error: unknown) => error instanceof FindingsFileError && /"reason"/.test(error.message),
   );
 });
+
+test('readFindingsFile reads a file without "unreviewedFiles" as an empty list', async () => {
+  const result = await readRaw({ diffRefs: validRefs, findings: [] });
+  assert.deepEqual(result.unreviewedFiles, []);
+});
+
+test('readFindingsFile keeps valid unreviewed files', async () => {
+  const unreviewedFiles = [
+    { path: 'big.js', reason: 'too_large' },
+    { path: 'yarn.lock', reason: 'generated' },
+  ];
+  const result = await readRaw({ diffRefs: validRefs, findings: [], unreviewedFiles });
+  assert.deepEqual(result.unreviewedFiles, unreviewedFiles);
+});
+
+for (const [name, unreviewedFiles, field] of [
+  ['not an array', 'big.js', /"unreviewedFiles" is not an array/],
+  ['an entry that is not an object', ['big.js'], /index 0 is not an object/],
+  ['an entry with no path', [{ reason: 'too_large' }], /index 0 is missing a "path"/],
+  ['an entry with an unknown reason', [{ path: 'a', reason: 'huge' }], /index 0 has an invalid "reason"/],
+] as const) {
+  test(`readFindingsFile rejects unreviewed files: ${name}`, async () => {
+    await assert.rejects(
+      () => readRaw({ diffRefs: validRefs, findings: [], unreviewedFiles }),
+      (error: unknown) => error instanceof FindingsFileError && field.test(error.message),
+    );
+  });
+}

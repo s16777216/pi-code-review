@@ -122,22 +122,22 @@ test('listDiscussions maps GitLab discussions, drops system notes, and marks thi
       id: 'own',
       position: { newPath: 'a.ts', newLine: 3, headSha: 'h0' },
       notes: [
-        { author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Bug.', system: false, resolvable: true, resolved: true },
-        { author: 'alice', body: 'Fixed, thanks.', system: false, resolvable: true, resolved: true },
+        { id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Bug.', system: false, resolvable: true, resolved: true },
+        { id: 1, author: 'alice', body: 'Fixed, thanks.', system: false, resolvable: true, resolved: true },
       ],
     },
     {
       id: 'person',
       position: null,
       notes: [
-        { author: 'carol', body: 'added 1 commit', system: true, resolvable: false, resolved: false },
-        { author: 'bob', body: 'This is intentional.', system: false, resolvable: false, resolved: false },
+        { id: 1, author: 'carol', body: 'added 1 commit', system: true, resolvable: false, resolved: false },
+        { id: 1, author: 'bob', body: 'This is intentional.', system: false, resolvable: false, resolved: false },
       ],
     },
     {
       id: 'only-system',
       position: null,
-      notes: [{ author: 'carol', body: 'changed the description', system: true, resolvable: false, resolved: false }],
+      notes: [{ id: 1, author: 'carol', body: 'changed the description', system: true, resolvable: false, resolved: false }],
     },
   ];
   const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
@@ -176,8 +176,8 @@ test('listDiscussions treats a discussion as open while any resolvable note is u
       id: 'd',
       position: null,
       notes: [
-        { author: 'a', body: 'x', system: false, resolvable: true, resolved: true },
-        { author: 'b', body: 'y', system: false, resolvable: true, resolved: false },
+        { id: 1, author: 'a', body: 'x', system: false, resolvable: true, resolved: true },
+        { id: 1, author: 'b', body: 'y', system: false, resolvable: true, resolved: false },
       ],
     },
   ];
@@ -213,6 +213,7 @@ test('listDiscussions reads the anchor from the marker of a discussion this tool
       position: null,
       notes: [
         {
+          id: 1,
           author: 'bot',
           body: '<!-- pi-code-review anchor=3f9a1c0b2d4e5f60 -->\n**[nit]** x',
           system: false,
@@ -224,7 +225,7 @@ test('listDiscussions reads the anchor from the marker of a discussion this tool
     {
       id: 'without-anchor',
       position: null,
-      notes: [{ author: 'bot', body: '<!-- pi-code-review -->\n**[nit]** y', system: false, resolvable: true, resolved: false }],
+      notes: [{ id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[nit]** y', system: false, resolvable: true, resolved: false }],
     },
   ];
   const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
@@ -252,4 +253,29 @@ test('buildReviewContext marks a file that the change deletes', async () => {
 
   assert.equal(context.changedFiles[0]!.deleted, true);
   assert.equal('deleted' in context.changedFiles[1]!, false);
+});
+
+test('GitLabSourceProvider marks omitted files, with too_large before generated', async () => {
+  const fake = new FakeMergeRequestProvider(
+    { title: 't', description: 'd', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [
+      { oldPath: 'big.js', newPath: 'big.js', diffHunks: '', tooLarge: true },
+      { oldPath: 'yarn.lock', newPath: 'yarn.lock', diffHunks: '@@ -1 +1 @@\n-a\n+b', generatedFile: true },
+      { oldPath: 'gen.min.js', newPath: 'gen.min.js', diffHunks: '', tooLarge: true, generatedFile: true },
+      { oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1 +1 @@\n-a\n+b' },
+    ],
+    {},
+  );
+
+  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+
+  assert.deepEqual(
+    context.changedFiles.map((file) => [file.newPath, file.omitted ?? null, file.hunks]),
+    [
+      ['big.js', 'too_large', ''],
+      ['yarn.lock', 'generated', '@@ -1 +1 @@\n-a\n+b'],
+      ['gen.min.js', 'too_large', ''],
+      ['a.ts', null, '@@ -1 +1 @@\n-a\n+b'],
+    ],
+  );
 });

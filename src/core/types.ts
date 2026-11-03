@@ -19,6 +19,21 @@ export interface ChangedFileDiff {
   hunks: string;
   /** `true` when the change deletes this file. */
   deleted?: boolean;
+  /** Set when the host gives no diff to review for this file: `too_large`
+   * when the host left the diff out for its size, `generated` when the host
+   * marks the file as generated. The review does not show an omitted file's
+   * diff (`handle-omitted-diffs` design, Decision 1). */
+  omitted?: OmittedReason;
+}
+
+/** Why a changed file's diff is not reviewed. */
+export type OmittedReason = 'too_large' | 'generated';
+
+/** A changed file that the review did not review. */
+export interface UnreviewedFile {
+  /** The new path, or the old path of a deleted file. */
+  path: string;
+  reason: OmittedReason;
 }
 
 /** One note in a `ReviewDiscussion`. */
@@ -86,4 +101,6 @@ export interface ReviewResult {
   findings: Finding[];
   /** Fixed declarations that passed every check (see `resolve-fixed-discussions`). */
   resolved: ResolvedDiscussion[];
+  /** Every omitted changed file, in path order (see `handle-omitted-diffs`). */
+  unreviewedFiles: UnreviewedFile[];
 }

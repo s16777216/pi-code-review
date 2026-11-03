@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import type { GitLabDiffRefs } from './providers/index.ts';
-import type { Finding, ResolvedDiscussion } from './core/types.ts';
+import type { Finding, ResolvedDiscussion, UnreviewedFile } from './core/types.ts';
 import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
 
 /** What `review` writes and `publish` reads. `diffRefs` is the one thing
@@ -13,6 +13,9 @@ export interface FindingsFile {
   /** Fixed declarations that passed the engine's checks. A file without this
    * field (from an older `review`) reads as an empty list. */
   resolved: ResolvedDiscussion[];
+  /** Changed files the review did not review. A file without this field
+   * (from an older `review`) reads as an empty list. */
+  unreviewedFiles: UnreviewedFile[];
 }
 
 export class FindingsFileError extends Error {}
@@ -69,7 +72,7 @@ function validateFindingsFile(value: unknown): FindingsFile {
     throw new Error('the top-level value is not an object.');
   }
 
-  const { diffRefs, findings, resolved = [] } = value;
+  const { diffRefs, findings, resolved = [], unreviewedFiles = [] } = value;
   if (!isObject(diffRefs)) {
     throw new Error('"diffRefs" is missing or is not an object.');
   }
@@ -86,6 +89,9 @@ function validateFindingsFile(value: unknown): FindingsFile {
   if (!Array.isArray(resolved)) {
     throw new Error('"resolved" is not an array.');
   }
+  if (!Array.isArray(unreviewedFiles)) {
+    throw new Error('"unreviewedFiles" is not an array.');
+  }
 
   return {
     diffRefs: {
@@ -95,5 +101,24 @@ function validateFindingsFile(value: unknown): FindingsFile {
     },
     findings: findings.map((item, index) => validateFinding(item, index)),
     resolved: resolved.map((item, index) => validateResolvedDiscussion(item, index)),
+    unreviewedFiles: unreviewedFiles.map((item, index) => validateUnreviewedFile(item, index)),
   };
+}
+
+const UNREVIEWED_REASONS: readonly string[] = ['too_large', 'generated'];
+
+function validateUnreviewedFile(item: unknown, index: number): UnreviewedFile {
+  if (!isObject(item)) {
+    throw new Error(`Unreviewed file at index ${index} is not an object.`);
+  }
+  const { path, reason } = item;
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new Error(`Unreviewed file at index ${index} is missing a "path" string.`);
+  }
+  if (typeof reason !== 'string' || !UNREVIEWED_REASONS.includes(reason)) {
+    throw new Error(
+      `Unreviewed file at index ${index} has an invalid "reason": ${JSON.stringify(reason)}. Must be one of ${UNREVIEWED_REASONS.join(', ')}.`,
+    );
+  }
+  return { path, reason: reason as UnreviewedFile['reason'] };
 }

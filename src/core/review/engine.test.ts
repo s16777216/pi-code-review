@@ -851,3 +851,130 @@ test('AgentReviewEngine aborts the active runs and starts no more when a batch f
   assert.equal(started.includes(4), false);
   assert.deepEqual(aborted.sort(), [1, 3]);
 });
+
+// --- Omitted files (`handle-omitted-diffs`) ---
+
+test('AgentReviewEngine drops a finding on a generated file and reports the omitted files', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage(
+      JSON.stringify({
+        findings: [
+          { file: 'yarn.lock', line: 1, severity: 'nit', summary: 'Lock file.' },
+          { file: 'a.ts', line: 1, severity: 'nit', summary: 'Real.' },
+        ],
+        resolved: [],
+      }),
+    ),
+  ]);
+  const { logger, warnings } = fullLogger();
+  const context = smallContext();
+  context.changedFiles.push(
+    { oldPath: 'yarn.lock', newPath: 'yarn.lock', hunks: '@@ -1 +1 @@\n-x\n+y', omitted: 'generated' },
+    { oldPath: 'big.js', newPath: 'big.js', hunks: '', omitted: 'too_large' },
+  );
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', logger });
+
+  const { findings, unreviewedFiles } = await engine.review(context);
+
+  assert.deepEqual(
+    findings.map((f) => f.summary),
+    ['Real.'],
+  );
+  assert.deepEqual(unreviewedFiles, [
+    { path: 'big.js', reason: 'too_large' },
+    { path: 'yarn.lock', reason: 'generated' },
+  ]);
+  assert.deepEqual(warnings, [
+    { file: 'big.js', reason: 'too_large' },
+    { file: 'yarn.lock', line: 1, reason: 'diff_omitted' },
+  ]);
+});
+
+test('AgentReviewEngine returns no unreviewed files when nothing is omitted', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k' });
+
+  assert.deepEqual((await engine.review(smallContext())).unreviewedFiles, []);
+});
+
+test('AgentReviewEngine keeps an omitted file out of every batch, and drops its findings as diff_omitted', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(
+    steps(2, () =>
+      fauxAssistantMessage(
+        JSON.stringify({ findings: [{ file: 'gen.ts', line: 1, severity: 'nit', summary: 'Generated.' }], resolved: [] }),
+      ),
+    ),
+  );
+  const { logger, debugs, warnings } = fullLogger();
+  // Without the omitted file the change needs 2 batches; a generated file
+  // of the same size must not add a third.
+  const context = bigContext(2);
+  context.changedFiles.push({ ...bigFile('gen.ts'), omitted: 'generated' });
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
+
+  const { findings } = await engine.review(context);
+
+  assert.equal(faux.state.callCount, 2);
+  assert.deepEqual(findings, []);
+  for (const { prompt } of debugs.filter((d) => 'prompt' in d) as { prompt: string }[]) {
+    assert.match(prompt, /^- gen\.ts \(added, diff not shown: generated file\)$/m);
+    assert.doesNotMatch(prompt, /^### gen\.ts/m);
+  }
+  assert.deepEqual(
+    warnings.map((w) => w.reason),
+    ['diff_omitted', 'diff_omitted'],
+  );
+});
+
+// --- System prompt under debug (`log-system-prompt`) ---
+
+test('AgentReviewEngine logs the system prompt of a single run on the review prompt line', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const { logger, debugs } = fullLogger();
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', logger });
+
+  await engine.review(smallContext());
+
+  assert.equal(debugs.length, 3);
+  assert.equal(debugs[0]!.systemPrompt, buildSystemPrompt());
+  assert.equal(debugs[0]!.prompt, buildReviewPrompt(smallContext()));
+});
+
+test('AgentReviewEngine logs the language sentence in the system prompt', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const { logger, debugs } = fullLogger();
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    language: '繁體中文',
+    logger,
+  });
+
+  await engine.review(smallContext());
+
+  assert.equal(debugs[0]!.systemPrompt, buildSystemPrompt('繁體中文'));
+  assert.match(String(debugs[0]!.systemPrompt), /Write every "summary" in 繁體中文\./);
+});
+
+test('AgentReviewEngine logs each batch its own system prompt', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(steps(2, () => fauxAssistantMessage('{"findings": [], "resolved": []}')));
+  const { logger, debugs } = fullLogger();
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
+
+  await engine.review(bigContext(2));
+
+  const lines = debugs.filter((d) => 'prompt' in d) as { batch: number; systemPrompt: string }[];
+  assert.equal(lines.length, 2);
+  for (const line of lines) {
+    assert.equal(line.systemPrompt, buildSystemPrompt(undefined, { index: line.batch, count: 2 }));
+  }
+});

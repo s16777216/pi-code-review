@@ -44,6 +44,16 @@ picr publish  [flags]   # read findings.json, post inline comments, decide pass/
 - **`publish`** reads the findings file `review` wrote, publishes every finding, and only then decides pass/fail from the severity threshold. Publishing always happens first, so a severity threshold can never prevent a finding from reaching the merge request.
 - Each command only accepts the flags it needs. `review` has no `--fail-on`; `publish` has no `--model`/`--openai-base-url`/`--openai-api-key`.
 
+### Exit codes
+
+| Code | `review` | `publish` |
+|---|---|---|
+| `0` | The review completed (whatever it found), or this is not a merge request pipeline | Every finding was published, and none meets `FAIL_ON_SEVERITY` |
+| `1` | Never | Every finding was published, and at least one meets `FAIL_ON_SEVERITY` |
+| `2` | An error stopped the review (configuration, GitLab or OpenAI API); no findings file is written | An error stopped `publish` (configuration, an invalid findings file, the GitLab API) |
+
+So `1` means "the review gate failed", and `2` means "the tool failed". A discussion that fails to post is logged, and does not change the code.
+
 ## Configuration
 
 Every setting can come from an environment variable or a CLI flag. **A CLI flag always wins over its matching environment variable when both are given.** Secrets (`OPENAI_API_KEY`, `GITLAB_TOKEN`) should normally stay environment variables — see [Running locally](#running-locally) for the trade-off of passing them as flags instead.
@@ -66,7 +76,7 @@ Used by both commands:
 | `OPENAI_MODEL` | `--model` | Yes | No default on purpose — pick the model explicitly. |
 | `OPENAI_BASE_URL` | `--openai-base-url` | Yes | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint. |
 | `OPENAI_MAX_TOKENS` | `--max-tokens` | No (default `32000`) | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this. |
-| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window. |
+| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window, and to at least about twice `4096` plus `OPENAI_MAX_TOKENS`. |
 | `REVIEW_LANGUAGE` | `--language` | No | The language for finding summaries, e.g. `Traditional Chinese`, `zh-TW`, or `繁體中文`. At most 64 characters, one line. JSON field names, severity values, and the `**[severity]**` label in comments stay in English. Unset keeps English summaries. `review` only. |
 | (n/a) | `--out` | No (default `findings.json`) | Where `review` writes its findings file. |
 
@@ -74,7 +84,7 @@ Used by both commands:
 
 | Environment variable | CLI flag | Required | Notes |
 |---|---|---|---|
-| `FAIL_ON_SEVERITY` | `--fail-on` | No (default `important`) | `important`, `nit`, or `none`. `publish`'s exit code is non-zero when any published finding meets or exceeds this threshold; `none` always exits 0. |
+| `FAIL_ON_SEVERITY` | `--fail-on` | No (default `important`) | `important`, `nit`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
 | (n/a) | `--from` | No (default `findings.json`) | Which findings file `publish` reads. |
 
 ### Auth
@@ -89,7 +99,7 @@ To create one: **User Settings → Access Tokens** (personal) or **Project Setti
 
 Under `--debug` you get:
 - Every GitLab API call's HTTP method, URL, and response status (never headers or request/response bodies)
-- The exact prompt sent to the AI agent, and its raw response text, before that text is parsed into findings
+- The exact system prompt and prompt sent to the AI agent for each model run (the system prompt shows the `--language` sentence and, in [batches](#large-merge-requests), the batch paragraph), and its raw response text, before that text is parsed into findings
 
 `GITLAB_TOKEN`/`OPENAI_API_KEY`/the `PRIVATE-TOKEN` header are never printed, with or without `--debug` — this is enforced structurally (via [`pino`](https://getpino.io/)'s `redact` option), not by each log call remembering to omit them.
 
@@ -117,6 +127,13 @@ publish:
   script:
     - npm install -g @s16777216/pi-code-review
     - picr publish
+```
+
+To let the review gate warn without blocking the pipeline, while a broken setup (exit code `2`) still fails the job, add this to the `publish` job:
+
+```yaml
+  allow_failure:
+    exit_codes: [1]
 ```
 
 `CI_API_V4_URL`, `CI_PROJECT_ID`, and `CI_MERGE_REQUEST_IID` are already set by GitLab CI. `GITLAB_TOKEN` is not — set it yourself as a masked CI/CD variable (**Settings → CI/CD → Variables**), holding a personal or project access token (see [Auth](#auth)); both jobs need it. Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL` the same way — only the `review` job needs those three.
@@ -179,7 +196,11 @@ Running from source instead of the npm package: replace `picr` with `node dist/c
 - Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file with `get_file_content`.
 - A finding from a batch counts only on a line of that batch's own diffs. The outputs of all batches are merged, and the usual checks (linked discussions, diff lines, anchors, fixed declarations) run once on the merged output.
 - At most 20 batches, and at most 3 run at the same time. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
-- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with a non-zero code without writing a findings file.
+- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with code `2` without writing a findings file.
+
+Files whose diff is not reviewed (too large, or generated; see [Output](#output)) are not counted in the estimate and are never part of a batch.
+
+**Room for the answer:** a run can answer with at most the context window minus its input minus 4,096 tokens, which `pi-ai` keeps free. The first request of a batch can use up to half of the window, and each file read adds to the input. So set `--context-window` to the model's real window, and to at least about twice `4096 + --max-tokens`. The defaults (`128000` and `32000`) meet this. With a smaller window, a run can stop at the token limit, and `review` fails with an error that names `--max-tokens` and `--context-window`.
 
 **Limit:** a problem that needs code from two batches can be missed. A merge request that fits half of the window is reviewed in one run, as before.
 
@@ -196,16 +217,25 @@ The agent can also declare that one of this tool's own open comments is fixed, w
 ## Output
 
 `review` writes:
-- A findings file (default `findings.json`) — the findings plus the diff refs `publish` needs
+- A findings file (default `findings.json`) — the findings, the fixed declarations, the unreviewed files, and the diff refs `publish` needs
+
+Some changed files are not reviewed, and are listed in the findings file as `unreviewedFiles`:
+- `too_large`: GitLab does not return a diff that is over its size limit. `review` logs a warning for each such file.
+- `generated`: GitLab marks the file as generated, for example a lock file. Its diff is left out of the review on purpose.
+
+The review input shows these files with the reason and no diff, and a finding on them is dropped. The agent can still read them with `get_file_content`.
 
 `publish` writes/does:
 - One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
   - a finding whose `relatesTo` names an **open** discussion posts nothing (it is already being discussed);
   - a finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened;
-  - a finding without `relatesTo` posts nothing when an open discussion from this tool already sits on the same code (same file and same line text, so a reworded finding or a moved line still matches).
+  - a finding without `relatesTo` is matched to a discussion from this tool on the same code (same file and same line text, so a reworded finding or a moved line still matches): it posts nothing when that discussion is **open**, and is posted as a reply that reopens it when that discussion is **resolved** (the newest one, if there are several).
+
+  Findings that would post on the same file and line become one comment, and findings that would reply to the same discussion become one reply. The comment has one paragraph for each finding, each with its own severity.
 
   Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
-- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise. Every finding in the file counts, including the ones that posted nothing
+- One general merge request comment that lists the files too large to review, when there are any. Later runs update the same comment instead of adding another one, and when no file is too large any more, it says that every changed file was reviewed. Generated files are not listed.
+- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise, and `2` for an error (see [Exit codes](#exit-codes)). Every finding in the file counts, including the ones that posted nothing
 
 ## Development
 

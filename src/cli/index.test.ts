@@ -47,6 +47,16 @@ class FakeClient implements MergeRequestProvider, MergeRequestWriter {
 
   async setDiscussionResolved(): Promise<void> {}
 
+  notes: { body: string; noteId?: number }[] = [];
+
+  async createNote(_mergeRequestIid: string, body: string): Promise<void> {
+    this.notes.push({ body });
+  }
+
+  async updateNote(_mergeRequestIid: string, noteId: number, body: string): Promise<void> {
+    this.notes.push({ body, noteId });
+  }
+
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {
     this.discussions.push({ mergeRequestIid, body, position });
   }
@@ -166,6 +176,7 @@ test('runPublish publishes every finding', async () => {
     [],
   );
   const findingsFile: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor nit.' }],
@@ -195,6 +206,7 @@ test('runPublish publishes an important finding before failing on it (severity n
     [],
   );
   const findingsFile: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.' }],
@@ -217,6 +229,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
     [],
   );
   const findingsFile: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
@@ -245,11 +258,12 @@ test('runPublish still fails on an important finding that relates to an open dis
       id: 'd1',
       position: { newPath: 'a.ts', newLine: 2, headSha: 'old' },
       notes: [
-        { author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Off-by-one.', system: false, resolvable: true, resolved: false },
+        { id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Off-by-one.', system: false, resolvable: true, resolved: false },
       ],
     },
   ];
   const findingsFile: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
@@ -267,10 +281,30 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
     [],
   );
   const findingsFile: FindingsFile = {
+    unreviewedFiles: [],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
   };
 
   assert.equal(await runPublish({ config: fixturePublishConfig(), client, findingsFile }), true);
+});
+
+test('runReview writes the omitted files, and runPublish passes them to the sink', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const client = new FakeClient(
+    { title: 'Big', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [
+      { oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' },
+      { oldPath: 'big.js', newPath: 'big.js', diffHunks: '', tooLarge: true },
+    ],
+  );
+
+  const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
+  assert.deepEqual(findingsFile.unreviewedFiles, [{ path: 'big.js', reason: 'too_large' }]);
+
+  await runPublish({ config: fixturePublishConfig(), client, findingsFile });
+  assert.equal(client.notes.length, 1);
+  assert.match(client.notes[0]!.body, /^<!-- pi-code-review unreviewed -->\n[\s\S]*`big\.js`/);
 });
