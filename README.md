@@ -202,7 +202,9 @@ The agent can also declare that one of this tool's own open comments is fixed, w
 - One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
   - a finding whose `relatesTo` names an **open** discussion posts nothing (it is already being discussed);
   - a finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened;
-  - a finding without `relatesTo` posts nothing when an open discussion from this tool already sits on the same code (same file and same line text, so a reworded finding or a moved line still matches).
+  - a finding without `relatesTo` is matched to a discussion from this tool on the same code (same file and same line text, so a reworded finding or a moved line still matches): it posts nothing when that discussion is **open**, and is posted as a reply that reopens it when that discussion is **resolved** (the newest one, if there are several).
+
+  Findings that would post on the same file and line become one comment, and findings that would reply to the same discussion become one reply. The comment has one paragraph for each finding, each with its own severity.
 
   Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
 - Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise. Every finding in the file counts, including the ones that posted nothing

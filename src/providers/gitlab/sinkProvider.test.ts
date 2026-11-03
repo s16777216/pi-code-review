@@ -213,13 +213,59 @@ test('publish skips a finding without relatesTo when an open discussion from thi
   assert.equal(writer.calls.length, 0);
 });
 
-test('publish creates a new discussion when only a resolved discussion from this tool has the same anchor', async () => {
+test('publish replies to and reopens a resolved discussion from this tool that has the same anchor', async () => {
   const writer = new FakeWriter();
   writer.existing = [existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR })];
 
   await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
 
+  assert.equal(writer.calls.length, 0);
+  assert.deepEqual(writer.replies, [
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.` },
+  ]);
+  assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
+});
+
+test('publish skips a finding when both an open and a resolved discussion from this tool have the same anchor', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [
+    existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR }),
+    existingDiscussion('d2', { own: true, resolved: false, anchor: ANCHOR }),
+  ];
+  const { logger, infos } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([bugA]);
+
+  assert.equal(writer.calls.length, 0);
+  assert.equal(writer.replies.length, 0);
+  assert.deepEqual(writer.resolvedChanges, []);
+  assert.deepEqual(infos, [{ skipped: 1 }]);
+});
+
+test('publish replies in the last of two resolved discussions from this tool with the same anchor', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [
+    existingDiscussion('older', { own: true, resolved: true, anchor: ANCHOR }),
+    existingDiscussion('newer', { own: true, resolved: true, anchor: ANCHOR }),
+  ];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
+
+  assert.deepEqual(
+    writer.replies.map((reply) => reply.discussionId),
+    ['newer'],
+  );
+  assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'newer', resolved: false }]);
+});
+
+test("publish creates a new discussion when only a person's resolved discussion is on the same line", async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: false, resolved: true })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
+
   assert.equal(writer.calls.length, 1);
+  assert.equal(writer.replies.length, 0);
 });
 
 test("publish creates a new discussion when a person's discussion is on the same line", async () => {
@@ -243,6 +289,107 @@ test('publish creates a discussion for every finding and logs a warning when the
 
   assert.equal(writer.calls.length, 2);
   assert.deepEqual(warnings, [{ error: '500 Internal Server Error' }]);
+});
+
+const bugA2: Finding = { file: 'a.ts', line: 3, severity: 'nit', summary: 'Also a naming problem.', anchor: ANCHOR };
+
+test('publish merges two findings on the same line into one discussion and logs the merge', async () => {
+  const writer = new FakeWriter();
+  const { logger, infos } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([bugA, bugA2]);
+
+  assert.equal(writer.calls.length, 1);
+  assert.equal(writer.calls[0]!.position.newLine, 3);
+  assert.equal(
+    writer.calls[0]!.body,
+    `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.\n\n**[nit]** Also a naming problem.`,
+  );
+  assert.deepEqual(infos, [{ merged: 1 }]);
+});
+
+test('publish keeps findings file order inside a merged comment', async () => {
+  const writer = new FakeWriter();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA2, bugA]);
+
+  assert.match(writer.calls[0]!.body, /^<!-- [^\n]+ -->\n\*\*\[nit\]\*\* Also a naming problem\.\n\n\*\*\[important\]\*\* Bug A\.$/);
+});
+
+test('publish posts two discussions for two lines with the same text', async () => {
+  const writer = new FakeWriter();
+  // Same file and the same anchor (the same line text), but different lines.
+  const elsewhere: Finding = { ...bugA2, line: 9 };
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA, elsewhere]);
+
+  assert.deepEqual(
+    writer.calls.map((call) => call.position.newLine),
+    [3, 9],
+  );
+});
+
+test('publish does not merge findings on the same line number in different files', async () => {
+  const writer = new FakeWriter();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([
+    { file: 'a.ts', line: 3, severity: 'nit', summary: 'A.' },
+    { file: 'b.ts', line: 3, severity: 'nit', summary: 'B.' },
+  ]);
+
+  assert.equal(writer.calls.length, 2);
+});
+
+test('publish sends one reply and one reopen for two findings that reply to the same discussion', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([
+    { ...bugA, relatesTo: 'd1' },
+    // No relatesTo, but the same anchor: the same target.
+    { file: 'a.ts', line: 7, severity: 'nit', summary: 'Second.', anchor: ANCHOR },
+  ]);
+
+  assert.equal(writer.calls.length, 0);
+  assert.deepEqual(writer.replies, [
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.\n\n**[nit]** Second.` },
+  ]);
+  assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
+});
+
+test('publish reports a failed merged discussion once for each finding in it', async () => {
+  const writer = new FakeWriter(() => true);
+  const errors: Finding[] = [];
+
+  await new GitLabSinkProvider({
+    client: writer,
+    mergeRequestIid: '5',
+    diffRefs: REFS,
+    onDiscussionError: (finding) => errors.push(finding),
+  }).publish([bugA, bugA2]);
+
+  assert.equal(writer.calls.length, 1);
+  assert.deepEqual(
+    errors.map((finding) => finding.summary),
+    ['Bug A.', 'Also a naming problem.'],
+  );
+});
+
+test('publish reports a failed merged reply once for each finding, and does not reopen', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR })];
+  writer.failReply = true;
+  const errors: Finding[] = [];
+
+  await new GitLabSinkProvider({
+    client: writer,
+    mergeRequestIid: '5',
+    diffRefs: REFS,
+    onDiscussionError: (finding) => errors.push(finding),
+  }).publish([bugA, bugA2]);
+
+  assert.equal(errors.length, 2);
+  assert.deepEqual(writer.resolvedChanges, []);
 });
 
 const declaration = { discussionId: 'd1', reason: 'The loop now uses i < n.' };

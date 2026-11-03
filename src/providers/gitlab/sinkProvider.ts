@@ -15,8 +15,19 @@ export interface GitLabSinkProviderOptions {
   logger?: Logger;
 }
 
-/** What `publish` did with one finding. */
-type FindingOutcome = 'created' | 'skipped_open_discussion' | 'skipped_same_anchor' | 'replied_and_reopened' | 'failed';
+/** What `publish` does with one finding, decided before anything is posted
+ * (`merge-findings-on-publish` design, Decision 2). */
+type FindingTarget =
+  | { kind: 'skip' }
+  | { kind: 'reply'; discussionId: string }
+  | { kind: 'new' };
+
+/** Findings with the same target: one new discussion at one file and line,
+ * or one reply in one discussion. Findings keep their findings file order. */
+interface FindingGroup {
+  target: Exclude<FindingTarget, { kind: 'skip' }>;
+  findings: Finding[];
+}
 
 /** The existing discussions, indexed for the publish rules. `null` when they
  * could not be read: every finding then gets a new discussion. */
@@ -24,6 +35,9 @@ interface ExistingDiscussions {
   byId: Map<string, GitLabDiscussion>;
   /** Anchors of open discussions that this tool started. */
   openOwnAnchors: Set<string>;
+  /** For each anchor of a resolved discussion that this tool started, the ID
+   * of the last such discussion in GitLab's list, which is the newest. */
+  resolvedOwnByAnchor: Map<string, string>;
 }
 
 export class GitLabSinkProvider implements SinkProvider {
@@ -33,27 +47,55 @@ export class GitLabSinkProvider implements SinkProvider {
     this.logger = options.logger ?? silentLogger();
   }
 
-  /** Publishes each finding by these rules (`publish-into-existing-discussions`
-   * design, Decision 1):
+  /** Decides each finding's target by these rules (`publish-into-existing-
+   * discussions` Decision 1, and `merge-findings-on-publish` Decision 1):
    *
    * - `relatesTo` names a discussion that no longer exists → new discussion.
    * - `relatesTo` names an open discussion → nothing.
    * - `relatesTo` names a resolved discussion → reply, then reopen it.
    * - no `relatesTo`, and an open discussion from this tool has the same
    *   anchor → nothing.
+   * - no `relatesTo`, and only a resolved discussion from this tool has the
+   *   same anchor → reply in it, then reopen it.
    * - otherwise → new discussion.
    *
-   * Then it resolves each discussion in `resolved` (see `resolveDiscussion`).
+   * Then it merges the findings with the same target into one comment
+   * (Decision 2), posts the comments, and resolves each discussion in
+   * `resolved` (see `resolveDiscussion`).
    *
    * Pass/fail is not decided here; every finding still counts for it. */
   async publish(findings: Finding[], resolved: ResolvedDiscussion[] = []): Promise<void> {
     const existing = await this.loadExistingDiscussions();
-    const outcomes = await Promise.all(findings.map((finding) => this.publishFinding(finding, existing)));
 
-    const skipped = outcomes.filter((outcome) => outcome.startsWith('skipped')).length;
+    const groups = new Map<string, FindingGroup>();
+    let skipped = 0;
+    for (const finding of findings) {
+      const target = decideTarget(finding, existing);
+      if (target.kind === 'skip') {
+        skipped += 1;
+        continue;
+      }
+      const key = target.kind === 'reply' ? `reply\n${target.discussionId}` : `new\n${finding.file}\n${finding.line}`;
+      const group = groups.get(key);
+      if (group) group.findings.push(finding);
+      else groups.set(key, { target, findings: [finding] });
+    }
+
     if (skipped > 0) {
       this.logger.info({ skipped }, 'skipped findings that existing discussions already cover');
     }
+    const merged = [...groups.values()].reduce((sum, group) => sum + group.findings.length - 1, 0);
+    if (merged > 0) {
+      this.logger.info({ merged }, 'merged findings with the same line or discussion into one comment');
+    }
+
+    await Promise.all(
+      [...groups.values()].map((group) =>
+        group.target.kind === 'reply'
+          ? this.replyAndReopen(group.findings, group.target.discussionId)
+          : this.createDiscussion(group.findings),
+      ),
+    );
 
     await Promise.all(resolved.map((declaration) => this.resolveDiscussion(declaration, existing)));
   }
@@ -117,56 +159,50 @@ export class GitLabSinkProvider implements SinkProvider {
     }
 
     const openOwnAnchors = new Set<string>();
+    const resolvedOwnByAnchor = new Map<string, string>();
     for (const discussion of discussions) {
-      if (!isFromThisTool(discussion) || isDiscussionResolved(discussion)) continue;
+      if (!isFromThisTool(discussion)) continue;
       const anchor = discussionAnchor(discussion);
-      if (anchor !== null) openOwnAnchors.add(anchor);
+      if (anchor === null) continue;
+      // A later discussion in the list replaces an earlier one: the newest wins.
+      if (isDiscussionResolved(discussion)) resolvedOwnByAnchor.set(anchor, discussion.id);
+      else openOwnAnchors.add(anchor);
     }
-    return { byId: new Map(discussions.map((discussion) => [discussion.id, discussion])), openOwnAnchors };
+    return {
+      byId: new Map(discussions.map((discussion) => [discussion.id, discussion])),
+      openOwnAnchors,
+      resolvedOwnByAnchor,
+    };
   }
 
-  private async publishFinding(finding: Finding, existing: ExistingDiscussions | null): Promise<FindingOutcome> {
-    if (existing !== null) {
-      if (finding.relatesTo !== undefined) {
-        const related = existing.byId.get(finding.relatesTo);
-        if (related !== undefined) {
-          if (!isDiscussionResolved(related)) return 'skipped_open_discussion';
-          return this.replyAndReopen(finding, related.id);
-        }
-      } else if (finding.anchor !== undefined && existing.openOwnAnchors.has(finding.anchor)) {
-        return 'skipped_same_anchor';
-      }
-    }
-    return this.createDiscussion(finding);
-  }
-
-  private async createDiscussion(finding: Finding): Promise<FindingOutcome> {
+  /** One discussion for a group of findings on the same file and line. A
+   * failure is reported once for each finding in the group. */
+  private async createDiscussion(findings: Finding[]): Promise<void> {
     const { client, mergeRequestIid, diffRefs } = this.options;
+    const first = findings[0]!;
     try {
-      await client.createDiscussion(mergeRequestIid, formatDiscussionBody(finding), {
+      await client.createDiscussion(mergeRequestIid, formatDiscussionBody(findings), {
         ...diffRefs,
-        oldPath: finding.file,
-        newPath: finding.file,
-        newLine: finding.line,
+        oldPath: first.file,
+        newPath: first.file,
+        newLine: first.line,
       });
-      return 'created';
     } catch (error) {
-      this.reportFailure(finding, error, 'failed to post discussion');
-      return 'failed';
+      for (const finding of findings) this.reportFailure(finding, error, 'failed to post discussion');
     }
   }
 
-  /** The agent read the resolved discussion and still reports the problem, so
-   * the reply goes into that thread, and the thread is reopened to make it
-   * visible again. If reopening fails (for example, the token's role cannot
-   * resolve discussions), the reply stays. */
-  private async replyAndReopen(finding: Finding, discussionId: string): Promise<FindingOutcome> {
+  /** The agent still reports a problem that a resolved discussion covers, so
+   * one reply with the group's findings goes into that thread, and the thread
+   * is reopened once to make it visible again. If reopening fails (for
+   * example, the token's role cannot resolve discussions), the reply stays. */
+  private async replyAndReopen(findings: Finding[], discussionId: string): Promise<void> {
     const { client, mergeRequestIid } = this.options;
     try {
-      await client.addDiscussionNote(mergeRequestIid, discussionId, formatDiscussionBody(finding));
+      await client.addDiscussionNote(mergeRequestIid, discussionId, formatDiscussionBody(findings));
     } catch (error) {
-      this.reportFailure(finding, error, 'failed to reply to discussion');
-      return 'failed';
+      for (const finding of findings) this.reportFailure(finding, error, 'failed to reply to discussion');
+      return;
     }
 
     try {
@@ -177,7 +213,6 @@ export class GitLabSinkProvider implements SinkProvider {
         'replied to a resolved discussion but could not reopen it',
       );
     }
-    return 'replied_and_reopened';
   }
 
   private reportFailure(finding: Finding, error: unknown, message: string): void {
@@ -192,9 +227,31 @@ export class GitLabSinkProvider implements SinkProvider {
   }
 }
 
+/** The publish rules for one finding (see `GitLabSinkProvider.publish`).
+ * Without the existing discussions, every finding gets a new discussion. */
+function decideTarget(finding: Finding, existing: ExistingDiscussions | null): FindingTarget {
+  if (existing === null) return { kind: 'new' };
+  if (finding.relatesTo !== undefined) {
+    const related = existing.byId.get(finding.relatesTo);
+    if (related === undefined) return { kind: 'new' };
+    return isDiscussionResolved(related) ? { kind: 'reply', discussionId: related.id } : { kind: 'skip' };
+  }
+  if (finding.anchor !== undefined) {
+    if (existing.openOwnAnchors.has(finding.anchor)) return { kind: 'skip' };
+    const resolvedId = existing.resolvedOwnByAnchor.get(finding.anchor);
+    if (resolvedId !== undefined) return { kind: 'reply', discussionId: resolvedId };
+  }
+  return { kind: 'new' };
+}
+
 /** The marker line comes first so a later run can recognize this comment and
- * match its anchor (see `marker.ts`). GitLab does not render it. */
-function formatDiscussionBody(finding: Finding): string {
-  const marker = finding.anchor === undefined ? MARKER : `<!-- pi-code-review anchor=${finding.anchor} -->`;
-  return `${marker}\n**[${finding.severity}]** ${finding.summary}`;
+ * match its anchor (see `marker.ts`). GitLab does not render it. It carries
+ * the first finding's anchor: the findings of a new discussion are all on one
+ * line, so they share it. Then one `**[severity]** summary` paragraph follows
+ * for each finding (`merge-findings-on-publish` design, Decision 3). */
+function formatDiscussionBody(findings: Finding[]): string {
+  const anchor = findings[0]?.anchor;
+  const marker = anchor === undefined ? MARKER : `<!-- pi-code-review anchor=${anchor} -->`;
+  const paragraphs = findings.map((finding) => `**[${finding.severity}]** ${finding.summary}`);
+  return `${marker}\n${paragraphs.join('\n\n')}`;
 }
