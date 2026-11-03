@@ -1,13 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Finding } from '../../core/types.ts';
-import type { DiscussionPosition, MergeRequestWriter } from './client.ts';
+import type { DiscussionPosition, GitLabDiscussion, MergeRequestWriter } from './client.ts';
 import { GitLabSinkProvider } from './sinkProvider.ts';
 
 class FakeWriter implements MergeRequestWriter {
   calls: { mergeRequestIid: string; body: string; position: DiscussionPosition }[] = [];
+  replies: { discussionId: string; body: string }[] = [];
+  resolvedChanges: { discussionId: string; resolved: boolean }[] = [];
+  /** What `listDiscussions` returns, or an error it throws. */
+  existing: GitLabDiscussion[] | Error = [];
+  failReopen = false;
+  failReply = false;
 
   constructor(private readonly failFor?: (position: DiscussionPosition) => boolean) {}
+
+  async listDiscussions(): Promise<GitLabDiscussion[]> {
+    if (this.existing instanceof Error) throw this.existing;
+    return this.existing;
+  }
+
+  async addDiscussionNote(_mergeRequestIid: string, discussionId: string, body: string): Promise<void> {
+    if (this.failReply) throw new Error('500 reply failed');
+    this.replies.push({ discussionId, body });
+  }
+
+  async setDiscussionResolved(_mergeRequestIid: string, discussionId: string, resolved: boolean): Promise<void> {
+    if (this.failReopen) throw new Error('403 Forbidden');
+    this.resolvedChanges.push({ discussionId, resolved });
+  }
 
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {
     this.calls.push({ mergeRequestIid, body, position });
@@ -44,6 +65,7 @@ test('publish posts one discussion per finding with the diff refs and the findin
     newLine: 3,
   });
   assert.match(writer.calls[0]!.body, /Bug A\./);
+  assert.equal(writer.calls[0]!.body.startsWith('<!-- pi-code-review -->\n**['), true);
 });
 
 test('publish isolates a failed discussion: the other finding still posts', async () => {
@@ -78,4 +100,228 @@ test('a failed discussion logs via the injected logger when no onDiscussionError
 
   assert.equal(errorCalls.length, 1);
   assert.deepEqual(errorCalls[0], { file: 'a.ts', line: 3, error: 'simulated GitLab API failure' });
+});
+
+const REFS = { baseSha: 'base', startSha: 'start', headSha: 'head' };
+const ANCHOR = '3f9a1c0b2d4e5f60';
+
+function existingDiscussion(
+  id: string,
+  options: { own: boolean; resolved: boolean; anchor?: string; newLine?: number },
+): GitLabDiscussion {
+  const marker = options.own ? (options.anchor ? `<!-- pi-code-review anchor=${options.anchor} -->\n` : '<!-- pi-code-review -->\n') : '';
+  return {
+    id,
+    position: { newPath: 'a.ts', newLine: options.newLine ?? 3, headSha: 'old-head' },
+    notes: [
+      {
+        author: options.own ? 'bot' : 'alice',
+        body: `${marker}**[important]** Bug A.`,
+        system: false,
+        resolvable: true,
+        resolved: options.resolved,
+      },
+    ],
+  };
+}
+
+function recordingLogger(): {
+  logger: import('../../logger.ts').Logger;
+  warnings: Record<string, unknown>[];
+  infos: Record<string, unknown>[];
+} {
+  const warnings: Record<string, unknown>[] = [];
+  const infos: Record<string, unknown>[] = [];
+  const logger = {
+    warn: (obj: Record<string, unknown>) => warnings.push(obj),
+    info: (obj: Record<string, unknown>) => infos.push(obj),
+    error: () => {},
+  } as unknown as import('../../logger.ts').Logger;
+  return { logger, warnings, infos };
+}
+
+const bugA: Finding = { file: 'a.ts', line: 3, severity: 'important', summary: 'Bug A.', anchor: ANCHOR };
+
+test('publish writes the anchor into the marker', async () => {
+  const writer = new FakeWriter();
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
+
+  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.`);
+});
+
+test('publish posts nothing for a finding that relates to an open discussion, and logs the skip count', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: false, resolved: false })];
+  const { logger, infos } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([
+    { ...bugA, relatesTo: 'd1' },
+  ]);
+
+  assert.equal(writer.calls.length, 0);
+  assert.equal(writer.replies.length, 0);
+  assert.deepEqual(infos, [{ skipped: 1 }]);
+});
+
+test('publish replies to and reopens a resolved discussion that a finding relates to', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([
+    { ...bugA, relatesTo: 'd1' },
+  ]);
+
+  assert.equal(writer.calls.length, 0);
+  assert.deepEqual(writer.replies, [
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.` },
+  ]);
+  assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
+});
+
+test('publish keeps the reply and logs a warning when reopening fails', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true })];
+  writer.failReopen = true;
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([
+    { ...bugA, relatesTo: 'd1' },
+  ]);
+
+  assert.equal(writer.replies.length, 1);
+  assert.deepEqual(warnings, [{ discussionId: 'd1', error: '403 Forbidden' }]);
+});
+
+test('publish creates a new discussion when relatesTo names a discussion that no longer exists', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([
+    { ...bugA, relatesTo: 'gone' },
+  ]);
+
+  assert.equal(writer.calls.length, 1);
+});
+
+test('publish skips a finding without relatesTo when an open discussion from this tool has the same anchor', async () => {
+  const writer = new FakeWriter();
+  // The old comment sits at line 10; the same code moved to line 3.
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: false, anchor: ANCHOR, newLine: 10 })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
+
+  assert.equal(writer.calls.length, 0);
+});
+
+test('publish creates a new discussion when only a resolved discussion from this tool has the same anchor', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
+
+  assert.equal(writer.calls.length, 1);
+});
+
+test("publish creates a new discussion when a person's discussion is on the same line", async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: false, resolved: false })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA]);
+
+  assert.equal(writer.calls.length, 1);
+});
+
+test('publish creates a discussion for every finding and logs a warning when the discussions cannot be read', async () => {
+  const writer = new FakeWriter();
+  writer.existing = new Error('500 Internal Server Error');
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([
+    { ...bugA, relatesTo: 'd1' },
+    { file: 'b.ts', line: 5, severity: 'nit', summary: 'Bug B.' },
+  ]);
+
+  assert.equal(writer.calls.length, 2);
+  assert.deepEqual(warnings, [{ error: '500 Internal Server Error' }]);
+});
+
+const declaration = { discussionId: 'd1', reason: 'The loop now uses i < n.' };
+
+test('publish replies with the reason and then resolves an open discussion from this tool declared fixed', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: false, anchor: ANCHOR })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([], [declaration]);
+
+  assert.deepEqual(writer.replies, [
+    { discussionId: 'd1', body: '<!-- pi-code-review -->\nResolved: The loop now uses i < n.' },
+  ]);
+  assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: true }]);
+});
+
+test('publish makes no change when the declared discussion was resolved after the review', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR })];
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([], [declaration]);
+
+  assert.equal(writer.replies.length, 0);
+  assert.equal(writer.resolvedChanges.length, 0);
+});
+
+test('publish logs a warning when the declared discussion no longer exists', async () => {
+  const writer = new FakeWriter();
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+
+  assert.deepEqual(warnings, [{ discussionId: 'd1', reason: 'discussion_not_found' }]);
+  assert.equal(writer.replies.length, 0);
+});
+
+test("publish never resolves a person's discussion, and logs a warning", async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: false, resolved: false })];
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+
+  assert.deepEqual(warnings, [{ discussionId: 'd1', reason: 'not_from_this_tool' }]);
+  assert.equal(writer.replies.length, 0);
+  assert.equal(writer.resolvedChanges.length, 0);
+});
+
+test('publish keeps the reply and logs a warning when the resolve request fails', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: false, anchor: ANCHOR })];
+  writer.failReopen = true;
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+
+  assert.equal(writer.replies.length, 1);
+  assert.deepEqual(warnings, [{ discussionId: 'd1', error: '403 Forbidden' }]);
+});
+
+test('publish does not resolve when the reply fails', async () => {
+  const writer = new FakeWriter();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: false, anchor: ANCHOR })];
+  writer.failReply = true;
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+
+  assert.equal(writer.resolvedChanges.length, 0);
+  assert.deepEqual(warnings, [{ discussionId: 'd1', error: '500 reply failed' }]);
+});
+
+test('publish resolves nothing when the discussions cannot be read', async () => {
+  const writer = new FakeWriter();
+  writer.existing = new Error('500 Internal Server Error');
+  const { logger, warnings } = recordingLogger();
+
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+
+  assert.equal(writer.replies.length, 0);
+  assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason: 'discussions_unavailable' });
 });

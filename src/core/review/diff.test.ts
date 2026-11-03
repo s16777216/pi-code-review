@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ChangedFileDiff } from '../types.ts';
-import { checkNewFileLine, isValidNewFileLine, numberDiffHunks, parseDiffHunks } from './diff.ts';
+import {
+  checkNewFileLine,
+  getNewFileLineText,
+  isValidNewFileLine,
+  numberDiffHunks,
+  parseDiffHunks,
+} from './diff.ts';
 
 test('parseDiffHunks maps a simple hunk to old/new line numbers', () => {
   const diff = ['@@ -1,3 +1,4 @@', ' context1', '-removed1', '+added1', '+added2', ' context2'].join('\n');
@@ -170,4 +176,15 @@ test('checkNewFileLine returns ok, file_not_changed, or line_not_in_diff', () =>
   assert.equal(checkNewFileLine(files, 'a.ts', 2), 'ok');
   assert.equal(checkNewFileLine(files, 'b.ts', 1), 'file_not_changed');
   assert.equal(checkNewFileLine(files, 'a.ts', 99), 'line_not_in_diff');
+});
+
+test('getNewFileLineText returns the text of an added or context line, and null otherwise', () => {
+  const files: ChangedFileDiff[] = [
+    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,2 @@', ' keep();', '-gone();', '+added();'].join('\n') },
+  ];
+
+  assert.equal(getNewFileLineText(files, 'a.ts', 1), 'keep();');
+  assert.equal(getNewFileLineText(files, 'a.ts', 2), 'added();');
+  assert.equal(getNewFileLineText(files, 'a.ts', 3), null);
+  assert.equal(getNewFileLineText(files, 'b.ts', 1), null);
 });

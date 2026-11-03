@@ -32,7 +32,7 @@ function buildModel(config: ReviewConfig): Model<Api> {
     baseUrl: config.openai.baseUrl,
     input: ['text'],
     reasoning: false,
-    contextWindow: 128_000,
+    contextWindow: config.openai.contextWindow,
     maxTokens: config.openai.maxTokens,
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   };
@@ -68,12 +68,13 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile> {
     provider,
     model: buildModel(config),
     apiKey: config.openai.apiKey,
+    language: config.language,
     logger,
   });
-  const findings = await engine.review(context);
-  logger.info(`Review produced ${findings.length} finding(s).`);
+  const { findings, resolved } = await engine.review(context);
+  logger.info(`Review produced ${findings.length} finding(s) and ${resolved.length} fixed discussion(s).`);
 
-  return { diffRefs: sourceProvider.getDiffRefs(), findings };
+  return { diffRefs: sourceProvider.getDiffRefs(), findings, resolved };
 }
 
 export interface PublishOptions {
@@ -99,7 +100,7 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
     diffRefs: findingsFile.diffRefs,
     logger,
   });
-  await sinkProvider.publish(findingsFile.findings);
+  await sinkProvider.publish(findingsFile.findings, findingsFile.resolved);
 
   const passed = decidePassFail(findingsFile.findings, config.failOnSeverity);
   logger.info(`Result: ${passed ? 'pass' : 'fail'} (threshold: ${config.failOnSeverity}).`);
@@ -121,6 +122,8 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
       'openai-base-url': { type: 'string' },
       'openai-api-key': { type: 'string' },
       'max-tokens': { type: 'string' },
+      'context-window': { type: 'string' },
+      language: { type: 'string' },
       out: { type: 'string' },
       debug: { type: 'boolean' },
     },
@@ -135,6 +138,8 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
     openaiBaseUrl: values['openai-base-url'],
     apiKey: values['openai-api-key'],
     maxTokens: values['max-tokens'],
+    contextWindow: values['context-window'],
+    language: values.language,
     out: values.out,
     debug: values.debug,
   };
@@ -215,6 +220,10 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
   const logger = buildLogger(resolveDebug(cliOptions.debug));
 
   const config = loadPublishConfig(cliOptions);
+  // Read and validate the findings file before the GitLab client exists, so a
+  // bad file can never reach the GitLab API (see the `review-cli` spec's
+  // "Publish reads findings from a file" requirement).
+  const findingsFile = await readFindingsFile(fromPath);
   const client = await GitLabClient.create({
     apiUrl: config.gitlab.apiUrl,
     projectId: config.gitlab.projectId,
@@ -222,7 +231,6 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
     logger,
   });
 
-  const findingsFile = await readFindingsFile(fromPath);
   const passed = await runPublish({ config, client, findingsFile, logger });
   return passed ? 0 : 1;
 }

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,6 +59,52 @@ test('running index.ts through a symlinked directory still invokes main() (regre
     });
 
     assert.match(stderr, /Not a merge request pipeline; skipping review\./);
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true });
+  }
+});
+
+/** `publish` must reject a bad findings file before it touches GitLab. The URL
+ * below points at a closed local port, so if `publish` reached the network the
+ * error would be a connection failure instead of the findings-file message. */
+test('publish with an invalid findings file exits non-zero and names the file, before any GitLab call', async () => {
+  const entrypoint = fileURLToPath(new URL('./index.ts', import.meta.url));
+  const scratchDir = mkdtempSync(join(tmpdir(), 'picr-publish-invalid-'));
+  const findingsPath = join(scratchDir, 'bad-findings.json');
+  writeFileSync(findingsPath, JSON.stringify({ findings: [] }), 'utf8');
+
+  try {
+    await assert.rejects(
+      () =>
+        execFileAsync(
+          process.execPath,
+          [
+            '--import',
+            'tsx',
+            entrypoint,
+            'publish',
+            '--gitlab-url',
+            'http://127.0.0.1:9/api/v4',
+            '--project-id',
+            '1',
+            '--mr',
+            '1',
+            '--token',
+            'test-token',
+            '--from',
+            findingsPath,
+          ],
+          { env: { ...process.env } },
+        ),
+      (error: unknown) => {
+        const { code, stderr } = error as { code: number; stderr: string };
+        assert.equal(code, 1);
+        assert.match(stderr, /bad-findings\.json/);
+        assert.match(stderr, /"diffRefs"/);
+        assert.doesNotMatch(stderr, /ECONNREFUSED|fetch failed/);
+        return true;
+      },
+    );
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });
   }

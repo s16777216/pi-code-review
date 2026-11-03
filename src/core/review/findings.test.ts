@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Logger } from '../../logger.ts';
-import { parseFindings, ReviewFailureError } from './findings.ts';
+import { parseFindings, parseReviewOutput, ReviewFailureError, validateFinding } from './findings.ts';
 
 test('parseFindings parses a plain JSON array', () => {
   const findings = parseFindings(
@@ -84,4 +84,104 @@ test('parseFindings returns an empty array and logs every element when all eleme
 
 test('parseFindings drops invalid elements without a logger', () => {
   assert.deepEqual(parseFindings(JSON.stringify([{ file: 'a.ts' }])), []);
+});
+
+test('parseFindings keeps a string relatesTo', () => {
+  const findings = parseFindings(
+    JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', relatesTo: 'd1' }]),
+  );
+  assert.deepEqual(findings, [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', relatesTo: 'd1' }]);
+});
+
+test('parseFindings leaves relatesTo out when the agent does not set it', () => {
+  const [finding] = parseFindings(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }]));
+  assert.equal('relatesTo' in finding!, false);
+});
+
+test('parseFindings treats a non-string relatesTo as an invalid finding', () => {
+  const { logger, warnings } = warnRecorder();
+  const findings = parseFindings(
+    JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', relatesTo: 42 }]),
+    logger,
+  );
+  assert.deepEqual(findings, []);
+  assert.match(warnings[0]!.reason, /"relatesTo"/);
+});
+
+test('parseFindings ignores any anchor the agent writes, valid or not', () => {
+  const findings = parseFindings(
+    JSON.stringify([
+      { file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: '0123456789abcdef' },
+      { file: 'a.ts', line: 2, severity: 'nit', summary: 'y', anchor: 'nope' },
+    ]),
+  );
+  assert.deepEqual(findings, [
+    { file: 'a.ts', line: 1, severity: 'nit', summary: 'x' },
+    { file: 'a.ts', line: 2, severity: 'nit', summary: 'y' },
+  ]);
+});
+
+test('validateFinding keeps a 16-hex anchor and rejects a malformed one (findings file path)', () => {
+  assert.deepEqual(validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: '0123456789abcdef' }, 0), {
+    file: 'a.ts',
+    line: 1,
+    severity: 'nit',
+    summary: 'x',
+    anchor: '0123456789abcdef',
+  });
+  assert.throws(
+    () => validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: 'nope' }, 0),
+    /"anchor"/,
+  );
+});
+
+test('parseReviewOutput reads an object with findings and fixed declarations', () => {
+  const output = parseReviewOutput(
+    JSON.stringify({
+      findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }],
+      resolved: [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }],
+    }),
+  );
+  assert.deepEqual(output, {
+    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }],
+    resolved: [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }],
+  });
+});
+
+test('parseReviewOutput reads a bare array as findings with no declarations', () => {
+  const output = parseReviewOutput(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }]));
+  assert.deepEqual(output.resolved, []);
+  assert.equal(output.findings.length, 1);
+});
+
+test('parseReviewOutput reads an object without "resolved" as no declarations', () => {
+  assert.deepEqual(parseReviewOutput('{"findings": []}'), { findings: [], resolved: [] });
+});
+
+test('parseReviewOutput fails for an object without a findings array', () => {
+  assert.throws(() => parseReviewOutput('{"resolved": []}'), ReviewFailureError);
+});
+
+test('parseReviewOutput drops a declaration without a reason or with a non-string ID, and keeps the rest', () => {
+  const { logger, warnings } = warnRecorder();
+  const output = parseReviewOutput(
+    JSON.stringify({
+      findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }],
+      resolved: [{ discussionId: 'd1' }, { discussionId: 7, reason: 'r' }, { discussionId: 'd3', reason: 'Fixed.' }],
+    }),
+    logger,
+  );
+  assert.equal(output.findings.length, 1);
+  assert.deepEqual(output.resolved, [{ discussionId: 'd3', reason: 'Fixed.' }]);
+  assert.deepEqual(
+    warnings.map((w) => w.index),
+    [0, 1],
+  );
+});
+
+test('parseReviewOutput ignores a "resolved" value that is not an array', () => {
+  const { logger, warnings } = warnRecorder();
+  const output = parseReviewOutput('{"findings": [], "resolved": "d1"}', logger);
+  assert.deepEqual(output, { findings: [], resolved: [] });
+  assert.equal(warnings.length, 1);
 });

@@ -66,6 +66,8 @@ Used by both commands:
 | `OPENAI_MODEL` | `--model` | Yes | No default on purpose — pick the model explicitly. |
 | `OPENAI_BASE_URL` | `--openai-base-url` | Yes | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint. |
 | `OPENAI_MAX_TOKENS` | `--max-tokens` | No (default `32000`) | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this. |
+| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin, and `review` fails before calling the model when the input leaves less than 4096 tokens for the answer. Set it to your model's real window. |
+| `REVIEW_LANGUAGE` | `--language` | No | The language for finding summaries, e.g. `Traditional Chinese`, `zh-TW`, or `繁體中文`. At most 64 characters, one line. JSON field names, severity values, and the `**[severity]**` label in comments stay in English. Unset keeps English summaries. `review` only. |
 | (n/a) | `--out` | No (default `findings.json`) | Where `review` writes its findings file. |
 
 `publish`-only:
@@ -169,14 +171,29 @@ picr publish `
 
 Running from source instead of the npm package: replace `picr` with `node dist/cli/index.js` everywhere above.
 
+## Existing discussions
+
+During `review`, the agent can read the merge request's existing discussions through a `list_discussions` tool: comments from people and from earlier runs of this tool, with file, line, resolved state, and authors. It uses them to avoid repeating a problem that a discussion already covers, and to respect explanations such as "this is intentional". A finding that covers the same problem as an existing discussion carries `relatesTo: <discussion id>` in `findings.json`.
+
+Each comment that `publish` posts starts with a hidden `<!-- pi-code-review -->` marker, so later runs can tell this tool's comments from a person's.
+
+The agent can also declare that one of this tool's own open comments is fixed, with a reason. `review` accepts the declaration only after a check on the code: the exact line that the comment pointed at (same file, same text, ignoring indentation) must no longer be in the current file, or the file must be deleted. `publish` then replies `Resolved: <reason>` and resolves the discussion. This check is strict on purpose: a fix made somewhere else (for example, in a caller) leaves the comment open for a person to resolve. A discussion that a person started is never resolved by this tool. Fixed declarations never affect pass or fail.
+
+**Risk:** anyone who can comment on the merge request writes text that the agent reads. The agent is told to treat that text as information, not instructions, but a crafted comment can still influence the review, for example to leave out a finding. Keep this in mind when `publish`'s exit code gates a merge.
+
 ## Output
 
 `review` writes:
 - A findings file (default `findings.json`) — the findings plus the diff refs `publish` needs
 
 `publish` writes/does:
-- One inline GitLab merge request comment per finding, with the finding's severity and summary
-- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise
+- One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
+  - a finding whose `relatesTo` names an **open** discussion posts nothing (it is already being discussed);
+  - a finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened;
+  - a finding without `relatesTo` posts nothing when an open discussion from this tool already sits on the same code (same file and same line text, so a reworded finding or a moved line still matches).
+
+  Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
+- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise. Every finding in the file counts, including the ones that posted nothing
 
 ## Development
 

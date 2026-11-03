@@ -7,11 +7,13 @@ import type {
   DiscussionPosition,
   FileContentResult,
   GitLabChangedFile,
+  GitLabDiscussion,
   MergeRequestMetadata,
   MergeRequestProvider,
   MergeRequestWriter,
 } from '../providers/index.ts';
 import type { FindingsFile } from '../findingsFile.ts';
+import { computeAnchor } from '../core/review/anchor.ts';
 import { main, runPublish, runReview } from './index.ts';
 
 class FakeClient implements MergeRequestProvider, MergeRequestWriter {
@@ -34,6 +36,17 @@ class FakeClient implements MergeRequestProvider, MergeRequestWriter {
     return { error: 'not used in this test' };
   }
 
+  /** What `listDiscussions` returns; the publish tests can set it. */
+  existing: GitLabDiscussion[] = [];
+
+  async listDiscussions(): Promise<GitLabDiscussion[]> {
+    return this.existing;
+  }
+
+  async addDiscussionNote(): Promise<void> {}
+
+  async setDiscussionResolved(): Promise<void> {}
+
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {
     this.discussions.push({ mergeRequestIid, body, position });
   }
@@ -52,6 +65,7 @@ function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfi
       model: 'gpt-4.1',
       baseUrl: 'https://api.openai.com/v1',
       maxTokens: 32_000,
+      contextWindow: 128_000,
     },
     ...overrides,
   };
@@ -84,7 +98,9 @@ test('runReview returns findings and diff refs, and never contacts the GitLab si
   const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
 
   assert.deepEqual(findingsFile.diffRefs, { baseSha: 'base', startSha: 'start', headSha: 'head' });
-  assert.deepEqual(findingsFile.findings, [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }]);
+  assert.deepEqual(findingsFile.findings, [
+    { file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.', anchor: computeAnchor('a.ts', 'new') },
+  ]);
   // runReview has no sink dependency at all - createDiscussion is only ever called by runPublish.
   assert.equal(client.discussions.length, 0);
 });
@@ -118,7 +134,7 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
       mergeRequestIid: '5',
       token: 'super-secret-token',
     },
-    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000 },
+    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000, contextWindow: 128_000 },
   });
 
   // Use a real, non-silent (debug-level) logger — the same kind `--debug`
@@ -150,6 +166,7 @@ test('runPublish publishes every finding', async () => {
     [],
   );
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor nit.' }],
   };
@@ -178,6 +195,7 @@ test('runPublish publishes an important finding before failing on it (severity n
     [],
   );
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.' }],
   };
@@ -199,6 +217,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
     [],
   );
   const findingsFile: FindingsFile = {
+    resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
   };
@@ -214,4 +233,44 @@ test('runPublish passes when no finding meets the threshold', async () => {
 test('main rejects a missing or unknown subcommand with a clear error', async () => {
   await assert.rejects(() => main([]), /Unknown command/);
   await assert.rejects(() => main(['bogus']), /Unknown command "bogus"/);
+});
+
+test('runPublish still fails on an important finding that relates to an open discussion, and posts nothing', async () => {
+  const client = new FakeClient(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+  client.existing = [
+    {
+      id: 'd1',
+      position: { newPath: 'a.ts', newLine: 2, headSha: 'old' },
+      notes: [
+        { author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Off-by-one.', system: false, resolvable: true, resolved: false },
+      ],
+    },
+  ];
+  const findingsFile: FindingsFile = {
+    resolved: [],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
+  };
+
+  const passed = await runPublish({ config: fixturePublishConfig(), client, findingsFile });
+
+  assert.equal(client.discussions.length, 0);
+  assert.equal(passed, false);
+});
+
+test('runPublish decides pass or fail from the findings only, not from fixed declarations', async () => {
+  const client = new FakeClient(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+  const findingsFile: FindingsFile = {
+    resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    findings: [],
+  };
+
+  assert.equal(await runPublish({ config: fixturePublishConfig(), client, findingsFile }), true);
 });
