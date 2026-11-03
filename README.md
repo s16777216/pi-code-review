@@ -44,6 +44,16 @@ picr publish  [flags]   # read findings.json, post inline comments, decide pass/
 - **`publish`** reads the findings file `review` wrote, publishes every finding, and only then decides pass/fail from the severity threshold. Publishing always happens first, so a severity threshold can never prevent a finding from reaching the merge request.
 - Each command only accepts the flags it needs. `review` has no `--fail-on`; `publish` has no `--model`/`--openai-base-url`/`--openai-api-key`.
 
+### Exit codes
+
+| Code | `review` | `publish` |
+|---|---|---|
+| `0` | The review completed (whatever it found), or this is not a merge request pipeline | Every finding was published, and none meets `FAIL_ON_SEVERITY` |
+| `1` | Never | Every finding was published, and at least one meets `FAIL_ON_SEVERITY` |
+| `2` | An error stopped the review (configuration, GitLab or OpenAI API); no findings file is written | An error stopped `publish` (configuration, an invalid findings file, the GitLab API) |
+
+So `1` means "the review gate failed", and `2` means "the tool failed". A discussion that fails to post is logged, and does not change the code.
+
 ## Configuration
 
 Every setting can come from an environment variable or a CLI flag. **A CLI flag always wins over its matching environment variable when both are given.** Secrets (`OPENAI_API_KEY`, `GITLAB_TOKEN`) should normally stay environment variables — see [Running locally](#running-locally) for the trade-off of passing them as flags instead.
@@ -74,7 +84,7 @@ Used by both commands:
 
 | Environment variable | CLI flag | Required | Notes |
 |---|---|---|---|
-| `FAIL_ON_SEVERITY` | `--fail-on` | No (default `important`) | `important`, `nit`, or `none`. `publish`'s exit code is non-zero when any published finding meets or exceeds this threshold; `none` always exits 0. |
+| `FAIL_ON_SEVERITY` | `--fail-on` | No (default `important`) | `important`, `nit`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
 | (n/a) | `--from` | No (default `findings.json`) | Which findings file `publish` reads. |
 
 ### Auth
@@ -117,6 +127,13 @@ publish:
   script:
     - npm install -g @s16777216/pi-code-review
     - picr publish
+```
+
+To let the review gate warn without blocking the pipeline, while a broken setup (exit code `2`) still fails the job, add this to the `publish` job:
+
+```yaml
+  allow_failure:
+    exit_codes: [1]
 ```
 
 `CI_API_V4_URL`, `CI_PROJECT_ID`, and `CI_MERGE_REQUEST_IID` are already set by GitLab CI. `GITLAB_TOKEN` is not — set it yourself as a masked CI/CD variable (**Settings → CI/CD → Variables**), holding a personal or project access token (see [Auth](#auth)); both jobs need it. Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL` the same way — only the `review` job needs those three.
@@ -179,7 +196,7 @@ Running from source instead of the npm package: replace `picr` with `node dist/c
 - Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file with `get_file_content`.
 - A finding from a batch counts only on a line of that batch's own diffs. The outputs of all batches are merged, and the usual checks (linked discussions, diff lines, anchors, fixed declarations) run once on the merged output.
 - At most 20 batches, and at most 3 run at the same time. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
-- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with a non-zero code without writing a findings file.
+- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with code `2` without writing a findings file.
 
 Files whose diff is not reviewed (too large, or generated; see [Output](#output)) are not counted in the estimate and are never part of a batch.
 
@@ -216,7 +233,7 @@ The review input shows these files with the reason and no diff, and a finding on
 
   Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
 - One general merge request comment that lists the files too large to review, when there are any. Later runs update the same comment instead of adding another one, and when no file is too large any more, it says that every changed file was reviewed. Generated files are not listed.
-- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise. Every finding in the file counts, including the ones that posted nothing
+- Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise, and `2` for an error (see [Exit codes](#exit-codes)). Every finding in the file counts, including the ones that posted nothing
 
 ## Development
 
