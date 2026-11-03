@@ -66,7 +66,7 @@ Used by both commands:
 | `OPENAI_MODEL` | `--model` | Yes | No default on purpose — pick the model explicitly. |
 | `OPENAI_BASE_URL` | `--openai-base-url` | Yes | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint. |
 | `OPENAI_MAX_TOKENS` | `--max-tokens` | No (default `32000`) | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this. |
-| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin, and `review` fails before calling the model when the input leaves less than 4096 tokens for the answer. Set it to your model's real window. |
+| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window. |
 | `REVIEW_LANGUAGE` | `--language` | No | The language for finding summaries, e.g. `Traditional Chinese`, `zh-TW`, or `繁體中文`. At most 64 characters, one line. JSON field names, severity values, and the `**[severity]**` label in comments stay in English. Unset keeps English summaries. `review` only. |
 | (n/a) | `--out` | No (default `findings.json`) | Where `review` writes its findings file. |
 
@@ -170,6 +170,18 @@ picr publish `
 ```
 
 Running from source instead of the npm package: replace `picr` with `node dist/cli/index.js` everywhere above.
+
+## Large merge requests
+
+`review` estimates the size of its first model request before it sends it. When that request needs more than half of the context window (`--context-window`), `review` splits the change into batches and runs one agent for each batch. The other half of the window stays free for file reads and the answer.
+
+- Files are sorted by path and packed into batches, so files in the same directory usually share a batch. A file too large for one batch is split at its hunks, shown as `<path> (part k of n)`, with the file's real line numbers.
+- Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file with `get_file_content`.
+- A finding from a batch counts only on a line of that batch's own diffs. The outputs of all batches are merged, and the usual checks (linked discussions, diff lines, anchors, fixed declarations) run once on the merged output.
+- At most 20 batches, and at most 3 run at the same time. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
+- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with a non-zero code without writing a findings file.
+
+**Limit:** a problem that needs code from two batches can be missed. A merge request that fits half of the window is reviewed in one run, as before.
 
 ## Existing discussions
 

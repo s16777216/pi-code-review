@@ -2,12 +2,13 @@ import { Agent } from '@earendil-works/pi-agent-core';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider, TextContent } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
-import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
+import type { ChangedFileDiff, Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
 import { computeAnchor } from './anchor.ts';
+import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { checkNewFileLine, getNewFileLineText } from './diff.ts';
-import { parseReviewOutput, ReviewFailureError } from './findings.ts';
-import { buildReviewPrompt } from './prompt.ts';
+import { parseReviewOutput, ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
+import { buildReviewPrompt, type PromptBatch } from './prompt.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
 
@@ -26,19 +27,28 @@ You can also declare that an existing discussion is fixed. Declare it only for a
 
 When you are done, output ONLY a JSON object with no other text. It has two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Output {"findings": [], "resolved": []} when you have nothing to report.`;
 
-/** `pi-ai` keeps this many tokens free when it caps the answer size
- * (`CONTEXT_SAFETY_TOKENS` in its `simple-options.js`). */
-const CONTEXT_SAFETY_TOKENS = 4096;
-/** The review fails up front when the first request would leave fewer
- * answer tokens than this. */
-export const MIN_ANSWER_TOKENS = 4096;
+/** At most this many agent runs are active at the same time
+ * (`review-large-changes-in-batches` design, Decision 7). */
+export const MAX_PARALLEL_RUNS = 3;
+/** A run that ends with an error is tried at most this many times in total
+ * (Decision 8). */
+export const MAX_RUN_TRIES = 3;
+/** The wait before the second and the third try, in milliseconds. */
+export const RETRY_DELAYS_MS: readonly number[] = [2_000, 4_000];
 
-/** The system prompt for one review: `SYSTEM_PROMPT` unchanged when no
- * language is set, otherwise `SYSTEM_PROMPT` plus one sentence that asks for
- * summaries in that language and keeps field names and severities as they are. */
-export function buildSystemPrompt(language?: string): string {
-  if (language === undefined) return SYSTEM_PROMPT;
-  return `${SYSTEM_PROMPT}\n\nWrite every "summary" in ${language}. Keep the JSON field names and the "severity" values exactly as specified above.`;
+/** The system prompt for one run: `SYSTEM_PROMPT`, then the batch paragraph
+ * when the review runs in batches, then the language sentence when a
+ * language is set. A single run with no language gets `SYSTEM_PROMPT`
+ * unchanged. */
+export function buildSystemPrompt(language?: string, batch?: { index: number; count: number }): string {
+  let prompt = SYSTEM_PROMPT;
+  if (batch !== undefined) {
+    prompt += `\n\nThis change is too large for one review, so it is split into ${batch.count} parts, and you review part ${batch.index}. The prompt lists every changed file, but shows only the diffs of this part. Report only problems on the numbered lines of this part's diffs. When you need code from another part, read it with get_file_content.`;
+  }
+  if (language !== undefined) {
+    prompt += `\n\nWrite every "summary" in ${language}. Keep the JSON field names and the "severity" values exactly as specified above.`;
+  }
+  return prompt;
 }
 
 export interface ReviewEngine {
@@ -58,32 +68,159 @@ export interface AgentReviewEngineOptions {
    * Defaults to a silent logger, so existing call sites and tests are
    * unaffected. */
   logger?: Logger;
+  /** Waits before a retry. Defaults to a real timer; tests pass one that
+   * returns at once. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** What one try of a run gives: the parsed output, or an error the engine may
+ * retry (the final message has the stop reason `error`). */
+type RunOutcome = { output: ParsedReviewOutput } | { retryableError: string };
 
 /** The `ReviewEngine` implementation. Nothing in this file names GitLab —
  * it only knows `ReviewContext` in and `Finding[]` out. */
 export class AgentReviewEngine implements ReviewEngine {
   constructor(private readonly options: AgentReviewEngineOptions) {}
 
+  /** Runs one agent, or one agent per batch, merges their outputs, and then
+   * runs the checks once on the merged output (Decision 6). */
   async review(context: ReviewContext): Promise<ReviewResult> {
-    const { provider, model, apiKey } = this.options;
     const logger = this.options.logger ?? silentLogger();
-    const systemPrompt = buildSystemPrompt(this.options.language);
+    const runs = this.planRuns(context, logger);
+    const outputs = await this.runAll(context, runs, logger);
 
-    const agent = new Agent({
+    const findings: Finding[] = [];
+    const resolvedById = new Map<string, ResolvedDiscussion>();
+    outputs.forEach((output, i) => {
+      const batch = runs[i];
+      findings.push(...(batch === undefined ? output.findings : keepOwnLines(output.findings, batch, context, logger)));
+      for (const declaration of output.resolved) {
+        if (!resolvedById.has(declaration.discussionId)) resolvedById.set(declaration.discussionId, declaration);
+      }
+    });
+
+    return runChecks({ findings, resolved: [...resolvedById.values()] }, context, logger);
+  }
+
+  /** One `undefined` for a single run, or one batch for each run
+   * (Decision 1). The budget is half of the context window. A model with no
+   * known window (`contextWindow <= 0`) is not checked, as in `pi-ai`. */
+  private planRuns(context: ReviewContext, logger: Logger): (PromptBatch | undefined)[] {
+    const { contextWindow } = this.options.model;
+    if (contextWindow <= 0) return [undefined];
+    const budget = Math.floor(contextWindow / 2);
+    if (this.estimateFirstRequest(context, undefined) <= budget) return [undefined];
+
+    // The largest numbers a plan can have, so the size check never sees a
+    // shorter text than the real one.
+    const fits = (items: BatchItem[]) =>
+      this.estimateFirstRequest(context, { items, index: MAX_BATCHES, count: MAX_BATCHES }) <= budget;
+    const batches = planBatches(context.changedFiles, fits, contextWindow);
+    logger.info({ batches: batches.length }, `Reviewing the change in ${batches.length} batches.`);
+    return batches.map((items, i) => ({ items, index: i + 1, count: batches.length }));
+  }
+
+  /** The estimated size of a run's first request: the agent's own transcript
+   * before the prompt (its system message, with the system prompt and the
+   * tool declarations) plus the user prompt. It uses `pi-ai`'s
+   * `estimateContextTokens`, the same estimate as `pi-ai`'s answer cap. */
+  private estimateFirstRequest(context: ReviewContext, batch: PromptBatch | undefined): number {
+    const agent = this.createAgent(context, batch);
+    const firstRequest: Message[] = [
+      ...agent.state.messages,
+      { role: 'user', content: buildReviewPrompt(context, batch), timestamp: Date.now() },
+    ];
+    return estimateContextTokens(firstRequest).tokens;
+  }
+
+  /** A new agent with new tools. The tools read the whole context, so a
+   * batch can read any changed file. */
+  private createAgent(context: ReviewContext, batch: PromptBatch | undefined): Agent {
+    const { provider, model, apiKey, language } = this.options;
+    return new Agent({
       streamFn: (streamModel, streamContext, streamOptions) =>
         provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
       initialState: {
-        systemPrompt,
+        systemPrompt: buildSystemPrompt(language, batch),
         model,
         tools: [createGetFileContentTool(context), createListDiscussionsTool(context)],
       },
     });
+  }
 
-    const prompt = buildReviewPrompt(context);
-    logger.debug({ prompt }, 'review prompt');
-    assertInputFits(model, agent.state.messages, prompt);
-    await agent.prompt(prompt);
+  /** Runs every run, at most `MAX_PARALLEL_RUNS` at a time, in order. When a
+   * run fails after its last try, the active runs are aborted, no more runs
+   * start, and the review fails (Decision 9). */
+  private async runAll(
+    context: ReviewContext,
+    runs: (PromptBatch | undefined)[],
+    logger: Logger,
+  ): Promise<ParsedReviewOutput[]> {
+    const outputs: ParsedReviewOutput[] = [];
+    const active = new Set<Agent>();
+    let failure: { error: unknown } | null = null;
+    let next = 0;
+
+    const worker = async () => {
+      while (failure === null && next < runs.length) {
+        const i = next;
+        next += 1;
+        const batch = runs[i];
+        try {
+          outputs[i] = await this.runWithRetries(context, batch, logger, active, () => failure !== null);
+        } catch (error) {
+          if (failure !== null) continue; // aborted because another run failed
+          failure = { error: batch === undefined ? error : batchFailure(batch, error) };
+          for (const agent of active) agent.abort();
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_RUNS, runs.length) }, worker));
+    if (failure !== null) throw (failure as { error: unknown }).error;
+    return outputs;
+  }
+
+  /** Tries a run until it gives output, at most `MAX_RUN_TRIES` times. Only a
+   * final message with the stop reason `error` is tried again (Decision 8). */
+  private async runWithRetries(
+    context: ReviewContext,
+    batch: PromptBatch | undefined,
+    logger: Logger,
+    active: Set<Agent>,
+    cancelled: () => boolean,
+  ): Promise<ParsedReviewOutput> {
+    const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    for (let attempt = 1; ; attempt += 1) {
+      const outcome = await this.runOnce(context, batch, logger, active);
+      if ('output' in outcome) return outcome.output;
+      if (attempt >= MAX_RUN_TRIES || cancelled()) throw new ReviewFailureError(outcome.retryableError);
+
+      logger.warn(
+        { ...batchField(batch), attempt: attempt + 1, error: outcome.retryableError },
+        'retrying a model run that ended with an error',
+      );
+      await sleep(RETRY_DELAYS_MS[attempt - 1] ?? 0);
+      if (cancelled()) throw new ReviewFailureError(outcome.retryableError);
+    }
+  }
+
+  private async runOnce(
+    context: ReviewContext,
+    batch: PromptBatch | undefined,
+    logger: Logger,
+    active: Set<Agent>,
+  ): Promise<RunOutcome> {
+    const agent = this.createAgent(context, batch);
+    const prompt = buildReviewPrompt(context, batch);
+    logger.debug({ ...batchField(batch), prompt }, 'review prompt');
+
+    active.add(agent);
+    try {
+      await agent.prompt(prompt);
+    } finally {
+      active.delete(agent);
+    }
 
     const lastAssistant = [...agent.state.messages]
       .reverse()
@@ -91,9 +228,14 @@ export class AgentReviewEngine implements ReviewEngine {
     if (!lastAssistant) {
       throw new ReviewFailureError('The agent run ended without producing an assistant message.');
     }
-    if (lastAssistant.stopReason === 'error' || lastAssistant.stopReason === 'aborted') {
+    if (lastAssistant.stopReason === 'error') {
+      return {
+        retryableError: `The agent run failed (stopReason: error): ${lastAssistant.errorMessage ?? 'no error message'}`,
+      };
+    }
+    if (lastAssistant.stopReason === 'aborted') {
       throw new ReviewFailureError(
-        `The agent run failed (stopReason: ${lastAssistant.stopReason}): ${lastAssistant.errorMessage ?? 'no error message'}`,
+        `The agent run failed (stopReason: aborted): ${lastAssistant.errorMessage ?? 'no error message'}`,
       );
     }
     if (lastAssistant.stopReason === 'length') {
@@ -103,6 +245,7 @@ export class AgentReviewEngine implements ReviewEngine {
     }
     logger.debug(
       {
+        ...batchField(batch),
         stopReason: lastAssistant.stopReason,
         usage: lastAssistant.usage,
         contentBlockTypes: lastAssistant.content.map((block) => block.type),
@@ -115,47 +258,68 @@ export class AgentReviewEngine implements ReviewEngine {
       .map((block) => block.text)
       .join('');
 
-    logger.debug({ response: text }, 'review response');
-    const output = parseReviewOutput(text, logger);
-    const findings = (await checkRelatesTo(output.findings, context, logger))
-      .filter((finding) => {
-        const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
-        if (reason === 'ok') return true;
-        logger.warn(
-          { file: finding.file, line: finding.line, reason },
-          'discarded a finding that cannot be placed on the diff',
-        );
-        return false;
-      })
-      .map((finding) => {
-        // The diff check above guarantees the line is in the diff. Any anchor
-        // the agent wrote is replaced: only the engine computes it.
-        const lineText = getNewFileLineText(context.changedFiles, finding.file, finding.line) ?? '';
-        return { ...finding, anchor: computeAnchor(finding.file, lineText) };
-      });
-    const resolved = await checkResolved(output.resolved, findings, context, logger);
-    return { findings, resolved };
+    logger.debug({ ...batchField(batch), response: text }, 'review response');
+    return { output: parseReviewOutput(text, logger) };
   }
 }
 
-/** Fails the review before the first model call when the input leaves less
- * than `MIN_ANSWER_TOKENS` for the answer. It estimates exactly what the first
- * request sends: the agent's own transcript so far (its initial system
- * message, which carries the system prompt and the tool declarations) plus
- * the user prompt. It uses `pi-ai`'s `estimateContextTokens` and the same
- * formula as `pi-ai`'s answer cap (`clampMaxTokensToContext`), so the two
- * agree. A model with no known window (`contextWindow <= 0`) is not checked,
- * as in `pi-ai`. */
-function assertInputFits(model: Model<Api>, transcript: readonly Message[], prompt: string): void {
-  if (model.contextWindow <= 0) return;
-  const firstRequest: Message[] = [...transcript, { role: 'user', content: prompt, timestamp: Date.now() }];
-  const estimatedInput = estimateContextTokens(firstRequest).tokens;
-  const answerRoom = model.contextWindow - estimatedInput - CONTEXT_SAFETY_TOKENS;
-  if (answerRoom < MIN_ANSWER_TOKENS) {
-    throw new ReviewFailureError(
-      `The review input is too large for the model: about ${estimatedInput} tokens in a ${model.contextWindow}-token context window, leaving ${Math.max(0, answerRoom)} tokens for the answer (at least ${MIN_ANSWER_TOKENS} needed). Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
-    );
+/** The `batch` log field in batch mode; nothing for a single run (Decision 10). */
+function batchField(batch: PromptBatch | undefined): { batch?: number } {
+  return batch === undefined ? {} : { batch: batch.index };
+}
+
+function batchFailure(batch: PromptBatch, error: unknown): ReviewFailureError {
+  const message = error instanceof Error ? error.message : String(error);
+  return new ReviewFailureError(`Batch ${batch.index} of ${batch.count} failed: ${message}`);
+}
+
+/** Drops a finding that is on a line of the change's diff but not of this
+ * batch's own items, with the reason `outside_batch` (Decision 5). A finding
+ * that is not on the change's diff at all is left for the diff line check,
+ * which logs its own reason. A file can have more than one item in a batch,
+ * so the items of one path are joined before the check. */
+function keepOwnLines(findings: Finding[], batch: PromptBatch, context: ReviewContext, logger: Logger): Finding[] {
+  const own = new Map<string, ChangedFileDiff>();
+  for (const item of batch.items) {
+    const path = item.file.newPath;
+    if (path === null) continue;
+    const previous = own.get(path);
+    own.set(path, { ...item.file, hunks: previous ? `${previous.hunks}\n${item.hunks}` : item.hunks });
   }
+  const ownFiles = [...own.values()];
+
+  return findings.filter((finding) => {
+    if (checkNewFileLine(context.changedFiles, finding.file, finding.line) !== 'ok') return true;
+    if (checkNewFileLine(ownFiles, finding.file, finding.line) === 'ok') return true;
+    logger.warn(
+      { file: finding.file, line: finding.line, batch: batch.index, reason: 'outside_batch' },
+      'discarded a finding that is outside its batch',
+    );
+    return false;
+  });
+}
+
+/** The fixed checks, in their existing order, on one merged output:
+ * `relatesTo`, the diff line check, the anchor, and the fixed declarations. */
+async function runChecks(output: ParsedReviewOutput, context: ReviewContext, logger: Logger): Promise<ReviewResult> {
+  const findings = (await checkRelatesTo(output.findings, context, logger))
+    .filter((finding) => {
+      const reason = checkNewFileLine(context.changedFiles, finding.file, finding.line);
+      if (reason === 'ok') return true;
+      logger.warn(
+        { file: finding.file, line: finding.line, reason },
+        'discarded a finding that cannot be placed on the diff',
+      );
+      return false;
+    })
+    .map((finding) => {
+      // The diff check above guarantees the line is in the diff. Any anchor
+      // the agent wrote is replaced: only the engine computes it.
+      const lineText = getNewFileLineText(context.changedFiles, finding.file, finding.line) ?? '';
+      return { ...finding, anchor: computeAnchor(finding.file, lineText) };
+    });
+  const resolved = await checkResolved(output.resolved, findings, context, logger);
+  return { findings, resolved };
 }
 
 /** Keeps a finding's `relatesTo` only when it names a discussion that

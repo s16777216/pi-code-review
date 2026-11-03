@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
+import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Finding, ReviewDiscussion } from '../types.ts';
 import { computeAnchor } from './anchor.ts';
 import type { ReviewContext } from '../types.ts';
 import { decidePassFail } from '../exitCode.ts';
 import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
+import { buildReviewPrompt } from './prompt.ts';
 
 /** Most tests check what the agent reported; the anchor has its own tests. */
 function withoutAnchors(findings: Finding[]): Omit<Finding, 'anchor'>[] {
@@ -239,10 +241,13 @@ test('AgentReviewEngine reports a final message cut at the token limit instead o
 test('AgentReviewEngine counts the system prompt and tool declarations in the input estimate', async () => {
   const faux = fauxProvider();
   faux.setResponses([fauxAssistantMessage('[]')]);
-  // The small user prompt alone (well under 200 tokens) would leave room for
-  // the answer; the system message with the system prompt and the tool
-  // declarations (several hundred tokens) does not.
-  const model = { ...faux.getModel(), contextWindow: 4096 + 4096 + 200 };
+  // A budget (half of the window) with room for the small user prompt alone,
+  // but not for the system message with the system prompt and the tool
+  // declarations (more than a thousand tokens). The one hunk then cannot fit
+  // a batch either, so the review fails before the model call.
+  const promptTokens = estimateTextTokens(buildReviewPrompt(smallContext()));
+  assert.ok(estimateTextTokens(SYSTEM_PROMPT) > 100);
+  const model = { ...faux.getModel(), contextWindow: 2 * (promptTokens + 100) };
   const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'test-key' });
 
   await assert.rejects(() => engine.review(smallContext()), ReviewFailureError);
@@ -538,4 +543,311 @@ test('AgentReviewEngine reads each file at most once for several declarations', 
 
   assert.equal(resolved.length, 2);
   assert.equal(reads, 1);
+});
+
+// --- Batches (`review-large-changes-in-batches`) ---
+
+test('buildSystemPrompt adds the batch paragraph only in batch mode, before the language sentence', () => {
+  const prompt = buildSystemPrompt('zh-TW', { index: 2, count: 3 });
+
+  assert.ok(prompt.startsWith(SYSTEM_PROMPT));
+  assert.match(prompt, /split into 3 parts, and you review part 2/);
+  assert.match(prompt, /get_file_content/);
+  assert.ok(prompt.indexOf('split into 3 parts') < prompt.indexOf('Write every "summary" in zh-TW'));
+  assert.doesNotMatch(buildSystemPrompt('zh-TW'), /split into/);
+});
+
+/** About 8,000 tokens of added lines in one hunk. */
+function bigFile(path: string): ReviewContext['changedFiles'][number] {
+  const lines = Array.from({ length: 400 }, (_, i) => `+const v${i} = "${'x'.repeat(70)}";`);
+  return { oldPath: path, newPath: path, hunks: [`@@ -0,0 +1,${lines.length} @@`, ...lines].join('\n') };
+}
+
+/** A context whose files each need their own batch in `BATCH_WINDOW`. */
+function bigContext(count: number, overrides: Partial<ReviewContext> = {}): ReviewContext {
+  return {
+    title: 'Large change',
+    description: '',
+    changedFiles: Array.from({ length: count }, (_, i) => bigFile(`f${i + 1}.ts`)),
+    listDiscussions: async () => [],
+    async getFileContent() {
+      return '';
+    },
+    ...overrides,
+  };
+}
+
+/** A window whose half (12,000 tokens) holds one `bigFile` with the system
+ * message, but not two. */
+const BATCH_WINDOW = 24_000;
+
+type FauxStep = Parameters<ReturnType<typeof fauxProvider>['setResponses']>[0][number];
+type FauxFactory = Extract<FauxStep, (...args: never[]) => unknown>;
+
+/** The part number in the request's user prompt, or 0 for a single run. */
+function partOf(context: Parameters<FauxFactory>[0]): number {
+  const match = /This is part (\d+)\./.exec(JSON.stringify(context.messages));
+  return match ? Number(match[1]) : 0;
+}
+
+/** `count` copies of one factory, so the queue does not depend on the order
+ * in which parallel runs call the model. */
+function steps(count: number, factory: FauxFactory): FauxStep[] {
+  return Array.from({ length: count }, () => factory);
+}
+
+function fullLogger() {
+  const warnings: Record<string, unknown>[] = [];
+  const infos: Record<string, unknown>[] = [];
+  const debugs: Record<string, unknown>[] = [];
+  const logger = {
+    debug: (obj: Record<string, unknown>) => debugs.push(obj),
+    info: (obj: Record<string, unknown>) => infos.push(obj),
+    warn: (obj: Record<string, unknown>) => warnings.push(obj),
+    error: () => {},
+  } as unknown as import('../../logger.ts').Logger;
+  return { logger, warnings, infos, debugs };
+}
+
+const noSleep = async () => {};
+
+test('AgentReviewEngine runs a small change once, with the same prompt as before batches', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  const { logger, debugs, infos } = fullLogger();
+  const context = smallContext();
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', logger });
+
+  await engine.review(context);
+
+  assert.equal(faux.state.callCount, 1);
+  assert.equal(debugs[0]!.prompt, buildReviewPrompt(context));
+  assert.equal('batch' in debugs[0]!, false);
+  assert.equal(infos.length, 0);
+});
+
+test('AgentReviewEngine reviews a large change in batches and merges their findings', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(
+    steps(3, (context) => {
+      const part = partOf(context);
+      return fauxAssistantMessage(
+        JSON.stringify({ findings: [{ file: `f${part}.ts`, line: part, severity: 'nit', summary: `From part ${part}.` }], resolved: [] }),
+      );
+    }),
+  );
+  const { logger, debugs, infos } = fullLogger();
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
+
+  const { findings } = await engine.review(bigContext(3));
+
+  assert.equal(faux.state.callCount, 3);
+  assert.deepEqual(infos, [{ batches: 3 }]);
+  assert.deepEqual(
+    withoutAnchors(findings).map((f) => [f.file, f.line]),
+    [
+      ['f1.ts', 1],
+      ['f2.ts', 2],
+      ['f3.ts', 3],
+    ],
+  );
+  const prompts = debugs.filter((d) => 'prompt' in d) as { batch: number; prompt: string }[];
+  assert.deepEqual(prompts.map((d) => d.batch).sort(), [1, 2, 3]);
+  for (const { batch, prompt } of prompts) {
+    // Every file is listed; only the batch's own file has its diff.
+    for (const n of [1, 2, 3]) assert.match(prompt, new RegExp(`- f${n}\\.ts \\(added, \\+400 -0\\)`));
+    assert.equal((prompt.match(/^### /gm) ?? []).length, 1);
+    assert.match(prompt, new RegExp(`^### f${batch}\\.ts$`, 'm'));
+  }
+});
+
+test('AgentReviewEngine drops a finding outside its batch and logs outside_batch', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(
+    steps(2, (context) =>
+      fauxAssistantMessage(
+        JSON.stringify({
+          // Part 1 reports on f2.ts, which is in part 2.
+          findings: [{ file: 'f2.ts', line: 5, severity: 'nit', summary: `From part ${partOf(context)}.` }],
+          resolved: [],
+        }),
+      ),
+    ),
+  );
+  const { logger, warnings } = fullLogger();
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
+
+  const { findings } = await engine.review(bigContext(2));
+
+  assert.deepEqual(
+    findings.map((f) => f.summary),
+    ['From part 2.'],
+  );
+  assert.deepEqual(warnings, [{ file: 'f2.ts', line: 5, batch: 1, reason: 'outside_batch' }]);
+});
+
+function batchDiscussion(id: string): ReviewDiscussion {
+  return {
+    id,
+    file: 'f1.ts',
+    line: 1,
+    positionCommit: 'abc',
+    resolved: false,
+    fromThisTool: true,
+    anchor: computeAnchor('f1.ts', 'code that is gone'),
+    notes: [{ author: 'bot', body: 'old finding' }],
+  };
+}
+
+test('AgentReviewEngine drops a declaration in batch 1 that a finding in batch 2 links to', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(
+    steps(2, (context) =>
+      fauxAssistantMessage(
+        JSON.stringify(
+          partOf(context) === 1
+            ? { findings: [], resolved: [{ discussionId: 'd1', reason: 'Fixed.' }] }
+            : { findings: [{ file: 'f2.ts', line: 1, severity: 'nit', summary: 'Same.', relatesTo: 'd1' }], resolved: [] },
+        ),
+      ),
+    ),
+  );
+  const { logger, warnings } = fullLogger();
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
+
+  const { findings, resolved } = await engine.review(bigContext(2, { listDiscussions: async () => [batchDiscussion('d1')] }));
+
+  assert.deepEqual(resolved, []);
+  assert.equal(findings[0]!.relatesTo, 'd1');
+  assert.ok(warnings.some((w) => w.discussionId === 'd1' && w.reason === 'linked_by_finding'));
+});
+
+test('AgentReviewEngine keeps the first of two declarations for the same discussion', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(
+    steps(2, (context) =>
+      fauxAssistantMessage(
+        JSON.stringify({ findings: [], resolved: [{ discussionId: 'd1', reason: `Fixed, says part ${partOf(context)}.` }] }),
+      ),
+    ),
+  );
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', sleep: noSleep });
+
+  const { resolved } = await engine.review(bigContext(2, { listDiscussions: async () => [batchDiscussion('d1')] }));
+
+  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'Fixed, says part 1.' }]);
+});
+
+test('AgentReviewEngine runs at most 3 batches at the same time', async () => {
+  const faux = fauxProvider();
+  let active = 0;
+  let maxActive = 0;
+  faux.setResponses(
+    steps(5, async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      active -= 1;
+      return fauxAssistantMessage('{"findings": [], "resolved": []}');
+    }),
+  );
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', sleep: noSleep });
+
+  await engine.review(bigContext(5));
+
+  assert.equal(faux.state.callCount, 5);
+  assert.equal(maxActive, 3);
+});
+
+test('AgentReviewEngine retries a run that ends with an error and uses the next try', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([
+    fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Request timed out.' }),
+    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }])),
+  ]);
+  const { logger, warnings } = fullLogger();
+  const waits: number[] = [];
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    logger,
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+  });
+
+  const { findings } = await engine.review(smallContext());
+
+  assert.equal(findings.length, 1);
+  assert.equal(faux.state.callCount, 2);
+  assert.deepEqual(waits, [2000]);
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0]!.attempt, 2);
+  assert.match(String(warnings[0]!.error), /Request timed out\./);
+});
+
+test('AgentReviewEngine fails after the third try that ends with an error', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(
+    Array.from({ length: 3 }, () => fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Request timed out.' })),
+  );
+  const waits: number[] = [];
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+  });
+
+  await assert.rejects(() => engine.review(smallContext()), /stopReason: error\): Request timed out\./);
+  assert.equal(faux.state.callCount, 3);
+  assert.deepEqual(waits, [2000, 4000]);
+});
+
+test('AgentReviewEngine does not retry a run that stops at the token limit', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([fauxAssistantMessage('[{"file', { stopReason: 'length' }), fauxAssistantMessage('[]')]);
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', sleep: noSleep });
+
+  await assert.rejects(() => engine.review(smallContext()), /--max-tokens/);
+  assert.equal(faux.state.callCount, 1);
+});
+
+test('AgentReviewEngine aborts the active runs and starts no more when a batch fails', async () => {
+  const faux = fauxProvider();
+  const started: number[] = [];
+  const aborted: number[] = [];
+  faux.setResponses(
+    steps(10, async (context, options) => {
+      const part = partOf(context);
+      started.push(part);
+      if (part === 2) return fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Server error.' });
+      // Other parts wait until they are aborted.
+      await new Promise<void>((resolve) => {
+        if (options?.signal?.aborted) return resolve();
+        options?.signal?.addEventListener('abort', () => resolve());
+      });
+      aborted.push(part);
+      return fauxAssistantMessage('{"findings": [], "resolved": []}');
+    }),
+  );
+  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', sleep: noSleep });
+
+  await assert.rejects(
+    () => engine.review(bigContext(4)),
+    (error: unknown) =>
+      error instanceof ReviewFailureError && /^Batch 2 of 4 failed: .*Server error\./.test(error.message),
+  );
+  assert.deepEqual(started.filter((p) => p === 2).length, 3);
+  assert.equal(started.includes(4), false);
+  assert.deepEqual(aborted.sort(), [1, 3]);
 });

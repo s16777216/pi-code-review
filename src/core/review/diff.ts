@@ -95,6 +95,29 @@ export function numberDiffHunks(diffText: string): string {
     .join('\n');
 }
 
+/** Splits unified-diff text into one diff text for each `@@` header, in
+ * order. Each part starts with its header, so `numberDiffHunks` prints the
+ * same new-file line numbers for a part as for the full text. Text before the
+ * first header is dropped. */
+export function splitHunks(diffText: string): string[] {
+  const hunks: string[][] = [];
+  for (const rawLine of splitDiffLines(diffText)) {
+    if (HUNK_HEADER.test(rawLine)) {
+      hunks.push([rawLine]);
+    } else if (hunks.length > 0) {
+      hunks[hunks.length - 1]!.push(rawLine);
+    }
+  }
+  return hunks.map((lines) => lines.join('\n'));
+}
+
+/** The first new-file line of a hunk, from its `@@` header, or `null` when
+ * the text does not start with a header. */
+export function hunkStartLine(hunkText: string): number | null {
+  const header = HUNK_HEADER.exec(hunkText);
+  return header ? Number(header[3]) : null;
+}
+
 export type NewFileLineCheck = 'ok' | 'file_not_changed' | 'line_not_in_diff';
 
 /** Why `line` can or cannot carry an inline comment on `path`: `'ok'` when it
