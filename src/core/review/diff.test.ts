@@ -4,9 +4,11 @@ import type { ChangedFileDiff } from '../types.ts';
 import {
   checkNewFileLine,
   getNewFileLineText,
+  hunkStartLine,
   isValidNewFileLine,
   numberDiffHunks,
   parseDiffHunks,
+  splitHunks,
 } from './diff.ts';
 
 test('parseDiffHunks maps a simple hunk to old/new line numbers', () => {
@@ -234,4 +236,42 @@ test('checkNewFileLine rejects the line one past the end of a diff that ends wit
 
   assert.equal(checkNewFileLine(files, 'a.js', 2), 'ok');
   assert.equal(checkNewFileLine(files, 'a.js', 3), 'line_not_in_diff');
+});
+
+test('splitHunks returns one hunk for a single-hunk diff', () => {
+  assert.deepEqual(splitHunks('@@ -1 +1 @@\n-a\n+b\n'), ['@@ -1 +1 @@\n-a\n+b']);
+});
+
+test('splitHunks splits three hunks and drops text before the first header', () => {
+  const diff = 'diff --git a/x b/x\n@@ -1 +1 @@\n-a\n+b\n@@ -10,2 +10,2 @@\n c\n-d\n+e\n@@ -50 +50,2 @@\n f\n+g\n';
+
+  assert.deepEqual(splitHunks(diff), [
+    '@@ -1 +1 @@\n-a\n+b',
+    '@@ -10,2 +10,2 @@\n c\n-d\n+e',
+    '@@ -50 +50,2 @@\n f\n+g',
+  ]);
+});
+
+test('splitHunks keeps a "no newline" marker in its hunk', () => {
+  assert.deepEqual(splitHunks('@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b\n@@ -9 +9 @@\n+c'), [
+    '@@ -1 +1 @@\n-a\n\\ No newline at end of file\n+b',
+    '@@ -9 +9 @@\n+c',
+  ]);
+});
+
+test('numberDiffHunks prints the same numbers for each part as for the full text', () => {
+  const diff = '@@ -1,2 +1,3 @@\n a\n+b\n c\n@@ -20,2 +21,2 @@\n x\n-y\n+z\n@@ -40 +41,2 @@\n p\n+q\n';
+  const numbers = (text: string) =>
+    numberDiffHunks(text)
+      .split('\n')
+      .map((line) => /^\s*(\d+) \|(.*)$/.exec(line))
+      .filter((m) => m !== null)
+      .map((m) => `${m[1]}|${m[2]}`);
+
+  assert.deepEqual(splitHunks(diff).flatMap(numbers), numbers(diff));
+});
+
+test('hunkStartLine reads the new-file start line from the header', () => {
+  assert.equal(hunkStartLine('@@ -10,2 +200,3 @@\n a'), 200);
+  assert.equal(hunkStartLine(' a'), null);
 });

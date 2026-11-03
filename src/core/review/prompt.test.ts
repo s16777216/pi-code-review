@@ -49,3 +49,46 @@ test('buildReviewPrompt prints new-file line numbers on added and context lines 
   assert.match(prompt, /^ {2}11 \| \+new\(\);$/m);
   assert.match(prompt, /^ {5}\| -old\(\);$/m);
 });
+
+test('buildReviewPrompt without a batch has no file list or part headings', () => {
+  const prompt = buildReviewPrompt(fixture());
+
+  assert.match(prompt, /^## Changed files$/m);
+  assert.doesNotMatch(prompt, /All changed files|in this part|part \d+ of/);
+});
+
+test('buildReviewPrompt with a batch lists every changed file, marks the batch, and shows only its diffs', () => {
+  const context = fixture();
+  context.changedFiles.push(
+    { oldPath: 'old.ts', newPath: 'old.ts', hunks: '@@ -1,2 +0,0 @@\n-x\n-y\n', deleted: true },
+    { oldPath: 'from.ts', newPath: 'to.ts', hunks: '@@ -3,1 +3,1 @@\n-p\n+q' },
+  );
+  const b = context.changedFiles[1]!;
+  const renamed = context.changedFiles[3]!;
+
+  const prompt = buildReviewPrompt(context, { items: [{ file: b, hunks: b.hunks }, { file: renamed, hunks: renamed.hunks }], index: 2, count: 3 });
+
+  assert.match(prompt, /^- a\.ts \(modified, \+1 -1\)$/m);
+  assert.match(prompt, /^- b\.ts \(added, \+1 -0\) \[in this part\]$/m);
+  assert.match(prompt, /^- old\.ts \(deleted, \+0 -2\)$/m);
+  assert.match(prompt, /^- to\.ts \(renamed from from\.ts, \+1 -1\) \[in this part\]$/m);
+  assert.match(prompt, /reviewed in 3 parts\. This is part 2\./);
+  assert.match(prompt, /^## Diffs in part 2 of 3$/m);
+  assert.deepEqual(prompt.match(/^### .*$/gm), ['### b.ts', '### to.ts']);
+  assert.match(prompt, /export const b = 1;/);
+  assert.doesNotMatch(prompt, /i<n;i\+\+/);
+});
+
+test('buildReviewPrompt names a part of a split file and keeps its line numbers', () => {
+  const context = fixture();
+  const file = context.changedFiles[0]!;
+
+  const prompt = buildReviewPrompt(context, {
+    items: [{ file, hunks: '@@ -199,1 +200,1 @@\n-old\n+new', part: { index: 2, count: 3 } }],
+    index: 4,
+    count: 5,
+  });
+
+  assert.match(prompt, /^### a\.ts \(part 2 of 3\)$/m);
+  assert.match(prompt, /^ 200 \| \+new$/m);
+});
