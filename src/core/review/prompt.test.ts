@@ -66,7 +66,14 @@ test('buildReviewPrompt with a batch lists every changed file, marks the batch, 
   const b = context.changedFiles[1]!;
   const renamed = context.changedFiles[3]!;
 
-  const prompt = buildReviewPrompt(context, { items: [{ file: b, hunks: b.hunks }, { file: renamed, hunks: renamed.hunks }], index: 2, count: 3 });
+  const prompt = buildReviewPrompt(context, {
+    items: [
+      { file: b, hunks: b.hunks },
+      { file: renamed, hunks: renamed.hunks },
+    ],
+    index: 2,
+    count: 3,
+  });
 
   assert.match(prompt, /^- a\.ts \(modified, \+1 -1\)$/m);
   assert.match(prompt, /^- b\.ts \(added, \+1 -0\) \[in this part\]$/m);
@@ -97,7 +104,12 @@ test('buildReviewPrompt shows an omitted file with its reason and no diff', () =
   const context = fixture();
   context.changedFiles.push(
     { oldPath: 'big.js', newPath: 'big.js', hunks: '', omitted: 'too_large' },
-    { oldPath: 'yarn.lock', newPath: 'yarn.lock', hunks: '@@ -1 +1 @@\n-secret-old\n+secret-new', omitted: 'generated' },
+    {
+      oldPath: 'yarn.lock',
+      newPath: 'yarn.lock',
+      hunks: '@@ -1 +1 @@\n-secret-old\n+secret-new',
+      omitted: 'generated',
+    },
   );
 
   const prompt = buildReviewPrompt(context);
@@ -109,7 +121,12 @@ test('buildReviewPrompt shows an omitted file with its reason and no diff', () =
 
 test('buildReviewPrompt lists an omitted file with its reason in the batch file list', () => {
   const context = fixture();
-  context.changedFiles.push({ oldPath: 'yarn.lock', newPath: 'yarn.lock', hunks: '@@ -1 +1 @@\n-x\n+y', omitted: 'generated' });
+  context.changedFiles.push({
+    oldPath: 'yarn.lock',
+    newPath: 'yarn.lock',
+    hunks: '@@ -1 +1 @@\n-x\n+y',
+    omitted: 'generated',
+  });
   const a = context.changedFiles[0]!;
 
   const prompt = buildReviewPrompt(context, { items: [{ file: a, hunks: a.hunks }], index: 1, count: 2 });

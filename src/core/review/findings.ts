@@ -92,11 +92,17 @@ export function parseReviewOutput(text: string, logger: Logger = silentLogger())
   let rawResolved: unknown = [];
   if (Array.isArray(parsed)) {
     rawFindings = parsed;
-  } else if (typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { findings?: unknown }).findings)) {
+  } else if (
+    typeof parsed === 'object' &&
+    parsed !== null &&
+    Array.isArray((parsed as { findings?: unknown }).findings)
+  ) {
     rawFindings = (parsed as { findings: unknown[] }).findings;
     rawResolved = (parsed as { resolved?: unknown }).resolved ?? [];
   } else {
-    throw new ReviewFailureError('Agent output is neither a JSON array of findings nor an object with a "findings" array.');
+    throw new ReviewFailureError(
+      'Agent output is neither a JSON array of findings nor an object with a "findings" array.',
+    );
   }
 
   const findings: Finding[] = [];

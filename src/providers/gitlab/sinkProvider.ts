@@ -17,10 +17,7 @@ export interface GitLabSinkProviderOptions {
 
 /** What `publish` does with one finding, decided before anything is posted
  * (`merge-findings-on-publish` design, Decision 2). */
-type FindingTarget =
-  | { kind: 'skip' }
-  | { kind: 'reply'; discussionId: string }
-  | { kind: 'new' };
+type FindingTarget = { kind: 'skip' } | { kind: 'reply'; discussionId: string } | { kind: 'new' };
 
 /** Findings with the same target: one new discussion at one file and line,
  * or one reply in one discussion. Findings keep their findings file order. */
@@ -125,7 +122,10 @@ export class GitLabSinkProvider implements SinkProvider {
    * Generated files are not listed. When the discussions could not be read,
    * the comment is created when files are too large. A failure is logged at
    * `warn`, and `publish` goes on. */
-  private async publishUnreviewedNote(unreviewedFiles: UnreviewedFile[], existing: ExistingDiscussions | null): Promise<void> {
+  private async publishUnreviewedNote(
+    unreviewedFiles: UnreviewedFile[],
+    existing: ExistingDiscussions | null,
+  ): Promise<void> {
     const { client, mergeRequestIid } = this.options;
     const tooLarge = unreviewedFiles.filter((file) => file.reason === 'too_large').map((file) => file.path);
     const note = existing?.unreviewedNote ?? null;
@@ -151,7 +151,10 @@ export class GitLabSinkProvider implements SinkProvider {
    * in as a reply, and the discussion is resolved. A discussion from a person
    * is never touched. If the discussions could not be read, nothing is
    * resolved: these facts cannot be checked. */
-  private async resolveDiscussion(declaration: ResolvedDiscussion, existing: ExistingDiscussions | null): Promise<void> {
+  private async resolveDiscussion(
+    declaration: ResolvedDiscussion,
+    existing: ExistingDiscussions | null,
+  ): Promise<void> {
     const { client, mergeRequestIid } = this.options;
     const { discussionId } = declaration;
     const discussion = existing?.byId.get(discussionId);

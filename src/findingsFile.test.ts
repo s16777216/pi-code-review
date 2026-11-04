@@ -133,7 +133,7 @@ test('readFindingsFile ignores unknown extra fields', async () => {
   assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding], resolved: [], unreviewedFiles: [] });
 });
 
-test('readFindingsFile keeps a finding\'s relatesTo', async () => {
+test("readFindingsFile keeps a finding's relatesTo", async () => {
   const result = await readRaw({ diffRefs: validRefs, findings: [{ ...validFinding, relatesTo: 'd1' }] });
   assert.deepEqual(result.findings, [{ ...validFinding, relatesTo: 'd1' }]);
 });

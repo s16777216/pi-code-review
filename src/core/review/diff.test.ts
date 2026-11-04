@@ -126,9 +126,13 @@ test('numberDiffHunks numbers context and added lines and leaves removed lines b
 
   assert.equal(
     numberDiffHunks(diff),
-    ['@@ -10,3 +10,3 @@', '  10 |  const a = 1;', '  11 | +const b = 2;', '     | -const c = 3;', '  12 |  return a;'].join(
-      '\n',
-    ),
+    [
+      '@@ -10,3 +10,3 @@',
+      '  10 |  const a = 1;',
+      '  11 | +const b = 2;',
+      '     | -const c = 3;',
+      '  12 |  return a;',
+    ].join('\n'),
   );
 });
 

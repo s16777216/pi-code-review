@@ -26,7 +26,11 @@ export class GitLabSourceProvider implements SourceProvider {
       hunks: file.diffHunks,
       ...(file.deletedFile ? { deleted: true } : {}),
       // `too_large` first: a file that is both has no diff at all.
-      ...(file.tooLarge ? { omitted: 'too_large' as const } : file.generatedFile ? { omitted: 'generated' as const } : {}),
+      ...(file.tooLarge
+        ? { omitted: 'too_large' as const }
+        : file.generatedFile
+          ? { omitted: 'generated' as const }
+          : {}),
     }));
 
     const headSha = metadata.diffRefs.headSha;

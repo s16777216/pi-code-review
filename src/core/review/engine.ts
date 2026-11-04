@@ -252,7 +252,7 @@ export class AgentReviewEngine implements ReviewEngine {
     }
     if (lastAssistant.stopReason === 'length') {
       throw new ReviewFailureError(
-        'The model stopped at its output token limit, so its answer is cut and cannot be parsed. Raise --max-tokens (OPENAI_MAX_TOKENS), or set --context-window (OPENAI_CONTEXT_WINDOW) to the model\'s real context window.',
+        "The model stopped at its output token limit, so its answer is cut and cannot be parsed. Raise --max-tokens (OPENAI_MAX_TOKENS), or set --context-window (OPENAI_CONTEXT_WINDOW) to the model's real context window.",
       );
     }
     logger.debug(
@@ -322,7 +322,10 @@ function isOmitted(context: ReviewContext, path: string): boolean {
  * line (`handle-omitted-diffs` design, Decision 4). */
 function listUnreviewedFiles(context: ReviewContext, logger: Logger): UnreviewedFile[] {
   const unreviewed = context.changedFiles
-    .filter((file): file is ChangedFileDiff & { omitted: NonNullable<ChangedFileDiff['omitted']> } => file.omitted !== undefined)
+    .filter(
+      (file): file is ChangedFileDiff & { omitted: NonNullable<ChangedFileDiff['omitted']> } =>
+        file.omitted !== undefined,
+    )
     .map((file) => ({ path: itemPath(file), reason: file.omitted }))
     .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   for (const file of unreviewed) {
@@ -456,10 +459,7 @@ async function checkResolved(
     if (rejection === null) {
       accepted.push(declaration);
     } else {
-      logger.warn(
-        { discussionId: declaration.discussionId, reason: rejection },
-        'did not accept a fixed declaration',
-      );
+      logger.warn({ discussionId: declaration.discussionId, reason: rejection }, 'did not accept a fixed declaration');
     }
   }
   return accepted;

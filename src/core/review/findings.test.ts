@@ -12,9 +12,12 @@ test('parseFindings parses a plain JSON array', () => {
 });
 
 test('parseFindings parses a JSON array wrapped in a ```json fence', () => {
-  const text = ['Here are the findings:', '```json', '[{"file":"a.ts","line":1,"severity":"nit","summary":"Nit."}]', '```'].join(
-    '\n',
-  );
+  const text = [
+    'Here are the findings:',
+    '```json',
+    '[{"file":"a.ts","line":1,"severity":"nit","summary":"Nit."}]',
+    '```',
+  ].join('\n');
 
   const findings = parseFindings(text);
 
@@ -122,13 +125,16 @@ test('parseFindings ignores any anchor the agent writes, valid or not', () => {
 });
 
 test('validateFinding keeps a 16-hex anchor and rejects a malformed one (findings file path)', () => {
-  assert.deepEqual(validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: '0123456789abcdef' }, 0), {
-    file: 'a.ts',
-    line: 1,
-    severity: 'nit',
-    summary: 'x',
-    anchor: '0123456789abcdef',
-  });
+  assert.deepEqual(
+    validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: '0123456789abcdef' }, 0),
+    {
+      file: 'a.ts',
+      line: 1,
+      severity: 'nit',
+      summary: 'x',
+      anchor: '0123456789abcdef',
+    },
+  );
   assert.throws(
     () => validateFinding({ file: 'a.ts', line: 1, severity: 'nit', summary: 'x', anchor: 'nope' }, 0),
     /"anchor"/,

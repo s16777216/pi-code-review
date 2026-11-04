@@ -20,7 +20,9 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('get_file_content', { path: 'a.ts' })], { stopReason: 'toolUse' }),
     fauxAssistantMessage(
-      JSON.stringify([{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' }]),
+      JSON.stringify([
+        { file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' },
+      ]),
     ),
   ]);
 
@@ -32,9 +34,12 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
       {
         oldPath: 'a.ts',
         newPath: 'a.ts',
-        hunks: ['@@ -1,2 +1,2 @@', '-for (let i = 0; i <= n; i++) {', '+for (let i = 0; i < n; i++) {', ' doSomething();'].join(
-          '\n',
-        ),
+        hunks: [
+          '@@ -1,2 +1,2 @@',
+          '-for (let i = 0; i <= n; i++) {',
+          '+for (let i = 0; i < n; i++) {',
+          ' doSomething();',
+        ].join('\n'),
       },
     ],
     listDiscussions: async () => [],
@@ -170,7 +175,9 @@ test('AgentReviewEngine keeps a valid finding when another finding in the same o
 test('AgentReviewEngine logs a finding on a file the change did not touch, and does not return it', async () => {
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage(JSON.stringify([{ file: 'other.ts', line: 1, severity: 'pre_existing', summary: 'Elsewhere.' }])),
+    fauxAssistantMessage(
+      JSON.stringify([{ file: 'other.ts', line: 1, severity: 'pre_existing', summary: 'Elsewhere.' }]),
+    ),
   ]);
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
@@ -210,9 +217,7 @@ test('AgentReviewEngine refuses an input that leaves too little room for the ans
   const model = { ...faux.getModel(), contextWindow: 10_000 };
   const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'test-key' });
   const context = smallContext();
-  context.changedFiles = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-old\n+' + 'x'.repeat(30_000) },
-  ];
+  context.changedFiles = [{ oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-old\n+' + 'x'.repeat(30_000) }];
 
   await assert.rejects(
     () => engine.review(context),
@@ -404,7 +409,13 @@ test('AgentReviewEngine anchors each finding on its file and the trimmed text of
     {
       oldPath: 'a.ts',
       newPath: 'a.ts',
-      hunks: ['@@ -1,3 +1,4 @@', ' start();', '+  for (i = 0; i <= n; i++)', ' middle();', '+for (i = 0; i <= n; i++)'].join('\n'),
+      hunks: [
+        '@@ -1,3 +1,4 @@',
+        ' start();',
+        '+  for (i = 0; i <= n; i++)',
+        ' middle();',
+        '+for (i = 0; i <= n; i++)',
+      ].join('\n'),
     },
   ];
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
@@ -632,7 +643,10 @@ test('AgentReviewEngine reviews a large change in batches and merges their findi
     steps(3, (context) => {
       const part = partOf(context);
       return fauxAssistantMessage(
-        JSON.stringify({ findings: [{ file: `f${part}.ts`, line: part, severity: 'nit', summary: `From part ${part}.` }], resolved: [] }),
+        JSON.stringify({
+          findings: [{ file: `f${part}.ts`, line: part, severity: 'nit', summary: `From part ${part}.` }],
+          resolved: [],
+        }),
       );
     }),
   );
@@ -709,7 +723,10 @@ test('AgentReviewEngine drops a declaration in batch 1 that a finding in batch 2
         JSON.stringify(
           partOf(context) === 1
             ? { findings: [], resolved: [{ discussionId: 'd1', reason: 'Fixed.' }] }
-            : { findings: [{ file: 'f2.ts', line: 1, severity: 'nit', summary: 'Same.', relatesTo: 'd1' }], resolved: [] },
+            : {
+                findings: [{ file: 'f2.ts', line: 1, severity: 'nit', summary: 'Same.', relatesTo: 'd1' }],
+                resolved: [],
+              },
         ),
       ),
     ),
@@ -718,7 +735,9 @@ test('AgentReviewEngine drops a declaration in batch 1 that a finding in batch 2
   const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
   const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
 
-  const { findings, resolved } = await engine.review(bigContext(2, { listDiscussions: async () => [batchDiscussion('d1')] }));
+  const { findings, resolved } = await engine.review(
+    bigContext(2, { listDiscussions: async () => [batchDiscussion('d1')] }),
+  );
 
   assert.deepEqual(resolved, []);
   assert.equal(findings[0]!.relatesTo, 'd1');
@@ -730,7 +749,10 @@ test('AgentReviewEngine keeps the first of two declarations for the same discuss
   faux.setResponses(
     steps(2, (context) =>
       fauxAssistantMessage(
-        JSON.stringify({ findings: [], resolved: [{ discussionId: 'd1', reason: `Fixed, says part ${partOf(context)}.` }] }),
+        JSON.stringify({
+          findings: [],
+          resolved: [{ discussionId: 'd1', reason: `Fixed, says part ${partOf(context)}.` }],
+        }),
       ),
     ),
   );
@@ -795,7 +817,9 @@ test('AgentReviewEngine retries a run that ends with an error and uses the next 
 test('AgentReviewEngine fails after the third try that ends with an error', async () => {
   const faux = fauxProvider();
   faux.setResponses(
-    Array.from({ length: 3 }, () => fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Request timed out.' })),
+    Array.from({ length: 3 }, () =>
+      fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Request timed out.' }),
+    ),
   );
   const waits: number[] = [];
   const engine = new AgentReviewEngine({
@@ -815,7 +839,12 @@ test('AgentReviewEngine fails after the third try that ends with an error', asyn
 test('AgentReviewEngine does not retry a run that stops at the token limit', async () => {
   const faux = fauxProvider();
   faux.setResponses([fauxAssistantMessage('[{"file', { stopReason: 'length' }), fauxAssistantMessage('[]')]);
-  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', sleep: noSleep });
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    sleep: noSleep,
+  });
 
   await assert.rejects(() => engine.review(smallContext()), /--max-tokens/);
   assert.equal(faux.state.callCount, 1);
@@ -904,7 +933,10 @@ test('AgentReviewEngine keeps an omitted file out of every batch, and drops its 
   faux.setResponses(
     steps(2, () =>
       fauxAssistantMessage(
-        JSON.stringify({ findings: [{ file: 'gen.ts', line: 1, severity: 'nit', summary: 'Generated.' }], resolved: [] }),
+        JSON.stringify({
+          findings: [{ file: 'gen.ts', line: 1, severity: 'nit', summary: 'Generated.' }],
+          resolved: [],
+        }),
       ),
     ),
   );

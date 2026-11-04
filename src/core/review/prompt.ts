@@ -41,7 +41,9 @@ export function buildReviewPrompt(context: ReviewContext, batch?: PromptBatch): 
     .join('\n');
   const diffs = batch.items
     .map((item) => {
-      const title = item.part ? `${itemPath(item.file)} (part ${item.part.index} of ${item.part.count})` : itemPath(item.file);
+      const title = item.part
+        ? `${itemPath(item.file)} (part ${item.part.index} of ${item.part.count})`
+        : itemPath(item.file);
       return formatDiff(title, item.hunks);
     })
     .join('\n\n');

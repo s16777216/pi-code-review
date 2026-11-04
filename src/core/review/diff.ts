@@ -145,8 +145,6 @@ export function isValidNewFileLine(files: ChangedFileDiff[], path: string, line:
 export function getNewFileLineText(files: ChangedFileDiff[], path: string, line: number): string | null {
   const file = files.find((f) => f.newPath === path);
   if (!file) return null;
-  const match = parseDiffHunks(file.hunks).find(
-    (diffLine) => diffLine.newLine === line && diffLine.type !== 'removed',
-  );
+  const match = parseDiffHunks(file.hunks).find((diffLine) => diffLine.newLine === line && diffLine.type !== 'removed');
   return match ? match.content : null;
 }

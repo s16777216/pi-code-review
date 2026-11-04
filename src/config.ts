@@ -1,8 +1,8 @@
-import type { Severity } from "./core/types.ts";
+import type { Severity } from './core/types.ts';
 
-export type FailOnSeverity = Severity | "none";
+export type FailOnSeverity = Severity | 'none';
 
-const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ["important", "nit", "none"];
+const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ['important', 'nit', 'none'];
 const DEFAULT_MAX_TOKENS = 32_000;
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
@@ -95,10 +95,10 @@ export function isMergeRequestPipeline(overrides: { mergeRequestIid?: string } =
 
 function loadGitlabConnectionConfig(overrides: GitlabConnectionOverrides): GitlabConnectionConfig {
   return {
-    apiUrl: resolve("CI_API_V4_URL", overrides.apiUrl),
-    projectId: resolve("CI_PROJECT_ID", overrides.projectId),
-    mergeRequestIid: resolve("CI_MERGE_REQUEST_IID", overrides.mergeRequestIid),
-    token: resolve("GITLAB_TOKEN", overrides.token),
+    apiUrl: resolve('CI_API_V4_URL', overrides.apiUrl),
+    projectId: resolve('CI_PROJECT_ID', overrides.projectId),
+    mergeRequestIid: resolve('CI_MERGE_REQUEST_IID', overrides.mergeRequestIid),
+    token: resolve('GITLAB_TOKEN', overrides.token),
   };
 }
 
@@ -152,13 +152,13 @@ function resolveLanguage(override: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
   const value = raw.trim();
   if (value.length === 0) {
-    throw new ConfigError("Invalid REVIEW_LANGUAGE value: it is empty. Unset it, or give a language name.");
+    throw new ConfigError('Invalid REVIEW_LANGUAGE value: it is empty. Unset it, or give a language name.');
   }
   if (value.length > MAX_LANGUAGE_LENGTH) {
     throw new ConfigError(`Invalid REVIEW_LANGUAGE value: it is longer than ${MAX_LANGUAGE_LENGTH} characters.`);
   }
   if (/[\r\n]/.test(value)) {
-    throw new ConfigError("Invalid REVIEW_LANGUAGE value: it contains a line break.");
+    throw new ConfigError('Invalid REVIEW_LANGUAGE value: it contains a line break.');
   }
   return value;
 }
@@ -172,9 +172,9 @@ export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewC
     gitlab: loadGitlabConnectionConfig(overrides),
     ...(language === undefined ? {} : { language }),
     openai: {
-      apiKey: resolve("OPENAI_API_KEY", overrides.apiKey),
-      model: resolve("OPENAI_MODEL", overrides.model),
-      baseUrl: resolve("OPENAI_BASE_URL", overrides.openaiBaseUrl),
+      apiKey: resolve('OPENAI_API_KEY', overrides.apiKey),
+      model: resolve('OPENAI_MODEL', overrides.model),
+      baseUrl: resolve('OPENAI_BASE_URL', overrides.openaiBaseUrl),
       maxTokens,
       contextWindow: resolveContextWindow(overrides.contextWindow, maxTokens),
     },
@@ -185,10 +185,10 @@ export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewC
  * severity threshold. Never requires `OPENAI_API_KEY`/`OPENAI_MODEL`/
  * `OPENAI_BASE_URL` — `publish` never contacts OpenAI. */
 export function loadPublishConfig(overrides: PublishConfigOverrides = {}): PublishConfig {
-  const failOnSeverity = (overrides.failOnSeverity ?? process.env.FAIL_ON_SEVERITY ?? "important") as FailOnSeverity;
+  const failOnSeverity = (overrides.failOnSeverity ?? process.env.FAIL_ON_SEVERITY ?? 'important') as FailOnSeverity;
   if (!VALID_FAIL_ON_SEVERITY.includes(failOnSeverity)) {
     throw new ConfigError(
-      `Invalid FAIL_ON_SEVERITY value: "${failOnSeverity}". Must be one of ${VALID_FAIL_ON_SEVERITY.join(", ")}.`,
+      `Invalid FAIL_ON_SEVERITY value: "${failOnSeverity}". Must be one of ${VALID_FAIL_ON_SEVERITY.join(', ')}.`,
     );
   }
 
