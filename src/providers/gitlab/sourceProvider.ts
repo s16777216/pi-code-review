@@ -3,6 +3,7 @@ import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../../cor
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestProvider } from './client.ts';
 import { discussionAnchor, isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
 import { stripMarker } from './marker.ts';
+import { errorMessage } from '../../core/errorMessage.ts';
 
 export class GitLabSourceProvider implements SourceProvider {
   private lastDiffRefs?: GitLabDiffRefs;
@@ -52,7 +53,7 @@ export class GitLabSourceProvider implements SourceProvider {
         discussions ??= client.listDiscussions(mergeRequestIid).then(
           (raw) => raw.map(toReviewDiscussion).filter((d): d is ReviewDiscussion => d !== null),
           (error: unknown) => ({
-            error: `Failed to list discussions: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Failed to list discussions: ${errorMessage(error)}`,
           }),
         );
         return discussions;

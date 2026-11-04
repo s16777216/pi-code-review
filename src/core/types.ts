@@ -1,5 +1,8 @@
 export type Severity = 'important' | 'nit' | 'pre_existing';
 
+/** The severity threshold for pass or fail; `none` always passes. */
+export type FailOnSeverity = Severity | 'none';
+
 export type DiffLineType = 'added' | 'removed' | 'context';
 
 export interface DiffLine {
@@ -9,10 +12,7 @@ export interface DiffLine {
   newLine: number | null;
 }
 
-/** One changed file's diff, in the shape the `ReviewEngine` consumes.
- * Pulled forward from task 4.0: `SourceProvider` (below) needs this type
- * before the rest of the engine exists. `Finding` and `ReviewEngine` are
- * still defined in task 4.0. */
+/** One changed file's diff, in the shape the `ReviewEngine` consumes. */
 export interface ChangedFileDiff {
   oldPath: string | null;
   newPath: string | null;
@@ -75,8 +75,7 @@ export interface ReviewContext {
   listDiscussions(): Promise<ReviewDiscussion[] | { error: string }>;
 }
 
-/** The engine's output. Also pulled forward from task 4.0, for the same
- * reason: `SinkProvider` (in `src/review/providers.ts`) needs this type. */
+/** One problem the review reports, on a new-file line of a changed file. */
 export interface Finding {
   file: string;
   line: number;

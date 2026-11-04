@@ -4,6 +4,7 @@ import type { Finding, ResolvedDiscussion, UnreviewedFile } from '../../core/typ
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestWriter } from './client.ts';
 import { discussionAnchor, isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
 import { MARKER } from './marker.ts';
+import { errorMessage } from '../../core/errorMessage.ts';
 
 export interface GitLabSinkProviderOptions {
   client: MergeRequestWriter;
@@ -139,7 +140,7 @@ export class GitLabSinkProvider implements SinkProvider {
       else await client.updateNote(mergeRequestIid, note.id, body);
     } catch (error) {
       this.logger.warn(
-        { files: tooLarge, error: error instanceof Error ? error.message : String(error) },
+        { files: tooLarge, error: errorMessage(error) },
         'could not post the comment on files too large to review',
       );
     }
@@ -177,7 +178,7 @@ export class GitLabSinkProvider implements SinkProvider {
       await client.addDiscussionNote(mergeRequestIid, discussionId, `${MARKER}\nResolved: ${declaration.reason}`);
     } catch (error) {
       this.logger.warn(
-        { discussionId, error: error instanceof Error ? error.message : String(error) },
+        { discussionId, error: errorMessage(error) },
         'could not reply to a discussion declared fixed; it stays open',
       );
       return;
@@ -187,7 +188,7 @@ export class GitLabSinkProvider implements SinkProvider {
       await client.setDiscussionResolved(mergeRequestIid, discussionId, true);
     } catch (error) {
       this.logger.warn(
-        { discussionId, error: error instanceof Error ? error.message : String(error) },
+        { discussionId, error: errorMessage(error) },
         'replied to a discussion declared fixed but could not resolve it',
       );
     }
@@ -200,7 +201,7 @@ export class GitLabSinkProvider implements SinkProvider {
       discussions = await client.listDiscussions(mergeRequestIid);
     } catch (error) {
       this.logger.warn(
-        { error: error instanceof Error ? error.message : String(error) },
+        { error: errorMessage(error) },
         'could not read existing discussions; posting every finding as a new discussion',
       );
       return null;
@@ -264,7 +265,7 @@ export class GitLabSinkProvider implements SinkProvider {
       await client.setDiscussionResolved(mergeRequestIid, discussionId, false);
     } catch (error) {
       this.logger.warn(
-        { discussionId, error: error instanceof Error ? error.message : String(error) },
+        { discussionId, error: errorMessage(error) },
         'replied to a resolved discussion but could not reopen it',
       );
     }
@@ -274,10 +275,7 @@ export class GitLabSinkProvider implements SinkProvider {
     if (this.options.onDiscussionError) {
       this.options.onDiscussionError(finding, error);
     } else {
-      this.logger.error(
-        { file: finding.file, line: finding.line, error: error instanceof Error ? error.message : String(error) },
-        message,
-      );
+      this.logger.error({ file: finding.file, line: finding.line, error: errorMessage(error) }, message);
     }
   }
 }

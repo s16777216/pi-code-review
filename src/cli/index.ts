@@ -18,8 +18,9 @@ import { GitLabClient, type MergeRequestProvider, type MergeRequestWriter } from
 import { GitLabSinkProvider } from '../providers/index.ts';
 import { GitLabSourceProvider } from '../providers/index.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
-import { decidePassFail } from '../core/exitCode.ts';
+import { decidePassFail } from '../core/passFail.ts';
 import { AgentReviewEngine } from '../core/review/engine.ts';
+import { errorMessage } from '../core/errorMessage.ts';
 
 const DEFAULT_FINDINGS_PATH = 'findings.json';
 
@@ -281,7 +282,7 @@ if (isEntrypoint) {
       // Not yet known whether `--debug` was requested (parsing may be what
       // failed) — `error`-level output is shown at either log level, so a
       // plain `info`-level logger is enough here.
-      buildLogger(false).error(error instanceof Error ? error.message : String(error));
+      buildLogger(false).error(errorMessage(error));
       process.exitCode = EXIT_ERROR;
     });
 }

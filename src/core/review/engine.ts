@@ -12,10 +12,11 @@ import type {
 } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
 import { computeAnchor } from './anchor.ts';
-import { itemPath, MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
-import { checkNewFileLine, getNewFileLineText } from './diff.ts';
+import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
+import { changedFilePath, checkNewFileLine, compareCodePoints, getNewFileLineText } from './diff.ts';
 import { parseReviewOutput, ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { buildReviewPrompt, type PromptBatch } from './prompt.ts';
+import { errorMessage } from '../errorMessage.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
 
@@ -281,7 +282,7 @@ function batchField(batch: PromptBatch | undefined): { batch?: number } {
 }
 
 function batchFailure(batch: PromptBatch, error: unknown): ReviewFailureError {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = errorMessage(error);
   return new ReviewFailureError(`Batch ${batch.index} of ${batch.count} failed: ${message}`);
 }
 
@@ -326,8 +327,8 @@ function listUnreviewedFiles(context: ReviewContext, logger: Logger): Unreviewed
       (file): file is ChangedFileDiff & { omitted: NonNullable<ChangedFileDiff['omitted']> } =>
         file.omitted !== undefined,
     )
-    .map((file) => ({ path: itemPath(file), reason: file.omitted }))
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    .map((file) => ({ path: changedFilePath(file), reason: file.omitted }))
+    .sort((a, b) => compareCodePoints(a.path, b.path));
   for (const file of unreviewed) {
     if (file.reason === 'too_large') {
       logger.warn({ file: file.path, reason: file.reason }, 'did not review a changed file: its diff is too large');

@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import type { GitLabDiffRefs } from './providers/index.ts';
 import type { Finding, ResolvedDiscussion, UnreviewedFile } from './core/types.ts';
 import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
+import { errorMessage } from './core/errorMessage.ts';
 
 /** What `review` writes and `publish` reads. `diffRefs` is the one thing
  * `publish` cannot get anywhere else — `GitLabSinkProvider` needs it to
@@ -34,26 +35,20 @@ export async function readFindingsFile(path: string): Promise<FindingsFile> {
   try {
     raw = await readFile(path, 'utf8');
   } catch (error) {
-    throw new FindingsFileError(
-      `Could not read findings file "${path}": ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new FindingsFileError(`Could not read findings file "${path}": ${errorMessage(error)}`);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (error) {
-    throw new FindingsFileError(
-      `Findings file "${path}" is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new FindingsFileError(`Findings file "${path}" is not valid JSON: ${errorMessage(error)}`);
   }
 
   try {
     return validateFindingsFile(parsed);
   } catch (error) {
-    throw new FindingsFileError(
-      `Findings file "${path}" is invalid: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    throw new FindingsFileError(`Findings file "${path}" is invalid: ${errorMessage(error)}`);
   }
 }
 

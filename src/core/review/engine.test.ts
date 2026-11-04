@@ -5,7 +5,7 @@ import { estimateTextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Finding, ReviewDiscussion } from '../types.ts';
 import { computeAnchor } from './anchor.ts';
 import type { ReviewContext } from '../types.ts';
-import { decidePassFail } from '../exitCode.ts';
+import { decidePassFail } from '../passFail.ts';
 import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
 import { buildReviewPrompt } from './prompt.ts';

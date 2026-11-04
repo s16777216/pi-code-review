@@ -1,5 +1,4 @@
-import type { FailOnSeverity } from '../config.ts';
-import type { Finding, Severity } from './types.ts';
+import type { FailOnSeverity, Finding, Severity } from './types.ts';
 
 /** Higher rank meets a stricter threshold. `pre_existing` never meets
  * `important` or `nit`, matching the article's view that a bug the change

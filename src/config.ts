@@ -1,6 +1,4 @@
-import type { Severity } from './core/types.ts';
-
-export type FailOnSeverity = Severity | 'none';
+import type { FailOnSeverity } from './core/types.ts';
 
 const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ['important', 'nit', 'none'];
 const DEFAULT_MAX_TOKENS = 32_000;
