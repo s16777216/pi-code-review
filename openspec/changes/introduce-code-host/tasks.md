@@ -8,9 +8,9 @@
 
 ## 2. The gateway and the Publisher
 
-- [ ] 2.1 Add `DiscussionGateway` to `core/ports.ts` (Decision 1).
-- [ ] 2.2 Add `core/publish/publisher.ts` with `class Publisher`. Move the rules from `GitLabSinkProvider` and `unreviewedNote.ts`, with no change to any rule, log line, or comment body. Move `onDiscussionError` to a `Publisher` option (Decision 3).
-- [ ] 2.3 Move the rule tests from `sinkProvider.test.ts` to `publisher.test.ts`, with a fake gateway and unchanged assertions. Verify that the test count is the same as before the move, and verify with `npm test`.
+- [x] 2.1 Add `DiscussionGateway` to `core/ports.ts` (Decision 1).
+- [x] 2.2 Add `core/publish/publisher.ts` with `class Publisher`. Move the rules from `GitLabSinkProvider` and `unreviewedNote.ts`, with no change to any rule, log line, or comment body. Move `onDiscussionError` to a `Publisher` option (Decision 3).
+- [x] 2.3 Move the rule tests from `sinkProvider.test.ts` to `publisher.test.ts`, with a fake gateway and unchanged assertions. Verify that the test count is the same as before the move, and verify with `npm test`.
 
 ## 3. The GitLab merge request and the host
 
