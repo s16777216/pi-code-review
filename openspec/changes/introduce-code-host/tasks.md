@@ -14,16 +14,16 @@
 
 ## 3. The GitLab merge request and the host
 
-- [ ] 3.1 Add `ChangeRequest`, `CodeHost`, and `HostFlags` to `core/ports.ts`, and remove `SourceProvider` and `SinkProvider` (Decision 1).
-- [ ] 3.2 Add `providers/gitlab/mergeRequest.ts` with `GitLabMergeRequest implements ChangeRequest<GitLabDiffRefs>, DiscussionGateway`. `load()` replaces `GitLabSourceProvider`, and the gateway methods replace the client calls of the sink (Decision 2).
-- [ ] 3.3 Add `providers/gitlab/host.ts` with `gitlabHost`: its `flags`, `isChangeRequest`, `open`, `parseSnapshot`, and `restore`. Export only `gitlabHost` from `providers/index.ts`.
-- [ ] 3.4 Remove `sourceProvider.ts`, `sinkProvider.ts`, `discussions.ts`, `marker.ts`, and `unreviewedNote.ts` from `providers/gitlab/`, and move their remaining tests to `mergeRequest.test.ts` and `host.test.ts` (Decision 6). Verify with `npm test`.
+- [x] 3.1 Add `ChangeRequest`, `CodeHost`, and `HostFlags` to `core/ports.ts`, and remove `SourceProvider` and `SinkProvider` (Decision 1).
+- [x] 3.2 Add `providers/gitlab/mergeRequest.ts` with `GitLabMergeRequest implements ChangeRequest<GitLabDiffRefs>, DiscussionGateway`. `load()` replaces `GitLabSourceProvider`, and the gateway methods replace the client calls of the sink (Decision 2).
+- [x] 3.3 Add `providers/gitlab/host.ts` with `gitlabHost`: its `flags`, `isChangeRequest`, `open`, `parseSnapshot`, and `restore`. Export only `gitlabHost` from `providers/index.ts`.
+- [x] 3.4 Remove `sourceProvider.ts`, `sinkProvider.ts`, `discussions.ts`, `marker.ts`, and `unreviewedNote.ts` from `providers/gitlab/`, and move their remaining tests to `mergeRequest.test.ts` and `host.test.ts` (Decision 6). Verify with `npm test`.
 
 ## 4. The CLI and the configuration
 
-- [ ] 4.1 Remove the `gitlab` field from `ReviewConfig` and `PublishConfig`, and the GitLab overrides from `config.ts`.
-- [ ] 4.2 Change `runReview` to take a `ChangeRequest`, and `runPublish` to take a `DiscussionGateway`. Change `runReviewCommand` and `runPublishCommand` to take a `CodeHost`, to parse `host.flags` with each command's own flags, and to call `open` or `restore` before the other settings. Pass `gitlabHost` in `main` (Decision 5).
-- [ ] 4.3 Change the CLI tests to fake `ChangeRequest`, `DiscussionGateway`, and `CodeHost`. Verify that the existing entrypoint tests still pass unchanged: the error order, the exit codes, and the bad findings file. Verify with `npm test`.
+- [x] 4.1 Remove the `gitlab` field from `ReviewConfig` and `PublishConfig`, and the GitLab overrides from `config.ts`.
+- [x] 4.2 Change `runReview` to take a `ChangeRequest`, and `runPublish` to take a `DiscussionGateway`. Change `runReviewCommand` and `runPublishCommand` to take a `CodeHost`, to parse `host.flags` with each command's own flags, and to call `open` or `restore` before the other settings. Pass `gitlabHost` in `main` (Decision 5).
+- [x] 4.3 Change the CLI tests to fake `ChangeRequest`, `DiscussionGateway`, and `CodeHost`. Verify that the existing entrypoint tests still pass unchanged: the error order, the exit codes, and the bad findings file. Verify with `npm test`.
 
 ## 5. Docs
 

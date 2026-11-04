@@ -4,7 +4,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FindingsFileError, readFindingsFile, writeFindingsFile, type FindingsFile } from './findingsFile.ts';
-import { parseGitLabDiffRefs, type GitLabDiffRefs } from './providers/index.ts';
+import { gitlabHost } from './providers/index.ts';
+
+/** The findings file stores the host's snapshot; these tests use GitLab's. */
+const parseGitLabDiffRefs = (value: unknown) => gitlabHost.parseSnapshot(value);
+type GitLabDiffRefs = ReturnType<typeof parseGitLabDiffRefs>;
 
 test('writeFindingsFile then readFindingsFile round-trips the same data', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));

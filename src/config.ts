@@ -1,17 +1,13 @@
 import type { FailOnSeverity } from './core/types.ts';
-import {
-  loadGitlabConnectionConfig,
-  type GitlabConnectionConfig,
-  type GitlabConnectionOverrides,
-} from './providers/index.ts';
 import { ConfigError, requireSetting } from './settings.ts';
 
 const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ['important', 'nit', 'none'];
 const DEFAULT_MAX_TOKENS = 32_000;
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
+/** The settings of `review` that do not depend on the host. The host reads
+ * its own settings (`CodeHost.connect`). */
 export interface ReviewConfig {
-  gitlab: GitlabConnectionConfig;
   /** Optional language for finding summaries, e.g. "Traditional Chinese".
    * Undefined keeps the default (English) output. */
   language?: string;
@@ -27,15 +23,17 @@ export interface ReviewConfig {
   };
 }
 
+/** The settings of `publish` that do not depend on the host. */
 export interface PublishConfig {
-  gitlab: GitlabConnectionConfig;
   failOnSeverity: FailOnSeverity;
 }
 
-export interface ReviewConfigOverrides extends GitlabConnectionOverrides {
+export interface ReviewConfigOverrides {
   model?: string;
   openaiBaseUrl?: string;
-  /** Secret — see `GitlabConnectionOverrides`'s doc comment (in `providers/gitlab/config.ts`) for the same trade-off. */
+  /** Secret. Passing it as a CLI flag puts it in shell history and in
+   * `ps`/`/proc/<pid>/cmdline` output for as long as the process runs: an
+   * accepted trade-off for local convenience, not a recommended default. */
   apiKey?: string;
   /** Raw string from the CLI flag; `loadReviewConfig()` parses and validates it. */
   maxTokens?: string;
@@ -44,7 +42,7 @@ export interface ReviewConfigOverrides extends GitlabConnectionOverrides {
   language?: string;
 }
 
-export interface PublishConfigOverrides extends GitlabConnectionOverrides {
+export interface PublishConfigOverrides {
   failOnSeverity?: string;
 }
 
@@ -109,13 +107,17 @@ function resolveLanguage(override: string | undefined): string | undefined {
   return value;
 }
 
-/** Resolves config for the `review` command: GitLab connection + OpenAI.
- * Never requires `FAIL_ON_SEVERITY` — `review` has no pass/fail concept. */
-export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewConfig {
+/** Resolves config for the `review` command: OpenAI and the language.
+ * Never requires `FAIL_ON_SEVERITY` — `review` has no pass/fail concept.
+ *
+ * `readHostSettings` reads the host's own settings. It is called after
+ * `--max-tokens` and `--language` and before the required OpenAI settings,
+ * so the first bad setting is reported in the same order for every host. */
+export function loadReviewConfig(overrides: ReviewConfigOverrides = {}, readHostSettings?: () => void): ReviewConfig {
   const maxTokens = resolveMaxTokens(overrides.maxTokens);
   const language = resolveLanguage(overrides.language);
+  readHostSettings?.();
   return {
-    gitlab: loadGitlabConnectionConfig(overrides),
     ...(language === undefined ? {} : { language }),
     openai: {
       apiKey: requireSetting('OPENAI_API_KEY', overrides.apiKey),
@@ -127,10 +129,14 @@ export function loadReviewConfig(overrides: ReviewConfigOverrides = {}): ReviewC
   };
 }
 
-/** Resolves config for the `publish` command: GitLab connection + the
- * severity threshold. Never requires `OPENAI_API_KEY`/`OPENAI_MODEL`/
- * `OPENAI_BASE_URL` — `publish` never contacts OpenAI. */
-export function loadPublishConfig(overrides: PublishConfigOverrides = {}): PublishConfig {
+/** Resolves config for the `publish` command: the severity threshold. Never
+ * requires `OPENAI_API_KEY`/`OPENAI_MODEL`/`OPENAI_BASE_URL` — `publish`
+ * never contacts OpenAI. `readHostSettings` reads the host's own settings,
+ * after the threshold is checked (see `loadReviewConfig`). */
+export function loadPublishConfig(
+  overrides: PublishConfigOverrides = {},
+  readHostSettings?: () => void,
+): PublishConfig {
   const failOnSeverity = (overrides.failOnSeverity ?? process.env.FAIL_ON_SEVERITY ?? 'important') as FailOnSeverity;
   if (!VALID_FAIL_ON_SEVERITY.includes(failOnSeverity)) {
     throw new ConfigError(
@@ -138,8 +144,6 @@ export function loadPublishConfig(overrides: PublishConfigOverrides = {}): Publi
     );
   }
 
-  return {
-    gitlab: loadGitlabConnectionConfig(overrides),
-    failOnSeverity,
-  };
+  readHostSettings?.();
+  return { failOnSeverity };
 }
