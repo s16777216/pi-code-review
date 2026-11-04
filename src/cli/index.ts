@@ -13,16 +13,9 @@ import {
   loadReviewConfig,
 } from '../config.ts';
 import { type FindingsFile, readFindingsFile, writeFindingsFile } from '../findingsFile.ts';
-import {
-  GitLabClient,
-  isMergeRequestPipeline,
-  parseGitLabDiffRefs,
-  type GitLabDiffRefs,
-  type MergeRequestProvider,
-  type MergeRequestWriter,
-} from '../providers/index.ts';
-import { GitLabSinkProvider } from '../providers/index.ts';
-import { GitLabSourceProvider } from '../providers/index.ts';
+import { gitlabHost } from '../providers/index.ts';
+import type { ChangeRequest, CodeHost, DiscussionGateway, HostFlags } from '../core/ports.ts';
+import { Publisher } from '../core/publish/publisher.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
 import { decidePassFail } from '../core/passFail.ts';
 import { AgentReviewEngine } from '../core/review/engine.ts';
@@ -47,8 +40,8 @@ function buildModel(config: ReviewConfig): Model<Api> {
 
 export interface ReviewOptions {
   config: ReviewConfig;
-  /** GitLab read access. Production passes a real `GitLabClient`; tests pass a fake. */
-  client: MergeRequestProvider;
+  /** The change request to review. Production passes the host's; tests pass a fake. */
+  changeRequest: ChangeRequest<unknown>;
   /** The model provider to stream from. Production passes `openaiProvider()`;
    * tests pass `fauxProvider().provider` so no network call happens. */
   provider: Provider;
@@ -57,17 +50,16 @@ export interface ReviewOptions {
   logger?: Logger;
 }
 
-/** Fetches the merge request, runs the `ReviewEngine`, and returns the
- * findings plus the diff refs `publish` will need. Never contacts GitLab to
- * publish anything, and never decides pass/fail — see `design.md`'s
+/** Loads the change request, runs the `ReviewEngine`, and returns the
+ * findings plus the snapshot `publish` will need. Never publishes anything
+ * (a `ChangeRequest` cannot), and never decides pass/fail — see `design.md`'s
  * "Severity-threshold decision moves to publish, not review" decision. */
-export async function runReview(options: ReviewOptions): Promise<FindingsFile<GitLabDiffRefs>> {
-  const { config, client, provider } = options;
+export async function runReview(options: ReviewOptions): Promise<FindingsFile<unknown>> {
+  const { config, changeRequest, provider } = options;
   const logger = options.logger ?? silentLogger();
 
   logger.info('Fetching merge request context from GitLab...');
-  const sourceProvider = new GitLabSourceProvider(client, config.gitlab.mergeRequestIid);
-  const context = await sourceProvider.buildReviewContext();
+  const { context, snapshot } = await changeRequest.load();
   logger.info(`Reviewing "${context.title}" (${context.changedFiles.length} changed file(s)).`);
 
   logger.info(`Running review with model "${config.openai.model}"...`);
@@ -81,33 +73,31 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<Gi
   const { findings, resolved, unreviewedFiles } = await engine.review(context);
   logger.info(`Review produced ${findings.length} finding(s) and ${resolved.length} fixed discussion(s).`);
 
-  return { diffRefs: sourceProvider.getDiffRefs(), findings, resolved, unreviewedFiles };
+  return { diffRefs: snapshot, findings, resolved, unreviewedFiles };
 }
 
 export interface PublishOptions {
   config: PublishConfig;
-  /** GitLab write access. Production passes a real `GitLabClient`; tests pass a fake. */
-  client: MergeRequestWriter;
-  findingsFile: FindingsFile<GitLabDiffRefs>;
+  /** The discussions of the change request. Production passes the host's; tests pass a fake. */
+  gateway: DiscussionGateway;
+  findingsFile: FindingsFile<unknown>;
   /** Logs progress at `info` level. Defaults to a silent logger. */
   logger?: Logger;
 }
 
-/** Publishes findings to GitLab, then decides pass/fail from the severity
+/** Publishes findings to the host, then decides pass/fail from the severity
  * threshold — always after publishing completes, so a severity gate can
  * never prevent a finding from being published. */
 export async function runPublish(options: PublishOptions): Promise<boolean> {
-  const { config, client, findingsFile } = options;
+  const { config, gateway, findingsFile } = options;
   const logger = options.logger ?? silentLogger();
 
   logger.info(`Publishing ${findingsFile.findings.length} finding(s) to GitLab...`);
-  const sinkProvider = new GitLabSinkProvider({
-    client,
-    mergeRequestIid: config.gitlab.mergeRequestIid,
-    diffRefs: findingsFile.diffRefs,
-    logger,
-  });
-  await sinkProvider.publish(findingsFile.findings, findingsFile.resolved, findingsFile.unreviewedFiles);
+  await new Publisher(gateway, { logger }).publish(
+    findingsFile.findings,
+    findingsFile.resolved,
+    findingsFile.unreviewedFiles,
+  );
 
   const passed = decidePassFail(findingsFile.findings, config.failOnSeverity);
   logger.info(`Result: ${passed ? 'pass' : 'fail'} (threshold: ${config.failOnSeverity}).`);
@@ -117,14 +107,14 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
 /** `review`'s own CLI flags. No `--fail-on` — `review` has no pass/fail
  * concept (see the `review-cli` spec's "Each command accepts only the
  * configuration it needs" requirement). */
-export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & { out?: string; debug?: boolean } {
+export function parseReviewCliOptions(
+  argv: string[],
+  hostFlags: CodeHost<unknown>['flags'],
+): ReviewConfigOverrides & { out?: string; debug?: boolean; host: HostFlags } {
   const { values } = parseArgs({
     args: argv,
     options: {
-      'gitlab-url': { type: 'string' },
-      'project-id': { type: 'string' },
-      mr: { type: 'string' },
-      token: { type: 'string' },
+      ...hostFlags,
       model: { type: 'string' },
       'openai-base-url': { type: 'string' },
       'openai-api-key': { type: 'string' },
@@ -137,31 +127,28 @@ export function parseReviewCliOptions(argv: string[]): ReviewConfigOverrides & {
     strict: true,
   });
   return {
-    apiUrl: values['gitlab-url'],
-    projectId: values['project-id'],
-    mergeRequestIid: values.mr,
-    token: values.token,
-    model: values.model,
-    openaiBaseUrl: values['openai-base-url'],
-    apiKey: values['openai-api-key'],
-    maxTokens: values['max-tokens'],
-    contextWindow: values['context-window'],
-    language: values.language,
-    out: values.out,
-    debug: values.debug,
+    host: pickHostFlags(values, hostFlags),
+    model: asString(values.model),
+    openaiBaseUrl: asString(values['openai-base-url']),
+    apiKey: asString(values['openai-api-key']),
+    maxTokens: asString(values['max-tokens']),
+    contextWindow: asString(values['context-window']),
+    language: asString(values.language),
+    out: asString(values.out),
+    debug: values.debug === true ? true : undefined,
   };
 }
 
-/** `publish`'s own CLI flags. No `--model`/`--openai-base-url`/`--openai-api-key`
- * — `publish` never contacts OpenAI. */
-export function parsePublishCliOptions(argv: string[]): PublishConfigOverrides & { from?: string; debug?: boolean } {
+/** `publish`'s own CLI flags, plus the host's. No `--model`/`--openai-base-url`/
+ * `--openai-api-key` — `publish` never contacts OpenAI. */
+export function parsePublishCliOptions(
+  argv: string[],
+  hostFlags: CodeHost<unknown>['flags'],
+): PublishConfigOverrides & { from?: string; debug?: boolean; host: HostFlags } {
   const { values } = parseArgs({
     args: argv,
     options: {
-      'gitlab-url': { type: 'string' },
-      'project-id': { type: 'string' },
-      mr: { type: 'string' },
-      token: { type: 'string' },
+      ...hostFlags,
       'fail-on': { type: 'string' },
       from: { type: 'string' },
       debug: { type: 'boolean' },
@@ -169,14 +156,20 @@ export function parsePublishCliOptions(argv: string[]): PublishConfigOverrides &
     strict: true,
   });
   return {
-    apiUrl: values['gitlab-url'],
-    projectId: values['project-id'],
-    mergeRequestIid: values.mr,
-    token: values.token,
-    failOnSeverity: values['fail-on'],
-    from: values.from,
-    debug: values.debug,
+    host: pickHostFlags(values, hostFlags),
+    failOnSeverity: asString(values['fail-on']),
+    from: asString(values.from),
+    debug: values.debug === true ? true : undefined,
   };
+}
+
+/** The values of the host's own flags, by flag name. */
+function pickHostFlags(values: Record<string, unknown>, hostFlags: CodeHost<unknown>['flags']): HostFlags {
+  return Object.fromEntries(Object.keys(hostFlags).map((flag) => [flag, asString(values[flag])]));
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
 }
 
 /** `--debug` wins over `DEBUG` when both are given, consistent with every
@@ -195,59 +188,71 @@ export const EXIT_PASS = 0;
 export const EXIT_FAIL = 1;
 export const EXIT_ERROR = 2;
 
-/** Real wiring for `review`: builds the real GitLab client and the real
- * OpenAI provider, then delegates to `runReview()`. Exits 0 whenever the
+/** Real wiring for `review`: connects to the host and builds the real OpenAI
+ * provider, then delegates to `runReview()`. Exits 0 whenever the
  * review process itself completes, regardless of what it found, and never
  * exits 1; an error exits 2 at the entrypoint — see the
  * `review-cli` spec's "Review's exit code reflects only process success"
  * requirement. Exits 0 without writing a findings file when the pipeline is
  * not a merge request pipeline. */
-export async function runReviewCommand(argv: string[]): Promise<number> {
-  const cliOptions = parseReviewCliOptions(argv);
+export async function runReviewCommand<Snapshot, Settings>(
+  argv: string[],
+  host: CodeHost<Snapshot, Settings>,
+): Promise<number> {
+  const cliOptions = parseReviewCliOptions(argv, host.flags);
   const outPath = cliOptions.out ?? DEFAULT_FINDINGS_PATH;
   const logger = buildLogger(resolveDebug(cliOptions.debug));
 
-  if (!isMergeRequestPipeline(cliOptions)) {
+  if (!host.isChangeRequest(cliOptions.host)) {
     logger.info('Not a merge request pipeline; skipping review.');
     return EXIT_PASS;
   }
 
-  const config = loadReviewConfig(cliOptions);
-  const client = await GitLabClient.create({
-    apiUrl: config.gitlab.apiUrl,
-    projectId: config.gitlab.projectId,
-    token: config.gitlab.token,
+  let settings: Settings | undefined;
+  const config = loadReviewConfig(cliOptions, () => {
+    settings = host.readSettings(cliOptions.host);
+  });
+  const connection = await host.connect(settings as Settings, logger);
+
+  const findingsFile = await runReview({
+    config,
+    changeRequest: connection.openChangeRequest(),
+    provider: openaiProvider(),
     logger,
   });
-
-  const findingsFile = await runReview({ config, client, provider: openaiProvider(), logger });
   await writeFindingsFile(outPath, findingsFile);
   logger.info(`Wrote findings to "${outPath}".`);
   return EXIT_PASS;
 }
 
-/** Real wiring for `publish`: reads the findings file, builds the real
- * GitLab client, and delegates to `runPublish()`. Its exit code is the
+/** Real wiring for `publish`: reads the findings file, connects to the host,
+ * and delegates to `runPublish()`. Its exit code is the
  * severity-threshold decision — see the `review-cli` spec's "Publish's exit
  * code reflects the severity-threshold decision" requirement. */
-export async function runPublishCommand(argv: string[]): Promise<number> {
-  const cliOptions = parsePublishCliOptions(argv);
+export async function runPublishCommand<Snapshot, Settings>(
+  argv: string[],
+  host: CodeHost<Snapshot, Settings>,
+): Promise<number> {
+  const cliOptions = parsePublishCliOptions(argv, host.flags);
   const fromPath = cliOptions.from ?? DEFAULT_FINDINGS_PATH;
   const logger = buildLogger(resolveDebug(cliOptions.debug));
 
-  const config = loadPublishConfig(cliOptions);
-  // Read and validate the findings file before the GitLab client exists, so a
-  // bad file can never reach the GitLab API (see the `review-cli` spec's
+  let settings: Settings | undefined;
+  const config = loadPublishConfig(cliOptions, () => {
+    settings = host.readSettings(cliOptions.host);
+  });
+  // Read and validate the findings file before connecting to the host, so a
+  // bad file can never reach the host's API (see the `review-cli` spec's
   // "Publish reads findings from a file" requirement).
-  const findingsFile = await readFindingsFile(fromPath, parseGitLabDiffRefs);
-  const client = await GitLabClient.create({
-    apiUrl: config.gitlab.apiUrl,
-    projectId: config.gitlab.projectId,
-    token: config.gitlab.token,
+  const findingsFile = await readFindingsFile(fromPath, (value) => host.parseSnapshot(value));
+  const connection = await host.connect(settings as Settings, logger);
+
+  const passed = await runPublish({
+    config,
+    gateway: connection.restore(findingsFile.diffRefs),
+    findingsFile,
     logger,
   });
-
-  const passed = await runPublish({ config, client, findingsFile, logger });
   return passed ? EXIT_PASS : EXIT_FAIL;
 }
 
@@ -263,8 +268,9 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   const [command, ...rest] = argv;
 
-  if (command === 'review') return runReviewCommand(rest);
-  if (command === 'publish') return runPublishCommand(rest);
+  // The composition root: the only place that names a host.
+  if (command === 'review') return runReviewCommand(rest, gitlabHost);
+  if (command === 'publish') return runPublishCommand(rest, gitlabHost);
 
   throw new Error(`Unknown command "${command ?? ''}". Expected "review" or "publish".`);
 }

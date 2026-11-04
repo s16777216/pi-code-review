@@ -3,74 +3,63 @@ import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
 import pino from 'pino';
 import type { PublishConfig, ReviewConfig } from '../config.ts';
-import type {
-  DiscussionPosition,
-  FileContentResult,
-  GitLabChangedFile,
-  GitLabDiffRefs,
-  GitLabDiscussion,
-  MergeRequestMetadata,
-  MergeRequestProvider,
-  MergeRequestWriter,
-} from '../providers/index.ts';
+import type { ChangeRequest, DiscussionGateway } from '../core/ports.ts';
+import { toReviewDiscussion, type HostDiscussion } from '../core/publish/discussion.ts';
+import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../core/types.ts';
 import type { FindingsFile } from '../findingsFile.ts';
 import { computeAnchor } from '../core/review/anchor.ts';
 import { main, runPublish, runReview } from './index.ts';
 
-class FakeClient implements MergeRequestProvider, MergeRequestWriter {
-  discussions: { mergeRequestIid: string; body: string; position: DiscussionPosition }[] = [];
+type Position = { file: string; line: number };
+
+/** A change request for the CLI tests: the read side (`load`) and the
+ * discussion side, like a host's real class, with no host behind it. */
+class FakeMergeRequest implements ChangeRequest<unknown>, DiscussionGateway {
+  discussions: { body: string; position: Position }[] = [];
+  /** What `list` returns; the publish tests can set it. */
+  existing: HostDiscussion[] = [];
+  notes: { body: string; noteId?: number }[] = [];
 
   constructor(
-    private readonly metadata: MergeRequestMetadata,
-    private readonly diff: GitLabChangedFile[],
+    private readonly metadata: { title: string; description: string; diffRefs: unknown },
+    private readonly files: ChangedFileDiff[],
   ) {}
 
-  async getMergeRequest(): Promise<MergeRequestMetadata> {
-    return this.metadata;
+  async load(): Promise<{ context: ReviewContext; snapshot: unknown }> {
+    const context: ReviewContext = {
+      title: this.metadata.title,
+      description: this.metadata.description,
+      changedFiles: this.files,
+      getFileContent: async () => ({ error: 'not used in this test' }),
+      listDiscussions: async () =>
+        this.existing.map(toReviewDiscussion).filter((d): d is ReviewDiscussion => d !== null),
+    };
+    return { context, snapshot: this.metadata.diffRefs };
   }
 
-  async getMergeRequestDiff(): Promise<GitLabChangedFile[]> {
-    return this.diff;
-  }
-
-  async getFileContent(): Promise<FileContentResult> {
-    return { error: 'not used in this test' };
-  }
-
-  /** What `listDiscussions` returns; the publish tests can set it. */
-  existing: GitLabDiscussion[] = [];
-
-  async listDiscussions(): Promise<GitLabDiscussion[]> {
+  async list(): Promise<HostDiscussion[]> {
     return this.existing;
   }
 
-  async addDiscussionNote(): Promise<void> {}
+  async createDiscussion(position: Position, body: string): Promise<void> {
+    this.discussions.push({ body, position });
+  }
 
-  async setDiscussionResolved(): Promise<void> {}
+  async reply(): Promise<void> {}
 
-  notes: { body: string; noteId?: number }[] = [];
+  async setResolved(): Promise<void> {}
 
-  async createNote(_mergeRequestIid: string, body: string): Promise<void> {
+  async createNote(body: string): Promise<void> {
     this.notes.push({ body });
   }
 
-  async updateNote(_mergeRequestIid: string, noteId: number, body: string): Promise<void> {
+  async updateNote(noteId: number, body: string): Promise<void> {
     this.notes.push({ body, noteId });
-  }
-
-  async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {
-    this.discussions.push({ mergeRequestIid, body, position });
   }
 }
 
 function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfig {
   return {
-    gitlab: {
-      apiUrl: 'https://gitlab.example.com/api/v4',
-      projectId: '1',
-      mergeRequestIid: '5',
-      token: 'tok',
-    },
     openai: {
       apiKey: 'sk-test',
       model: 'gpt-4.1',
@@ -84,39 +73,37 @@ function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfi
 
 function fixturePublishConfig(overrides: Partial<PublishConfig> = {}): PublishConfig {
   return {
-    gitlab: {
-      apiUrl: 'https://gitlab.example.com/api/v4',
-      projectId: '1',
-      mergeRequestIid: '5',
-      token: 'tok',
-    },
     failOnSeverity: 'important',
     ...overrides,
   };
 }
 
-test('runReview returns findings and diff refs, and never contacts the GitLab sink', async () => {
+test('runReview returns findings and the snapshot, and never posts anything', async () => {
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }])),
   ]);
 
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     {
       title: 'Fix bug',
       description: 'Fixes a thing.',
       diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     },
-    [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+    [{ oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
   );
 
-  const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
+  const findingsFile = await runReview({
+    config: fixtureReviewConfig(),
+    changeRequest: client,
+    provider: faux.provider,
+  });
 
   assert.deepEqual(findingsFile.diffRefs, { baseSha: 'base', startSha: 'start', headSha: 'head' });
   assert.deepEqual(findingsFile.findings, [
     { file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.', anchor: computeAnchor('a.ts', 'new') },
   ]);
-  // runReview has no sink dependency at all - createDiscussion is only ever called by runPublish.
+  // runReview gets only the read side; createDiscussion is only ever called by runPublish.
   assert.equal(client.discussions.length, 0);
 });
 
@@ -124,31 +111,29 @@ test('runReview returns an empty findings list when the review finds nothing', a
   const faux = fauxProvider();
   faux.setResponses([fauxAssistantMessage('[]')]);
 
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
-    [{ oldPath: 'README.md', newPath: 'README.md', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+    [{ oldPath: 'README.md', newPath: 'README.md', hunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
   );
 
-  const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
+  const findingsFile = await runReview({
+    config: fixtureReviewConfig(),
+    changeRequest: client,
+    provider: faux.provider,
+  });
 
   assert.deepEqual(findingsFile.findings, []);
 });
 
-test('runReview never logs the OpenAI API key or the GitLab access token', async () => {
+test('runReview never logs the OpenAI API key', async () => {
   const faux = fauxProvider();
   faux.setResponses([fauxAssistantMessage('[]')]);
 
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
-    [{ oldPath: 'README.md', newPath: 'README.md', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
+    [{ oldPath: 'README.md', newPath: 'README.md', hunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
   );
   const config = fixtureReviewConfig({
-    gitlab: {
-      apiUrl: 'https://gitlab.example.com/api/v4',
-      projectId: '1',
-      mergeRequestIid: '5',
-      token: 'super-secret-token',
-    },
     openai: {
       apiKey: 'sk-super-secret-api-key',
       model: 'gpt-4.1',
@@ -180,19 +165,18 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
     debugStream as unknown as NodeJS.WritableStream,
   );
 
-  await runReview({ config, client, provider: faux.provider, logger: debugLogger });
+  await runReview({ config, changeRequest: client, provider: faux.provider, logger: debugLogger });
 
   const output = debugLines.join('\n');
-  assert.doesNotMatch(output, /super-secret-token/);
   assert.doesNotMatch(output, /sk-super-secret-api-key/);
 });
 
 test('runPublish publishes every finding', async () => {
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<GitLabDiffRefs> = {
+  const findingsFile: FindingsFile<unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -201,28 +185,21 @@ test('runPublish publishes every finding', async () => {
 
   const passed = await runPublish({
     config: fixturePublishConfig(),
-    client,
+    gateway: client,
     findingsFile,
   });
 
   assert.equal(passed, true); // "nit" is below the default "important" threshold
   assert.equal(client.discussions.length, 1);
-  assert.deepEqual(client.discussions[0]!.position, {
-    baseSha: 'base',
-    startSha: 'start',
-    headSha: 'head',
-    oldPath: 'a.ts',
-    newPath: 'a.ts',
-    newLine: 1,
-  });
+  assert.deepEqual(client.discussions[0]!.position, { file: 'a.ts', line: 1 });
 });
 
 test('runPublish publishes an important finding before failing on it (severity never blocks publishing)', async () => {
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<GitLabDiffRefs> = {
+  const findingsFile: FindingsFile<unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -231,7 +208,7 @@ test('runPublish publishes an important finding before failing on it (severity n
 
   const passed = await runPublish({
     config: fixturePublishConfig(),
-    client,
+    gateway: client,
     findingsFile,
   });
 
@@ -241,11 +218,11 @@ test('runPublish publishes an important finding before failing on it (severity n
 });
 
 test('runPublish passes when no finding meets the threshold', async () => {
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<GitLabDiffRefs> = {
+  const findingsFile: FindingsFile<unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -254,7 +231,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
 
   const passed = await runPublish({
     config: fixturePublishConfig(),
-    client,
+    gateway: client,
     findingsFile,
   });
   assert.equal(passed, true);
@@ -266,69 +243,65 @@ test('main rejects a missing or unknown subcommand with a clear error', async ()
 });
 
 test('runPublish still fails on an important finding that relates to an open discussion, and posts nothing', async () => {
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
   client.existing = [
     {
       id: 'd1',
-      position: { newPath: 'a.ts', newLine: 2, headSha: 'old' },
-      notes: [
-        {
-          id: 1,
-          author: 'bot',
-          body: '<!-- pi-code-review -->\n**[important]** Off-by-one.',
-          system: false,
-          resolvable: true,
-          resolved: false,
-        },
-      ],
+      position: { file: 'a.ts', line: 2, commit: 'old' },
+      resolved: false,
+      notes: [{ id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Off-by-one.' }],
     },
   ];
-  const findingsFile: FindingsFile<GitLabDiffRefs> = {
+  const findingsFile: FindingsFile<unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
   };
 
-  const passed = await runPublish({ config: fixturePublishConfig(), client, findingsFile });
+  const passed = await runPublish({ config: fixturePublishConfig(), gateway: client, findingsFile });
 
   assert.equal(client.discussions.length, 0);
   assert.equal(passed, false);
 });
 
 test('runPublish decides pass or fail from the findings only, not from fixed declarations', async () => {
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<GitLabDiffRefs> = {
+  const findingsFile: FindingsFile<unknown> = {
     unreviewedFiles: [],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     findings: [],
   };
 
-  assert.equal(await runPublish({ config: fixturePublishConfig(), client, findingsFile }), true);
+  assert.equal(await runPublish({ config: fixturePublishConfig(), gateway: client, findingsFile }), true);
 });
 
-test('runReview writes the omitted files, and runPublish passes them to the sink', async () => {
+test('runReview writes the omitted files, and runPublish posts the comment on them', async () => {
   const faux = fauxProvider();
   faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
-  const client = new FakeClient(
+  const client = new FakeMergeRequest(
     { title: 'Big', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [
-      { oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' },
-      { oldPath: 'big.js', newPath: 'big.js', diffHunks: '', tooLarge: true },
+      { oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,1 +1,1 @@\n-old\n+new' },
+      { oldPath: 'big.js', newPath: 'big.js', hunks: '', omitted: 'too_large' },
     ],
   );
 
-  const findingsFile = await runReview({ config: fixtureReviewConfig(), client, provider: faux.provider });
+  const findingsFile = await runReview({
+    config: fixtureReviewConfig(),
+    changeRequest: client,
+    provider: faux.provider,
+  });
   assert.deepEqual(findingsFile.unreviewedFiles, [{ path: 'big.js', reason: 'too_large' }]);
 
-  await runPublish({ config: fixturePublishConfig(), client, findingsFile });
+  await runPublish({ config: fixturePublishConfig(), gateway: client, findingsFile });
   assert.equal(client.notes.length, 1);
   assert.match(client.notes[0]!.body, /^<!-- pi-code-review unreviewed -->\n[\s\S]*`big\.js`/);
 });

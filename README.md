@@ -2,7 +2,7 @@
 
 AI code review for GitLab merge requests. Two commands: `review` fetches a merge request's diff and runs an AI agent (`pi-agent-core` + `pi-ai`, OpenAI) over it; `publish` posts the findings back to GitLab as inline comments, then decides pass or fail.
 
-The core review logic (`ReviewEngine`) is platform-agnostic; this repository ships the GitLab adapter (`gitlab-mr-context` / `review-output`) on top of it. See `openspec/specs/` for the capability specs, and `openspec/changes/archive/2026-10-29-gitlab-ai-code-review/design.md` for the original architecture decisions.
+The core is platform-agnostic: the review engine (`ReviewEngine`) and the publish rules (`Publisher`) work through three ports in `src/core/ports.ts` — `CodeHost` (one platform), `ChangeRequest` (one merge request, for `review`), and `DiscussionGateway` (its discussions, for `publish`). This repository ships one host, GitLab (`src/providers/gitlab/`, specs `gitlab-mr-context` / `review-output`). See `openspec/specs/` for the capability specs, and `openspec/changes/archive/2026-10-29-gitlab-ai-code-review/design.md` for the original architecture decisions.
 
 ## Status
 

@@ -1,18 +1,4 @@
-// Re-export the GitLab provider's public surface. Provider selection logic will be added with a second provider.
-export { GitLabClient } from './gitlab/client.ts';
-export type {
-  DiscussionPosition,
-  FileContentResult,
-  GitLabChangedFile,
-  GitLabDiscussion,
-  GitLabDiscussionNote,
-  GitLabDiffRefs,
-  MergeRequestMetadata,
-  MergeRequestProvider,
-  MergeRequestWriter,
-} from './gitlab/client.ts';
-export { GitLabSourceProvider } from './gitlab/sourceProvider.ts';
-export { isMergeRequestPipeline, loadGitlabConnectionConfig } from './gitlab/config.ts';
-export type { GitlabConnectionConfig, GitlabConnectionOverrides } from './gitlab/config.ts';
-export { parseGitLabDiffRefs } from './gitlab/diffRefs.ts';
-export { GitLabSinkProvider } from './gitlab/sinkProvider.ts';
+// The hosts that this tool can review on. Code outside `providers/` uses a
+// host only through the `CodeHost` port (`introduce-code-host` design,
+// Decision 2); choosing between hosts will be added with a second host.
+export { gitlabHost } from './gitlab/host.ts';

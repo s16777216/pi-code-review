@@ -40,7 +40,7 @@
 - Affected code:
   - `src/core/ports.ts` gets the new ports, which replace `SourceProvider` and `SinkProvider`.
   - New `src/core/publish/`, with the `Publisher`, the marker, and the discussion rules.
-  - `src/providers/gitlab/` gets `GitLabMergeRequest` and `gitlabHost`. These replace `sourceProvider.ts`, `sinkProvider.ts`, `discussions.ts`, `marker.ts`, and `unreviewedNote.ts`.
+  - `src/providers/gitlab/` gets `GitLabMergeRequest` and `gitlabHost`. These replace `sourceProvider.ts`, `sinkProvider.ts`, `marker.ts`, and `unreviewedNote.ts`. `discussions.ts` keeps only the GitLab discussion mapping.
   - `src/providers/index.ts`, `src/config.ts`, `src/cli/index.ts`, and `src/findingsFile.ts`.
 - Affected tests:
   - Most sink tests test publish rules, so they become `Publisher` tests with a fake `DiscussionGateway`.

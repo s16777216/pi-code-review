@@ -1,15 +1,104 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type {
+  DiscussionPosition,
   FileContentResult,
   GitLabChangedFile,
   GitLabDiscussion,
   MergeRequestMetadata,
-  MergeRequestProvider,
 } from './client.ts';
-import { GitLabSourceProvider } from './sourceProvider.ts';
+import { GitLabMergeRequest, type GitLabApi } from './mergeRequest.ts';
 
-class FakeMergeRequestProvider implements MergeRequestProvider {
+const REFS = { baseSha: 'base', startSha: 'start', headSha: 'head' };
+
+/** Records the write calls; the read calls are not used by these tests. */
+class FakeWriter implements GitLabApi {
+  log: unknown[][] = [];
+  discussions: GitLabDiscussion[] = [];
+  async listDiscussions(iid: string): Promise<GitLabDiscussion[]> {
+    this.log.push(['list', iid]);
+    return this.discussions;
+  }
+  async getMergeRequest(): Promise<MergeRequestMetadata> {
+    throw new Error('not used');
+  }
+  async getMergeRequestDiff(): Promise<GitLabChangedFile[]> {
+    throw new Error('not used');
+  }
+  async getFileContent(): Promise<FileContentResult> {
+    throw new Error('not used');
+  }
+  async createDiscussion(iid: string, body: string, position: DiscussionPosition): Promise<void> {
+    this.log.push(['createDiscussion', iid, body, position]);
+  }
+  async addDiscussionNote(iid: string, id: string, body: string): Promise<void> {
+    this.log.push(['addDiscussionNote', iid, id, body]);
+  }
+  async setDiscussionResolved(iid: string, id: string, resolved: boolean): Promise<void> {
+    this.log.push(['setDiscussionResolved', iid, id, resolved]);
+  }
+  async createNote(iid: string, body: string): Promise<void> {
+    this.log.push(['createNote', iid, body]);
+  }
+  async updateNote(iid: string, noteId: number, body: string): Promise<void> {
+    this.log.push(['updateNote', iid, noteId, body]);
+  }
+}
+
+test('GitLabMergeRequest positions a new discussion with the diff refs and the new-file line', async () => {
+  const writer = new FakeWriter();
+  await new GitLabMergeRequest(writer, '5', REFS).createDiscussion({ file: 'a.ts', line: 3 }, 'Body.');
+
+  assert.deepEqual(writer.log, [
+    [
+      'createDiscussion',
+      '5',
+      'Body.',
+      { baseSha: 'base', startSha: 'start', headSha: 'head', oldPath: 'a.ts', newPath: 'a.ts', newLine: 3 },
+    ],
+  ]);
+});
+
+test('GitLabMergeRequest sends each gateway action to its merge request', async () => {
+  const writer = new FakeWriter();
+  const mr = new GitLabMergeRequest(writer, '5', REFS);
+
+  await mr.reply('d1', 'R.');
+  await mr.setResolved('d1', false);
+  await mr.createNote('N.');
+  await mr.updateNote(42, 'U.');
+
+  assert.deepEqual(writer.log, [
+    ['addDiscussionNote', '5', 'd1', 'R.'],
+    ['setDiscussionResolved', '5', 'd1', false],
+    ['createNote', '5', 'N.'],
+    ['updateNote', '5', 42, 'U.'],
+  ]);
+});
+
+test('GitLabMergeRequest lists the discussions as HostDiscussion', async () => {
+  const writer = new FakeWriter();
+  writer.discussions = [
+    {
+      id: 'd1',
+      position: { newPath: 'a.ts', newLine: 1, headSha: 'h' },
+      notes: [{ id: 3, author: 'bot', body: 'x', system: false, resolvable: true, resolved: true }],
+    },
+  ];
+
+  assert.deepEqual(await new GitLabMergeRequest(writer, '5', REFS).list(), [
+    {
+      id: 'd1',
+      position: { file: 'a.ts', line: 1, commit: 'h' },
+      resolved: true,
+      notes: [{ id: 3, author: 'bot', body: 'x' }],
+    },
+  ]);
+});
+
+// --- The read side: load() ---
+
+class FakeGitLabApi implements GitLabApi {
   calls: { method: string; args: unknown[] }[] = [];
   /** What `listDiscussions` returns, or an error it throws. */
   discussions: GitLabDiscussion[] | Error = [];
@@ -40,10 +129,16 @@ class FakeMergeRequestProvider implements MergeRequestProvider {
     if (this.discussions instanceof Error) throw this.discussions;
     return this.discussions;
   }
+
+  async createDiscussion(): Promise<void> {}
+  async addDiscussionNote(): Promise<void> {}
+  async setDiscussionResolved(): Promise<void> {}
+  async createNote(): Promise<void> {}
+  async updateNote(): Promise<void> {}
 }
 
-test('GitLabSourceProvider builds a ReviewContext from the merge request metadata and diff', async () => {
-  const fake = new FakeMergeRequestProvider(
+test('load builds a ReviewContext from the merge request metadata and diff', async () => {
+  const fake = new FakeGitLabApi(
     {
       title: 'Fix bug',
       description: 'Fixes the thing',
@@ -52,9 +147,7 @@ test('GitLabSourceProvider builds a ReviewContext from the merge request metadat
     [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
     { 'a.ts': { content: 'export const a = 2;' } },
   );
-  const provider = new GitLabSourceProvider(fake, '5');
-
-  const context = await provider.buildReviewContext();
+  const { context } = await new GitLabMergeRequest(fake, '5').load();
 
   assert.equal(context.title, 'Fix bug');
   assert.equal(context.description, 'Fixes the thing');
@@ -63,14 +156,13 @@ test('GitLabSourceProvider builds a ReviewContext from the merge request metadat
   assert.deepEqual(fake.calls[1], { method: 'getMergeRequestDiff', args: ['5'] });
 });
 
-test("GitLabSourceProvider's getFileContent reads at the merge request's head SHA", async () => {
-  const fake = new FakeMergeRequestProvider(
+test("load's getFileContent reads at the merge request's head SHA", async () => {
+  const fake = new FakeGitLabApi(
     { title: 't', description: 'd', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head123' } },
     [],
     { 'a.ts': { content: 'export const a = 2;' } },
   );
-  const provider = new GitLabSourceProvider(fake, '5');
-  const context = await provider.buildReviewContext();
+  const { context } = await new GitLabMergeRequest(fake, '5').load();
 
   const content = await context.getFileContent('a.ts');
 
@@ -78,37 +170,37 @@ test("GitLabSourceProvider's getFileContent reads at the merge request's head SH
   assert.deepEqual(fake.calls.at(-1), { method: 'getFileContent', args: ['a.ts', 'head123'] });
 });
 
-test("GitLabSourceProvider's getFileContent surfaces an error object instead of throwing", async () => {
-  const fake = new FakeMergeRequestProvider(
+test("load's getFileContent surfaces an error object instead of throwing", async () => {
+  const fake = new FakeGitLabApi(
     { title: 't', description: 'd', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head123' } },
     [],
     {},
   );
-  const provider = new GitLabSourceProvider(fake, '5');
-  const context = await provider.buildReviewContext();
+  const { context } = await new GitLabMergeRequest(fake, '5').load();
 
   const result = await context.getFileContent('missing.ts');
 
   assert.deepEqual(result, { error: 'no fixture for missing.ts' });
 });
 
-test('getDiffRefs returns the diff refs from the most recent buildReviewContext() call', async () => {
-  const fake = new FakeMergeRequestProvider(
+test('load returns the diff refs as the snapshot, and createDiscussion needs them', async () => {
+  const fake = new FakeGitLabApi(
     { title: 't', description: 'd', diffRefs: { baseSha: 'base123', startSha: 'start123', headSha: 'head123' } },
     [],
     {},
   );
-  const provider = new GitLabSourceProvider(fake, '5');
+  const mr = new GitLabMergeRequest(fake, '5');
 
-  assert.throws(() => provider.getDiffRefs());
+  await assert.rejects(() => mr.createDiscussion({ file: 'a.ts', line: 1 }, 'x'), /needs the diff refs/);
 
-  await provider.buildReviewContext();
+  const { snapshot } = await mr.load();
 
-  assert.deepEqual(provider.getDiffRefs(), { baseSha: 'base123', startSha: 'start123', headSha: 'head123' });
+  assert.deepEqual(snapshot, { baseSha: 'base123', startSha: 'start123', headSha: 'head123' });
+  await mr.createDiscussion({ file: 'a.ts', line: 1 }, 'x');
 });
 
-function discussionFixture(): FakeMergeRequestProvider {
-  return new FakeMergeRequestProvider(
+function discussionFixture(): FakeGitLabApi {
+  return new FakeGitLabApi(
     { title: 't', description: 'd', diffRefs: { baseSha: 'b', startSha: 's', headSha: 'h' } },
     [],
     {},
@@ -149,7 +241,7 @@ test("listDiscussions maps GitLab discussions, drops system notes, and marks thi
       ],
     },
   ];
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
 
   assert.deepEqual(await context.listDiscussions(), [
     {
@@ -190,7 +282,7 @@ test('listDiscussions treats a discussion as open while any resolvable note is u
       ],
     },
   ];
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
   const result = await context.listDiscussions();
 
   assert.equal(Array.isArray(result) && result[0]!.resolved, false);
@@ -198,7 +290,7 @@ test('listDiscussions treats a discussion as open while any resolvable note is u
 
 test('listDiscussions calls the GitLab API once, however often it is called', async () => {
   const fake = discussionFixture();
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
 
   await context.listDiscussions();
   await context.listDiscussions();
@@ -209,7 +301,7 @@ test('listDiscussions calls the GitLab API once, however often it is called', as
 test('listDiscussions returns an error object instead of throwing when the API fails', async () => {
   const fake = discussionFixture();
   fake.discussions = new Error('403 Forbidden');
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
 
   assert.deepEqual(await context.listDiscussions(), { error: 'Failed to list discussions: 403 Forbidden' });
 });
@@ -246,7 +338,7 @@ test('listDiscussions reads the anchor from the marker of a discussion this tool
       ],
     },
   ];
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
   const result = await context.listDiscussions();
 
   assert.deepEqual(Array.isArray(result) && result.map((d) => [d.id, d.anchor, d.notes[0]!.body]), [
@@ -255,8 +347,8 @@ test('listDiscussions reads the anchor from the marker of a discussion this tool
   ]);
 });
 
-test('buildReviewContext marks a file that the change deletes', async () => {
-  const fake = new FakeMergeRequestProvider(
+test('load marks a file that the change deletes', async () => {
+  const fake = new FakeGitLabApi(
     { title: 't', description: 'd', diffRefs: { baseSha: 'b', startSha: 's', headSha: 'h' } },
     [
       { oldPath: 'gone.ts', newPath: 'gone.ts', diffHunks: '@@ -1,1 +0,0 @@\n-x', deletedFile: true },
@@ -264,14 +356,14 @@ test('buildReviewContext marks a file that the change deletes', async () => {
     ],
     {},
   );
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
 
   assert.equal(context.changedFiles[0]!.deleted, true);
   assert.equal('deleted' in context.changedFiles[1]!, false);
 });
 
-test('GitLabSourceProvider marks omitted files, with too_large before generated', async () => {
-  const fake = new FakeMergeRequestProvider(
+test('load marks omitted files, with too_large before generated', async () => {
+  const fake = new FakeGitLabApi(
     { title: 't', description: 'd', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [
       { oldPath: 'big.js', newPath: 'big.js', diffHunks: '', tooLarge: true },
@@ -282,7 +374,7 @@ test('GitLabSourceProvider marks omitted files, with too_large before generated'
     {},
   );
 
-  const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
+  const context = (await new GitLabMergeRequest(fake, '5').load()).context;
 
   assert.deepEqual(
     context.changedFiles.map((file) => [file.newPath, file.omitted ?? null, file.hunks]),

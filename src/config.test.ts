@@ -3,15 +3,10 @@ import assert from 'node:assert/strict';
 import { loadPublishConfig, loadReviewConfig } from './config.ts';
 import { ConfigError } from './settings.ts';
 
-const GITLAB_VARS = ['CI_API_V4_URL', 'CI_PROJECT_ID', 'CI_MERGE_REQUEST_IID', 'GITLAB_TOKEN'];
 const OPENAI_VARS = ['OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_BASE_URL'];
 
 function withFullEnv(overrides: Record<string, string | undefined> = {}): void {
   const full: Record<string, string> = {
-    CI_API_V4_URL: 'https://gitlab.example.com/api/v4',
-    CI_PROJECT_ID: '123',
-    CI_MERGE_REQUEST_IID: '456',
-    GITLAB_TOKEN: 'access-token',
     OPENAI_API_KEY: 'sk-test',
     OPENAI_MODEL: 'gpt-4.1',
     OPENAI_BASE_URL: 'https://api.openai.com/v1',
@@ -23,19 +18,13 @@ function withFullEnv(overrides: Record<string, string | undefined> = {}): void {
 }
 
 function clearEnv(): void {
-  for (const key of [
-    ...GITLAB_VARS,
-    ...OPENAI_VARS,
-    'FAIL_ON_SEVERITY',
-    'OPENAI_MAX_TOKENS',
-    'OPENAI_CONTEXT_WINDOW',
-  ]) {
+  for (const key of [...OPENAI_VARS, 'FAIL_ON_SEVERITY', 'OPENAI_MAX_TOKENS', 'OPENAI_CONTEXT_WINDOW']) {
     delete process.env[key];
   }
 }
 
 test('loadReviewConfig throws ConfigError for each missing required variable', () => {
-  for (const missing of [...GITLAB_VARS, ...OPENAI_VARS]) {
+  for (const missing of OPENAI_VARS) {
     clearEnv();
     withFullEnv({ [missing]: undefined });
     assert.throws(() => loadReviewConfig(), ConfigError, `expected ConfigError when ${missing} is missing`);
@@ -47,8 +36,6 @@ test('loadReviewConfig returns a config object when all required variables are s
   clearEnv();
   withFullEnv();
   const config = loadReviewConfig();
-  assert.equal(config.gitlab.apiUrl, 'https://gitlab.example.com/api/v4');
-  assert.equal(config.gitlab.token, 'access-token');
   assert.equal(config.openai.model, 'gpt-4.1');
   assert.equal(config.openai.baseUrl, 'https://api.openai.com/v1');
   clearEnv();
@@ -92,15 +79,6 @@ test('loadReviewConfig rejects a non-numeric or non-positive OPENAI_MAX_TOKENS v
   clearEnv();
 });
 
-test('loadPublishConfig throws ConfigError for each missing GitLab variable', () => {
-  for (const missing of GITLAB_VARS) {
-    clearEnv();
-    withFullEnv({ [missing]: undefined });
-    assert.throws(() => loadPublishConfig(), ConfigError, `expected ConfigError when ${missing} is missing`);
-  }
-  clearEnv();
-});
-
 test('loadPublishConfig does not require any OPENAI_* variable', () => {
   clearEnv();
   withFullEnv({ OPENAI_API_KEY: undefined, OPENAI_MODEL: undefined, OPENAI_BASE_URL: undefined });
@@ -112,8 +90,6 @@ test('loadPublishConfig returns a config object when all required variables are 
   clearEnv();
   withFullEnv();
   const config = loadPublishConfig();
-  assert.equal(config.gitlab.apiUrl, 'https://gitlab.example.com/api/v4');
-  assert.equal(config.gitlab.token, 'access-token');
   assert.equal(config.failOnSeverity, 'important');
   clearEnv();
 });
@@ -129,29 +105,6 @@ test('loadPublishConfig accepts FAIL_ON_SEVERITY=none', () => {
   clearEnv();
   withFullEnv({ FAIL_ON_SEVERITY: 'none' });
   assert.equal(loadPublishConfig().failOnSeverity, 'none');
-  clearEnv();
-});
-
-test('loadReviewConfig uses CLI values for the GitLab connection fields when those env vars are not set', () => {
-  clearEnv();
-  withFullEnv({ CI_API_V4_URL: undefined, CI_PROJECT_ID: undefined, CI_MERGE_REQUEST_IID: undefined });
-  const config = loadReviewConfig({
-    apiUrl: 'https://gitlab.example.com/api/v4',
-    projectId: '999',
-    mergeRequestIid: '111',
-  });
-  assert.equal(config.gitlab.apiUrl, 'https://gitlab.example.com/api/v4');
-  assert.equal(config.gitlab.projectId, '999');
-  assert.equal(config.gitlab.mergeRequestIid, '111');
-  clearEnv();
-});
-
-test('loadReviewConfig prefers a CLI value over the environment variable when both are set', () => {
-  clearEnv();
-  withFullEnv();
-  const config = loadReviewConfig({ apiUrl: 'https://from-cli.example.com/api/v4', projectId: '999' });
-  assert.equal(config.gitlab.apiUrl, 'https://from-cli.example.com/api/v4');
-  assert.equal(config.gitlab.projectId, '999');
   clearEnv();
 });
 
@@ -175,17 +128,11 @@ test('loadPublishConfig prefers a CLI value for failOnSeverity over its env var 
   clearEnv();
 });
 
-test('loadReviewConfig and loadPublishConfig use CLI values for the secrets when the env vars are not set', () => {
+test('loadReviewConfig uses a CLI value for the API key when the env var is not set', () => {
   clearEnv();
-  withFullEnv({ OPENAI_API_KEY: undefined, GITLAB_TOKEN: undefined });
-  const reviewConfig = loadReviewConfig({ apiKey: 'sk-from-cli', token: 'token-from-cli' });
+  withFullEnv({ OPENAI_API_KEY: undefined });
+  const reviewConfig = loadReviewConfig({ apiKey: 'sk-from-cli' });
   assert.equal(reviewConfig.openai.apiKey, 'sk-from-cli');
-  assert.equal(reviewConfig.gitlab.token, 'token-from-cli');
-
-  clearEnv();
-  withFullEnv({ GITLAB_TOKEN: undefined });
-  const publishConfig = loadPublishConfig({ token: 'token-from-cli' });
-  assert.equal(publishConfig.gitlab.token, 'token-from-cli');
   clearEnv();
 });
 
@@ -273,4 +220,33 @@ test('loadReviewConfig accepts a 64-character language', () => {
   withFullEnv();
   assert.equal(loadReviewConfig({ language: 'x'.repeat(64) }).language, 'x'.repeat(64));
   clearEnv();
+});
+
+test('loadReviewConfig reads the host settings after --max-tokens and --language, before the OpenAI settings', () => {
+  clearEnv();
+  const calls: string[] = [];
+  const hostError = new ConfigError('host setting missing');
+  // A bad --max-tokens is reported before the host is asked.
+  assert.throws(
+    () => loadReviewConfig({ maxTokens: 'abc' }, () => calls.push('host')),
+    (error: unknown) => error instanceof ConfigError && /OPENAI_MAX_TOKENS/.test(error.message),
+  );
+  assert.equal(calls.length, 0);
+  // The host's error comes before a missing OpenAI setting.
+  assert.throws(
+    () =>
+      loadReviewConfig({}, () => {
+        throw hostError;
+      }),
+    (error: unknown) => error === hostError,
+  );
+});
+
+test('loadPublishConfig reads the host settings after the threshold is checked', () => {
+  clearEnv();
+  const calls: string[] = [];
+  assert.throws(() => loadPublishConfig({ failOnSeverity: 'critical' }, () => calls.push('host')), ConfigError);
+  assert.equal(calls.length, 0);
+  loadPublishConfig({}, () => calls.push('host'));
+  assert.deepEqual(calls, ['host']);
 });

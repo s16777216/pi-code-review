@@ -1,5 +1,5 @@
-/** Every comment this tool posts starts with an HTML comment that GitLab does
- * not render. It lets a later run tell its own discussions from a person's.
+/** Every comment this tool posts starts with an HTML comment that the host
+ * does not render. It lets a later run tell its own discussions from a person's.
  * Detection checks only the prefix, so a later version can add data inside
  * the marker without breaking older readers. */
 export const MARKER_PREFIX = '<!-- pi-code-review';
@@ -16,3 +16,7 @@ export function stripMarker(body: string): string {
   const end = body.indexOf('-->');
   return end === -1 ? body : body.slice(end + 3).replace(/^\r?\n/, '');
 }
+
+/** The marker of the general comment on files too large to review. It has
+ * no `anchor=`, so the anchor match never uses this comment. */
+export const UNREVIEWED_MARKER = '<!-- pi-code-review unreviewed -->';
