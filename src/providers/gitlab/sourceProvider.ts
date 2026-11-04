@@ -1,8 +1,8 @@
 import type { SourceProvider } from '../../core/ports.ts';
 import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../../core/types.ts';
-import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestProvider } from './client.ts';
-import { discussionAnchor, isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
-import { stripMarker } from './marker.ts';
+import { toReviewDiscussion } from '../../core/publish/discussion.ts';
+import type { GitLabDiffRefs, MergeRequestProvider } from './client.ts';
+import { toHostDiscussion } from './discussions.ts';
 import { errorMessage } from '../../core/errorMessage.ts';
 
 export class GitLabSourceProvider implements SourceProvider {
@@ -51,7 +51,8 @@ export class GitLabSourceProvider implements SourceProvider {
         // Fetched once per review: the agent's tool and the engine's
         // `relatesTo` check both read the same cached result.
         discussions ??= client.listDiscussions(mergeRequestIid).then(
-          (raw) => raw.map(toReviewDiscussion).filter((d): d is ReviewDiscussion => d !== null),
+          (raw) =>
+            raw.map((d) => toReviewDiscussion(toHostDiscussion(d))).filter((d): d is ReviewDiscussion => d !== null),
           (error: unknown) => ({
             error: `Failed to list discussions: ${errorMessage(error)}`,
           }),
@@ -70,21 +71,4 @@ export class GitLabSourceProvider implements SourceProvider {
     }
     return this.lastDiffRefs;
   }
-}
-
-/** Maps a GitLab discussion to the host-free `ReviewDiscussion`. System notes
- * are left out, and a discussion with only system notes is dropped. */
-function toReviewDiscussion(discussion: GitLabDiscussion): ReviewDiscussion | null {
-  const notes = userNotes(discussion);
-  if (notes.length === 0) return null;
-  return {
-    id: discussion.id,
-    file: discussion.position?.newPath ?? null,
-    line: discussion.position?.newLine ?? null,
-    positionCommit: discussion.position?.headSha ?? null,
-    resolved: isDiscussionResolved(discussion),
-    fromThisTool: isFromThisTool(discussion),
-    anchor: discussionAnchor(discussion),
-    notes: notes.map((note) => ({ author: note.author, body: stripMarker(note.body) })),
-  };
 }

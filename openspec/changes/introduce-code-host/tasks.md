@@ -2,9 +2,9 @@
 
 ## 1. Host-neutral discussions and the marker
 
-- [ ] 1.1 Add `core/publish/discussion.ts` with `HostDiscussion`, and move `marker.ts` and the marker rules (`hasMarker`, `stripMarker`, `isFromThisTool`, `discussionAnchor`, and the unreviewed marker) to `core/publish/`, written against `HostDiscussion` (Decision 4).
-- [ ] 1.2 Add the mapping from `GitLabDiscussion` to `HostDiscussion` in `providers/gitlab/`. It drops system notes and computes `resolved` with today's rule. Use it in the source and sink providers, so they work on `HostDiscussion`.
-- [ ] 1.3 Move the marker and discussion-rule tests to `core/publish/`, and add tests for the GitLab mapping: system notes, `resolved`, and a general comment. Verify with `npm test`.
+- [x] 1.1 Add `core/publish/discussion.ts` with `HostDiscussion`, and move `marker.ts` and the marker rules (`hasMarker`, `stripMarker`, `isFromThisTool`, `discussionAnchor`, and the unreviewed marker) to `core/publish/`, written against `HostDiscussion` (Decision 4).
+- [x] 1.2 Add the mapping from `GitLabDiscussion` to `HostDiscussion` in `providers/gitlab/`. It drops system notes and computes `resolved` with today's rule. Use it in the source and sink providers, so they work on `HostDiscussion`.
+- [x] 1.3 Move the marker and discussion-rule tests to `core/publish/`, and add tests for the GitLab mapping: system notes, `resolved`, and a general comment. Verify with `npm test`.
 
 ## 2. The gateway and the Publisher
 

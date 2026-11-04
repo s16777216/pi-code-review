@@ -1,10 +1,17 @@
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { SinkProvider } from '../../core/ports.ts';
 import type { Finding, ResolvedDiscussion, UnreviewedFile } from '../../core/types.ts';
-import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestWriter } from './client.ts';
-import { discussionAnchor, isDiscussionResolved, isFromThisTool } from './discussions.ts';
-import { MARKER } from './marker.ts';
-import { publishUnreviewedNote, unreviewedNoteOf, type UnreviewedNote } from './unreviewedNote.ts';
+import type { GitLabDiffRefs, MergeRequestWriter } from './client.ts';
+import {
+  discussionAnchor,
+  isFromThisTool,
+  unreviewedNoteOf,
+  type HostDiscussion,
+  type UnreviewedNote,
+} from '../../core/publish/discussion.ts';
+import { MARKER } from '../../core/publish/marker.ts';
+import { toHostDiscussion } from './discussions.ts';
+import { publishUnreviewedNote } from './unreviewedNote.ts';
 import { errorMessage } from '../../core/errorMessage.ts';
 
 export interface GitLabSinkProviderOptions {
@@ -31,7 +38,7 @@ interface FindingGroup {
 /** The existing discussions, indexed for the publish rules. `null` when they
  * could not be read: every finding then gets a new discussion. */
 interface ExistingDiscussions {
-  byId: Map<string, GitLabDiscussion>;
+  byId: Map<string, HostDiscussion>;
   /** Anchors of open discussions that this tool started. */
   openOwnAnchors: Set<string>;
   /** For each anchor of a resolved discussion that this tool started, the ID
@@ -137,7 +144,7 @@ export class GitLabSinkProvider implements SinkProvider {
       this.logger.warn({ discussionId, reason: 'not_from_this_tool' }, 'did not resolve a discussion');
       return;
     }
-    if (isDiscussionResolved(discussion)) return;
+    if (discussion.resolved) return;
 
     try {
       await client.addDiscussionNote(mergeRequestIid, discussionId, `${MARKER}\nResolved: ${declaration.reason}`);
@@ -161,9 +168,9 @@ export class GitLabSinkProvider implements SinkProvider {
 
   private async loadExistingDiscussions(): Promise<ExistingDiscussions | null> {
     const { client, mergeRequestIid } = this.options;
-    let discussions: GitLabDiscussion[];
+    let discussions: HostDiscussion[];
     try {
-      discussions = await client.listDiscussions(mergeRequestIid);
+      discussions = (await client.listDiscussions(mergeRequestIid)).map(toHostDiscussion);
     } catch (error) {
       this.logger.warn(
         { error: errorMessage(error) },
@@ -185,7 +192,7 @@ export class GitLabSinkProvider implements SinkProvider {
       const anchor = discussionAnchor(discussion);
       if (anchor === null) continue;
       // A later discussion in the list replaces an earlier one: the newest wins.
-      if (isDiscussionResolved(discussion)) resolvedOwnByAnchor.set(anchor, discussion.id);
+      if (discussion.resolved) resolvedOwnByAnchor.set(anchor, discussion.id);
       else openOwnAnchors.add(anchor);
     }
     return {
@@ -252,7 +259,7 @@ function decideTarget(finding: Finding, existing: ExistingDiscussions | null): F
   if (finding.relatesTo !== undefined) {
     const related = existing.byId.get(finding.relatesTo);
     if (related === undefined) return { kind: 'new' };
-    return isDiscussionResolved(related) ? { kind: 'reply', discussionId: related.id } : { kind: 'skip' };
+    return related.resolved ? { kind: 'reply', discussionId: related.id } : { kind: 'skip' };
   }
   if (finding.anchor !== undefined) {
     if (existing.openOwnAnchors.has(finding.anchor)) return { kind: 'skip' };

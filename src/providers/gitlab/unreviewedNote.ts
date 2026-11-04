@@ -1,26 +1,9 @@
 import type { Logger } from '../../logger.ts';
 import { errorMessage } from '../../core/errorMessage.ts';
 import type { UnreviewedFile } from '../../core/types.ts';
-import type { GitLabDiscussion, MergeRequestWriter } from './client.ts';
-import { userNotes } from './discussions.ts';
-
-/** The marker of the general comment on files too large to review. It has
- * no `anchor=`, so the anchor match never uses this comment. */
-export const UNREVIEWED_MARKER = '<!-- pi-code-review unreviewed -->';
-
-/** This tool's general comment on files too large to review. */
-export interface UnreviewedNote {
-  id: number;
-  body: string;
-}
-
-/** The comment on files too large to review, when `discussion` is one: a
- * discussion with no position whose first note starts with the marker. */
-export function unreviewedNoteOf(discussion: GitLabDiscussion): UnreviewedNote | null {
-  const first = userNotes(discussion)[0];
-  if (discussion.position !== null || first === undefined || !first.body.startsWith(UNREVIEWED_MARKER)) return null;
-  return { id: first.id, body: first.body };
-}
+import type { MergeRequestWriter } from './client.ts';
+import { UNREVIEWED_MARKER } from '../../core/publish/marker.ts';
+import type { UnreviewedNote } from '../../core/publish/discussion.ts';
 
 /** Keeps one general comment from this tool that lists the files too large
  * to review (`handle-omitted-diffs` design, Decision 5):

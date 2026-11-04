@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { Finding } from '../../core/types.ts';
 import type { DiscussionPosition, GitLabDiscussion, MergeRequestWriter } from './client.ts';
 import { GitLabSinkProvider } from './sinkProvider.ts';
-import { UNREVIEWED_MARKER } from './unreviewedNote.ts';
+import { UNREVIEWED_MARKER } from '../../core/publish/marker.ts';
 
 class FakeWriter implements MergeRequestWriter {
   calls: { mergeRequestIid: string; body: string; position: DiscussionPosition }[] = [];
