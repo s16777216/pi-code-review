@@ -7,6 +7,7 @@ import type {
   DiscussionPosition,
   FileContentResult,
   GitLabChangedFile,
+  GitLabDiffRefs,
   GitLabDiscussion,
   MergeRequestMetadata,
   MergeRequestProvider,
@@ -101,7 +102,11 @@ test('runReview returns findings and diff refs, and never contacts the GitLab si
   ]);
 
   const client = new FakeClient(
-    { title: 'Fix bug', description: 'Fixes a thing.', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    {
+      title: 'Fix bug',
+      description: 'Fixes a thing.',
+      diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    },
     [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,1 @@\n-old\n+new' }],
   );
 
@@ -144,7 +149,13 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
       mergeRequestIid: '5',
       token: 'super-secret-token',
     },
-    openai: { apiKey: 'sk-super-secret-api-key', model: 'gpt-4.1', baseUrl: 'https://api.openai.com/v1', maxTokens: 32_000, contextWindow: 128_000 },
+    openai: {
+      apiKey: 'sk-super-secret-api-key',
+      model: 'gpt-4.1',
+      baseUrl: 'https://api.openai.com/v1',
+      maxTokens: 32_000,
+      contextWindow: 128_000,
+    },
   });
 
   // Use a real, non-silent (debug-level) logger — the same kind `--debug`
@@ -159,7 +170,13 @@ test('runReview never logs the OpenAI API key or the GitLab access token', async
     },
   };
   const debugLogger = pino(
-    { level: 'debug', redact: { paths: ['headers["PRIVATE-TOKEN"]', '*.headers["PRIVATE-TOKEN"]', 'apiKey', '*.apiKey'], censor: '[REDACTED]' } },
+    {
+      level: 'debug',
+      redact: {
+        paths: ['headers["PRIVATE-TOKEN"]', '*.headers["PRIVATE-TOKEN"]', 'apiKey', '*.apiKey'],
+        censor: '[REDACTED]',
+      },
+    },
     debugStream as unknown as NodeJS.WritableStream,
   );
 
@@ -175,7 +192,7 @@ test('runPublish publishes every finding', async () => {
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -205,7 +222,7 @@ test('runPublish publishes an important finding before failing on it (severity n
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -228,7 +245,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -258,11 +275,18 @@ test('runPublish still fails on an important finding that relates to an open dis
       id: 'd1',
       position: { newPath: 'a.ts', newLine: 2, headSha: 'old' },
       notes: [
-        { id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Off-by-one.', system: false, resolvable: true, resolved: false },
+        {
+          id: 1,
+          author: 'bot',
+          body: '<!-- pi-code-review -->\n**[important]** Off-by-one.',
+          system: false,
+          resolvable: true,
+          resolved: false,
+        },
       ],
     },
   ];
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -280,7 +304,7 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },

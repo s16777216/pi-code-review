@@ -1,8 +1,9 @@
-import type { SourceProvider } from '../../core/review/providers.ts';
+import type { SourceProvider } from '../../core/ports.ts';
 import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../../core/types.ts';
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestProvider } from './client.ts';
 import { discussionAnchor, isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
 import { stripMarker } from './marker.ts';
+import { errorMessage } from '../../core/errorMessage.ts';
 
 export class GitLabSourceProvider implements SourceProvider {
   private lastDiffRefs?: GitLabDiffRefs;
@@ -26,7 +27,11 @@ export class GitLabSourceProvider implements SourceProvider {
       hunks: file.diffHunks,
       ...(file.deletedFile ? { deleted: true } : {}),
       // `too_large` first: a file that is both has no diff at all.
-      ...(file.tooLarge ? { omitted: 'too_large' as const } : file.generatedFile ? { omitted: 'generated' as const } : {}),
+      ...(file.tooLarge
+        ? { omitted: 'too_large' as const }
+        : file.generatedFile
+          ? { omitted: 'generated' as const }
+          : {}),
     }));
 
     const headSha = metadata.diffRefs.headSha;
@@ -48,7 +53,7 @@ export class GitLabSourceProvider implements SourceProvider {
         discussions ??= client.listDiscussions(mergeRequestIid).then(
           (raw) => raw.map(toReviewDiscussion).filter((d): d is ReviewDiscussion => d !== null),
           (error: unknown) => ({
-            error: `Failed to list discussions: ${error instanceof Error ? error.message : String(error)}`,
+            error: `Failed to list discussions: ${errorMessage(error)}`,
           }),
         );
         return discussions;

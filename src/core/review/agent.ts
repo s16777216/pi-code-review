@@ -12,7 +12,7 @@ const GetFileContentParams = Type.Object({
   path: Type.String({ description: "Path of a file this change's diff touched." }),
 });
 
-/** The one tool the agent gets: read a changed file's full content beyond
+/** The file-content tool: read a changed file's full content beyond
  * what the diff hunks show. Restricted to `context.changedFiles` so the
  * agent cannot read arbitrary repository paths. Each result is cut at
  * `MAX_FILE_CONTENT_CHARS`, and the tool answers at most

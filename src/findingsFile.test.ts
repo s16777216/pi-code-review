@@ -4,11 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FindingsFileError, readFindingsFile, writeFindingsFile, type FindingsFile } from './findingsFile.ts';
+import { parseGitLabDiffRefs, type GitLabDiffRefs } from './providers/index.ts';
 
 test('writeFindingsFile then readFindingsFile round-trips the same data', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
-  const data: FindingsFile = {
+  const data: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -17,7 +18,7 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
 
   try {
     await writeFindingsFile(path, data);
-    const result = await readFindingsFile(path);
+    const result = await readFindingsFile(path, parseGitLabDiffRefs);
     assert.deepEqual(result, data);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -27,7 +28,7 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
 test('writeFindingsFile round-trips an empty findings list', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
-  const data: FindingsFile = {
+  const data: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -36,7 +37,7 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
 
   try {
     await writeFindingsFile(path, data);
-    const result = await readFindingsFile(path);
+    const result = await readFindingsFile(path, parseGitLabDiffRefs);
     assert.deepEqual(result, data);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -44,7 +45,7 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
 });
 
 test('readFindingsFile throws a clear FindingsFileError for a missing file', async () => {
-  await assert.rejects(() => readFindingsFile('/does/not/exist/findings.json'), FindingsFileError);
+  await assert.rejects(() => readFindingsFile('/does/not/exist/findings.json', parseGitLabDiffRefs), FindingsFileError);
 });
 
 test('readFindingsFile throws a clear FindingsFileError for unparsable JSON', async () => {
@@ -54,19 +55,19 @@ test('readFindingsFile throws a clear FindingsFileError for unparsable JSON', as
 
   try {
     await writeFile(path, 'not json', 'utf8');
-    await assert.rejects(() => readFindingsFile(path), FindingsFileError);
+    await assert.rejects(() => readFindingsFile(path, parseGitLabDiffRefs), FindingsFileError);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-async function readRaw(content: unknown): Promise<FindingsFile> {
+async function readRaw(content: unknown): Promise<FindingsFile<GitLabDiffRefs>> {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
   const { writeFile } = await import('node:fs/promises');
   try {
     await writeFile(path, JSON.stringify(content), 'utf8');
-    return await readFindingsFile(path);
+    return await readFindingsFile(path, parseGitLabDiffRefs);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -133,7 +134,7 @@ test('readFindingsFile ignores unknown extra fields', async () => {
   assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding], resolved: [], unreviewedFiles: [] });
 });
 
-test('readFindingsFile keeps a finding\'s relatesTo', async () => {
+test("readFindingsFile keeps a finding's relatesTo", async () => {
   const result = await readRaw({ diffRefs: validRefs, findings: [{ ...validFinding, relatesTo: 'd1' }] });
   assert.deepEqual(result.findings, [{ ...validFinding, relatesTo: 'd1' }]);
 });

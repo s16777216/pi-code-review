@@ -1,5 +1,5 @@
 import type { ChangedFileDiff } from '../types.ts';
-import { hunkStartLine, splitHunks } from './diff.ts';
+import { changedFilePath, compareCodePoints, hunkStartLine, splitHunks } from './diff.ts';
 import { ReviewFailureError } from './findings.ts';
 
 /** A review needs at most this many batches; more fails before the first
@@ -19,12 +19,6 @@ export interface BatchItem {
 /** Whether a batch with these items fits the budget. */
 export type FitsBudget = (items: BatchItem[]) => boolean;
 
-/** The path a changed file is known by: the new path, or the old path of a
- * deleted file. */
-export function itemPath(file: ChangedFileDiff): string {
-  return file.newPath ?? file.oldPath ?? '(unknown path)';
-}
-
 /** A part label with the largest numbers a plan can have. It is used while a
  * file's parts are packed, before their final count is known, so the size
  * check never sees a label shorter than the final one. */
@@ -41,7 +35,7 @@ const PROVISIONAL_PART = { index: MAX_BATCHES, count: MAX_BATCHES };
  * when the plan needs more than `MAX_BATCHES` batches. `contextWindow` is only
  * used in that error. */
 export function planBatches(files: ChangedFileDiff[], fits: FitsBudget, contextWindow: number): BatchItem[][] {
-  const sorted = [...files].sort((a, b) => compare(itemPath(a), itemPath(b)));
+  const sorted = [...files].sort((a, b) => compareCodePoints(changedFilePath(a), changedFilePath(b)));
   const batches: BatchItem[][] = [];
   let current: BatchItem[] = [];
 
@@ -68,7 +62,7 @@ export function planBatches(files: ChangedFileDiff[], fits: FitsBudget, contextW
     const hunks = splitHunks(file.hunks);
     if (hunks.length === 0) {
       throw new ReviewFailureError(
-        `The diff of "${itemPath(file)}" is too large to review and has no hunk headers to split it at.`,
+        `The diff of "${changedFilePath(file)}" is too large to review and has no hunk headers to split it at.`,
       );
     }
     const parts: BatchItem[] = [];
@@ -81,7 +75,7 @@ export function planBatches(files: ChangedFileDiff[], fits: FitsBudget, contextW
       }
       if (group.length === 0 || !fits([{ file, hunks: hunk, part: PROVISIONAL_PART }])) {
         throw new ReviewFailureError(
-          `The hunk at new-file line ${hunkStartLine(hunk) ?? '?'} of "${itemPath(file)}" is too large to review: it does not fit in one batch of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
+          `The hunk at new-file line ${hunkStartLine(hunk) ?? '?'} of "${changedFilePath(file)}" is too large to review: it does not fit in one batch of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
         );
       }
       parts.push({ file, hunks: group.join('\n') });
@@ -103,9 +97,4 @@ function tooManyBatches(contextWindow: number): ReviewFailureError {
   return new ReviewFailureError(
     `The change is too large to review: it needs at least ${MAX_BATCHES + 1} batches (at most ${MAX_BATCHES} are allowed) of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
   );
-}
-
-/** Plain code-point order, so the plan does not depend on the locale. */
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }

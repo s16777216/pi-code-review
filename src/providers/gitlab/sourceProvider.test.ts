@@ -115,14 +115,21 @@ function discussionFixture(): FakeMergeRequestProvider {
   );
 }
 
-test('listDiscussions maps GitLab discussions, drops system notes, and marks this tool\'s own discussions', async () => {
+test("listDiscussions maps GitLab discussions, drops system notes, and marks this tool's own discussions", async () => {
   const fake = discussionFixture();
   fake.discussions = [
     {
       id: 'own',
       position: { newPath: 'a.ts', newLine: 3, headSha: 'h0' },
       notes: [
-        { id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Bug.', system: false, resolvable: true, resolved: true },
+        {
+          id: 1,
+          author: 'bot',
+          body: '<!-- pi-code-review -->\n**[important]** Bug.',
+          system: false,
+          resolvable: true,
+          resolved: true,
+        },
         { id: 1, author: 'alice', body: 'Fixed, thanks.', system: false, resolvable: true, resolved: true },
       ],
     },
@@ -137,7 +144,9 @@ test('listDiscussions maps GitLab discussions, drops system notes, and marks thi
     {
       id: 'only-system',
       position: null,
-      notes: [{ id: 1, author: 'carol', body: 'changed the description', system: true, resolvable: false, resolved: false }],
+      notes: [
+        { id: 1, author: 'carol', body: 'changed the description', system: true, resolvable: false, resolved: false },
+      ],
     },
   ];
   const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
@@ -225,19 +234,25 @@ test('listDiscussions reads the anchor from the marker of a discussion this tool
     {
       id: 'without-anchor',
       position: null,
-      notes: [{ id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[nit]** y', system: false, resolvable: true, resolved: false }],
+      notes: [
+        {
+          id: 1,
+          author: 'bot',
+          body: '<!-- pi-code-review -->\n**[nit]** y',
+          system: false,
+          resolvable: true,
+          resolved: false,
+        },
+      ],
     },
   ];
   const context = await new GitLabSourceProvider(fake, '5').buildReviewContext();
   const result = await context.listDiscussions();
 
-  assert.deepEqual(
-    Array.isArray(result) && result.map((d) => [d.id, d.anchor, d.notes[0]!.body]),
-    [
-      ['with-anchor', '3f9a1c0b2d4e5f60', '**[nit]** x'],
-      ['without-anchor', null, '**[nit]** y'],
-    ],
-  );
+  assert.deepEqual(Array.isArray(result) && result.map((d) => [d.id, d.anchor, d.notes[0]!.body]), [
+    ['with-anchor', '3f9a1c0b2d4e5f60', '**[nit]** x'],
+    ['without-anchor', null, '**[nit]** y'],
+  ]);
 });
 
 test('buildReviewContext marks a file that the change deletes', async () => {

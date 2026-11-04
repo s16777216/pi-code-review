@@ -46,11 +46,11 @@ picr publish  [flags]   # read findings.json, post inline comments, decide pass/
 
 ### Exit codes
 
-| Code | `review` | `publish` |
-|---|---|---|
-| `0` | The review completed (whatever it found), or this is not a merge request pipeline | Every finding was published, and none meets `FAIL_ON_SEVERITY` |
-| `1` | Never | Every finding was published, and at least one meets `FAIL_ON_SEVERITY` |
-| `2` | An error stopped the review (configuration, GitLab or OpenAI API); no findings file is written | An error stopped `publish` (configuration, an invalid findings file, the GitLab API) |
+| Code | `review`                                                                                       | `publish`                                                                            |
+| ---- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `0`  | The review completed (whatever it found), or this is not a merge request pipeline              | Every finding was published, and none meets `FAIL_ON_SEVERITY`                       |
+| `1`  | Never                                                                                          | Every finding was published, and at least one meets `FAIL_ON_SEVERITY`               |
+| `2`  | An error stopped the review (configuration, GitLab or OpenAI API); no findings file is written | An error stopped `publish` (configuration, an invalid findings file, the GitLab API) |
 
 So `1` means "the review gate failed", and `2` means "the tool failed". A discussion that fails to post is logged, and does not change the code.
 
@@ -60,32 +60,32 @@ Every setting can come from an environment variable or a CLI flag. **A CLI flag 
 
 Used by both commands:
 
-| Environment variable | CLI flag | Required | Notes |
-|---|---|---|---|
-| `CI_API_V4_URL` | `--gitlab-url` | Yes | e.g. `https://gitlab.com/api/v4`. Set automatically by GitLab CI. |
-| `CI_PROJECT_ID` | `--project-id` | Yes | Set automatically by GitLab CI. |
-| `CI_MERGE_REQUEST_IID` | `--mr` | Yes for `publish`; `review` skips and exits 0 if neither this nor `--mr` is set | Set automatically by GitLab CI on a merge-request pipeline. |
-| `GITLAB_TOKEN` | `--token` | Yes | **Secret.** A personal or project access token with the `api` scope, sent under the `PRIVATE-TOKEN` header. This is **not** GitLab CI's own `CI_JOB_TOKEN` — see [Auth](#auth) below. |
-| `DEBUG` | `--debug` | No (default off) | `true`/`1` (env) or bare `--debug` (flag) turns on debug logging to stderr — see [Debug logging](#debug-logging) below. |
+| Environment variable   | CLI flag       | Required                                                                        | Notes                                                                                                                                                                                 |
+| ---------------------- | -------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CI_API_V4_URL`        | `--gitlab-url` | Yes                                                                             | e.g. `https://gitlab.com/api/v4`. Set automatically by GitLab CI.                                                                                                                     |
+| `CI_PROJECT_ID`        | `--project-id` | Yes                                                                             | Set automatically by GitLab CI.                                                                                                                                                       |
+| `CI_MERGE_REQUEST_IID` | `--mr`         | Yes for `publish`; `review` skips and exits 0 if neither this nor `--mr` is set | Set automatically by GitLab CI on a merge-request pipeline.                                                                                                                           |
+| `GITLAB_TOKEN`         | `--token`      | Yes                                                                             | **Secret.** A personal or project access token with the `api` scope, sent under the `PRIVATE-TOKEN` header. This is **not** GitLab CI's own `CI_JOB_TOKEN` — see [Auth](#auth) below. |
+| `DEBUG`                | `--debug`      | No (default off)                                                                | `true`/`1` (env) or bare `--debug` (flag) turns on debug logging to stderr — see [Debug logging](#debug-logging) below.                                                               |
 
 `review`-only:
 
-| Environment variable | CLI flag | Required | Notes |
-|---|---|---|---|
-| `OPENAI_API_KEY` | `--openai-api-key` | Yes | **Secret.** |
-| `OPENAI_MODEL` | `--model` | Yes | No default on purpose — pick the model explicitly. |
-| `OPENAI_BASE_URL` | `--openai-base-url` | Yes | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint. |
-| `OPENAI_MAX_TOKENS` | `--max-tokens` | No (default `32000`) | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this. |
-| `OPENAI_CONTEXT_WINDOW` | `--context-window` | No (default `128000`) | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window, and to at least about twice `4096` plus `OPENAI_MAX_TOKENS`. |
-| `REVIEW_LANGUAGE` | `--language` | No | The language for finding summaries, e.g. `Traditional Chinese`, `zh-TW`, or `繁體中文`. At most 64 characters, one line. JSON field names, severity values, and the `**[severity]**` label in comments stay in English. Unset keeps English summaries. `review` only. |
-| (n/a) | `--out` | No (default `findings.json`) | Where `review` writes its findings file. |
+| Environment variable    | CLI flag            | Required                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------- | ------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`        | `--openai-api-key`  | Yes                          | **Secret.**                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `OPENAI_MODEL`          | `--model`           | Yes                          | No default on purpose — pick the model explicitly.                                                                                                                                                                                                                                                                                                                                                               |
+| `OPENAI_BASE_URL`       | `--openai-base-url` | Yes                          | No default on purpose. Use `https://api.openai.com/v1` for OpenAI itself, or your own OpenAI-compatible endpoint.                                                                                                                                                                                                                                                                                                |
+| `OPENAI_MAX_TOKENS`     | `--max-tokens`      | No (default `32000`)         | Max output tokens per model call. Some models spend a chunk of this on "thinking" content before their final answer — if a review intermittently fails with an empty/unparsable response, raise this.                                                                                                                                                                                                            |
+| `OPENAI_CONTEXT_WINDOW` | `--context-window`  | No (default `128000`)        | The model's context window in tokens. Must be larger than `OPENAI_MAX_TOKENS`. The answer is capped at this window minus the input and a 4096-token margin. A merge request whose first request needs more than half of this window is reviewed in batches — see [Large merge requests](#large-merge-requests). Set it to your model's real window, and to at least about twice `4096` plus `OPENAI_MAX_TOKENS`. |
+| `REVIEW_LANGUAGE`       | `--language`        | No                           | The language for finding summaries, e.g. `Traditional Chinese`, `zh-TW`, or `繁體中文`. At most 64 characters, one line. JSON field names, severity values, and the `**[severity]**` label in comments stay in English. Unset keeps English summaries. `review` only.                                                                                                                                            |
+| (n/a)                   | `--out`             | No (default `findings.json`) | Where `review` writes its findings file.                                                                                                                                                                                                                                                                                                                                                                         |
 
 `publish`-only:
 
-| Environment variable | CLI flag | Required | Notes |
-|---|---|---|---|
-| `FAIL_ON_SEVERITY` | `--fail-on` | No (default `important`) | `important`, `nit`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
-| (n/a) | `--from` | No (default `findings.json`) | Which findings file `publish` reads. |
+| Environment variable | CLI flag    | Required                     | Notes                                                                                                                                                                           |
+| -------------------- | ----------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FAIL_ON_SEVERITY`   | `--fail-on` | No (default `important`)     | `important`, `nit`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
+| (n/a)                | `--from`    | No (default `findings.json`) | Which findings file `publish` reads.                                                                                                                                            |
 
 ### Auth
 
@@ -98,6 +98,7 @@ To create one: **User Settings → Access Tokens** (personal) or **Project Setti
 `--debug` (or `DEBUG=true`/`DEBUG=1`) turns on detailed logging to stderr, for both `review` and `publish`. It is off by default and never changes a command's exit code, stdout output, or the findings file's contents — it only adds log lines.
 
 Under `--debug` you get:
+
 - Every GitLab API call's HTTP method, URL, and response status (never headers or request/response bodies)
 - The exact system prompt and prompt sent to the AI agent for each model run (the system prompt shows the `--language` sentence and, in [batches](#large-merge-requests), the batch paragraph), and its raw response text, before that text is parsed into findings
 
@@ -121,7 +122,7 @@ review:
 publish:
   stage: test
   image: node:20
-  needs: ["review"]
+  needs: ['review']
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
@@ -132,8 +133,8 @@ publish:
 To let the review gate warn without blocking the pipeline, while a broken setup (exit code `2`) still fails the job, add this to the `publish` job:
 
 ```yaml
-  allow_failure:
-    exit_codes: [1]
+allow_failure:
+  exit_codes: [1]
 ```
 
 `CI_API_V4_URL`, `CI_PROJECT_ID`, and `CI_MERGE_REQUEST_IID` are already set by GitLab CI. `GITLAB_TOKEN` is not — set it yourself as a masked CI/CD variable (**Settings → CI/CD → Variables**), holding a personal or project access token (see [Auth](#auth)); both jobs need it. Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL` the same way — only the `review` job needs those three.
@@ -217,15 +218,18 @@ The agent can also declare that one of this tool's own open comments is fixed, w
 ## Output
 
 `review` writes:
+
 - A findings file (default `findings.json`) — the findings, the fixed declarations, the unreviewed files, and the diff refs `publish` needs
 
 Some changed files are not reviewed, and are listed in the findings file as `unreviewedFiles`:
+
 - `too_large`: GitLab does not return a diff that is over its size limit. `review` logs a warning for each such file.
 - `generated`: GitLab marks the file as generated, for example a lock file. Its diff is left out of the review on purpose.
 
 The review input shows these files with the reason and no diff, and a finding on them is dropped. The agent can still read them with `get_file_content`.
 
 `publish` writes/does:
+
 - One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
   - a finding whose `relatesTo` names an **open** discussion posts nothing (it is already being discussed);
   - a finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened;
@@ -234,6 +238,7 @@ The review input shows these files with the reason and no diff, and a finding on
   Findings that would post on the same file and line become one comment, and findings that would reply to the same discussion become one reply. The comment has one paragraph for each finding, each with its own severity.
 
   Reopening needs a token whose role can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If the existing discussions cannot be read, `publish` logs a warning and posts every finding as a new comment.
+
 - One general merge request comment that lists the files too large to review, when there are any. Later runs update the same comment instead of adding another one, and when no file is too large any more, it says that every changed file was reviewed. Generated files are not listed.
 - Process exit code: `0` if no finding meets `FAIL_ON_SEVERITY`, `1` otherwise, and `2` for an error (see [Exit codes](#exit-codes)). Every finding in the file counts, including the ones that posted nothing
 
@@ -243,6 +248,8 @@ The review input shows these files with the reason and no diff, and a finding on
 npm run dev    # run src/cli/index.ts directly with tsx, no build step
 npm test       # run the test suite (node:test)
 npm run build  # type-check and compile to dist/
+npm run lint   # ESLint (typescript-eslint recommended rules)
+npm run format # format with Prettier; `npm run format:check` only checks
 ```
 
 ## Versioning

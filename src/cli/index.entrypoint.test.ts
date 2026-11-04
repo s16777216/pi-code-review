@@ -148,7 +148,15 @@ async function runEntrypoint(args: string[]): Promise<{ code: number; stderr: st
 }
 
 test('publish exits 2 when a required setting is missing', async () => {
-  const { code, stderr } = await runEntrypoint(['publish', '--gitlab-url', 'http://127.0.0.1:9/api/v4', '--mr', '1', '--token', 't']);
+  const { code, stderr } = await runEntrypoint([
+    'publish',
+    '--gitlab-url',
+    'http://127.0.0.1:9/api/v4',
+    '--mr',
+    '1',
+    '--token',
+    't',
+  ]);
 
   assert.equal(code, 2);
   assert.match(stderr, /CI_PROJECT_ID|--project-id/);
@@ -164,27 +172,25 @@ test('an unknown command exits 2', async () => {
 test('review exits 2 and writes no findings file when GitLab is unreachable', async () => {
   const scratchDir = mkdtempSync(join(tmpdir(), 'picr-review-error-'));
   try {
-    const { code, stderr } = await runEntrypoint(
-      [
-        'review',
-        '--gitlab-url',
-        'http://127.0.0.1:9/api/v4',
-        '--project-id',
-        '1',
-        '--mr',
-        '1',
-        '--token',
-        'test-token',
-        '--openai-api-key',
-        'test-key',
-        '--model',
-        'test-model',
-        '--openai-base-url',
-        'http://127.0.0.1:9/v1',
-        '--out',
-        join(scratchDir, 'findings.json'),
-      ],
-    );
+    const { code, stderr } = await runEntrypoint([
+      'review',
+      '--gitlab-url',
+      'http://127.0.0.1:9/api/v4',
+      '--project-id',
+      '1',
+      '--mr',
+      '1',
+      '--token',
+      'test-token',
+      '--openai-api-key',
+      'test-key',
+      '--model',
+      'test-model',
+      '--openai-base-url',
+      'http://127.0.0.1:9/v1',
+      '--out',
+      join(scratchDir, 'findings.json'),
+    ]);
 
     assert.equal(code, 2);
     assert.match(stderr, /ECONNREFUSED|fetch failed/);

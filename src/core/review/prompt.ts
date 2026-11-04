@@ -1,6 +1,6 @@
 import type { ChangedFileDiff, OmittedReason, ReviewContext } from '../types.ts';
-import { itemPath, type BatchItem } from './batch.ts';
-import { numberDiffHunks, parseDiffHunks } from './diff.ts';
+import type { BatchItem } from './batch.ts';
+import { changedFilePath, numberDiffHunks, parseDiffHunks } from './diff.ts';
 
 /** One batch of a review that runs in batches. Both numbers start at 1. */
 export interface PromptBatch {
@@ -28,8 +28,8 @@ export function buildReviewPrompt(context: ReviewContext, batch?: PromptBatch): 
     const files = context.changedFiles
       .map((file) =>
         file.omitted === undefined
-          ? formatDiff(itemPath(file), file.hunks)
-          : `### ${itemPath(file)}\n(diff not shown: ${OMITTED_TEXT[file.omitted]})`,
+          ? formatDiff(changedFilePath(file), file.hunks)
+          : `### ${changedFilePath(file)}\n(diff not shown: ${OMITTED_TEXT[file.omitted]})`,
       )
       .join('\n\n');
     return [...header, '## Changed files', '', files || '(no changed files)'].join('\n');
@@ -41,7 +41,9 @@ export function buildReviewPrompt(context: ReviewContext, batch?: PromptBatch): 
     .join('\n');
   const diffs = batch.items
     .map((item) => {
-      const title = item.part ? `${itemPath(item.file)} (part ${item.part.index} of ${item.part.count})` : itemPath(item.file);
+      const title = item.part
+        ? `${changedFilePath(item.file)} (part ${item.part.index} of ${item.part.count})`
+        : changedFilePath(item.file);
       return formatDiff(title, item.hunks);
     })
     .join('\n\n');
@@ -75,12 +77,12 @@ function formatDiff(title: string, hunks: string): string {
  * and removed lines. */
 function describeFile(file: ChangedFileDiff): string {
   if (file.omitted !== undefined) {
-    return `${itemPath(file)} (${fileState(file)}, diff not shown: ${OMITTED_TEXT[file.omitted]})`;
+    return `${changedFilePath(file)} (${fileState(file)}, diff not shown: ${OMITTED_TEXT[file.omitted]})`;
   }
   const lines = parseDiffHunks(file.hunks);
   const added = lines.filter((line) => line.type === 'added').length;
   const removed = lines.filter((line) => line.type === 'removed').length;
-  return `${itemPath(file)} (${fileState(file)}, +${added} -${removed})`;
+  return `${changedFilePath(file)} (${fileState(file)}, +${added} -${removed})`;
 }
 
 function fileState(file: ChangedFileDiff): string {

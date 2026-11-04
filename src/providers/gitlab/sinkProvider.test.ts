@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Finding } from '../../core/types.ts';
 import type { DiscussionPosition, GitLabDiscussion, MergeRequestWriter } from './client.ts';
-import { GitLabSinkProvider, UNREVIEWED_MARKER } from './sinkProvider.ts';
+import { GitLabSinkProvider } from './sinkProvider.ts';
+import { UNREVIEWED_MARKER } from './unreviewedNote.ts';
 
 class FakeWriter implements MergeRequestWriter {
   calls: { mergeRequestIid: string; body: string; position: DiscussionPosition }[] = [];
@@ -123,7 +124,11 @@ function existingDiscussion(
   id: string,
   options: { own: boolean; resolved: boolean; anchor?: string; newLine?: number },
 ): GitLabDiscussion {
-  const marker = options.own ? (options.anchor ? `<!-- pi-code-review anchor=${options.anchor} -->\n` : '<!-- pi-code-review -->\n') : '';
+  const marker = options.own
+    ? options.anchor
+      ? `<!-- pi-code-review anchor=${options.anchor} -->\n`
+      : '<!-- pi-code-review -->\n'
+    : '';
   return {
     id,
     position: { newPath: 'a.ts', newLine: options.newLine ?? 3, headSha: 'old-head' },
@@ -328,7 +333,10 @@ test('publish keeps findings file order inside a merged comment', async () => {
 
   await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS }).publish([bugA2, bugA]);
 
-  assert.match(writer.calls[0]!.body, /^<!-- [^\n]+ -->\n\*\*\[nit\]\*\* Also a naming problem\.\n\n\*\*\[important\]\*\* Bug A\.$/);
+  assert.match(
+    writer.calls[0]!.body,
+    /^<!-- [^\n]+ -->\n\*\*\[nit\]\*\* Also a naming problem\.\n\n\*\*\[important\]\*\* Bug A\.$/,
+  );
 });
 
 test('publish posts two discussions for two lines with the same text', async () => {
@@ -367,7 +375,10 @@ test('publish sends one reply and one reopen for two findings that reply to the 
 
   assert.equal(writer.calls.length, 0);
   assert.deepEqual(writer.replies, [
-    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.\n\n**[nit]** Second.` },
+    {
+      discussionId: 'd1',
+      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.\n\n**[nit]** Second.`,
+    },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
 });
@@ -435,7 +446,10 @@ test('publish logs a warning when the declared discussion no longer exists', asy
   const writer = new FakeWriter();
   const { logger, warnings } = recordingLogger();
 
-  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish(
+    [],
+    [declaration],
+  );
 
   assert.deepEqual(warnings, [{ discussionId: 'd1', reason: 'discussion_not_found' }]);
   assert.equal(writer.replies.length, 0);
@@ -446,7 +460,10 @@ test("publish never resolves a person's discussion, and logs a warning", async (
   writer.existing = [existingDiscussion('d1', { own: false, resolved: false })];
   const { logger, warnings } = recordingLogger();
 
-  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish(
+    [],
+    [declaration],
+  );
 
   assert.deepEqual(warnings, [{ discussionId: 'd1', reason: 'not_from_this_tool' }]);
   assert.equal(writer.replies.length, 0);
@@ -459,7 +476,10 @@ test('publish keeps the reply and logs a warning when the resolve request fails'
   writer.failReopen = true;
   const { logger, warnings } = recordingLogger();
 
-  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish(
+    [],
+    [declaration],
+  );
 
   assert.equal(writer.replies.length, 1);
   assert.deepEqual(warnings, [{ discussionId: 'd1', error: '403 Forbidden' }]);
@@ -471,7 +491,10 @@ test('publish does not resolve when the reply fails', async () => {
   writer.failReply = true;
   const { logger, warnings } = recordingLogger();
 
-  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish(
+    [],
+    [declaration],
+  );
 
   assert.equal(writer.resolvedChanges.length, 0);
   assert.deepEqual(warnings, [{ discussionId: 'd1', error: '500 reply failed' }]);
@@ -482,7 +505,10 @@ test('publish resolves nothing when the discussions cannot be read', async () =>
   writer.existing = new Error('500 Internal Server Error');
   const { logger, warnings } = recordingLogger();
 
-  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish([], [declaration]);
+  await new GitLabSinkProvider({ client: writer, mergeRequestIid: '5', diffRefs: REFS, logger }).publish(
+    [],
+    [declaration],
+  );
 
   assert.equal(writer.replies.length, 0);
   assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason: 'discussions_unavailable' });
@@ -509,7 +535,11 @@ async function publishUnreviewed(writer: FakeWriter, files: { path: string; reas
 test('publish creates one comment that lists the files too large to review', async () => {
   const writer = new FakeWriter();
 
-  await publishUnreviewed(writer, [tooLarge('big.js'), { path: 'yarn.lock', reason: 'generated' }, tooLarge('huge.sql')]);
+  await publishUnreviewed(writer, [
+    tooLarge('big.js'),
+    { path: 'yarn.lock', reason: 'generated' },
+    tooLarge('huge.sql'),
+  ]);
 
   assert.equal(writer.createdNotes.length, 1);
   const body = writer.createdNotes[0]!;
@@ -570,7 +600,10 @@ test('publish ignores a diff discussion or a comment without the marker', async 
   const writer = new FakeWriter();
   writer.existing = [
     unreviewedNoteDiscussion('person', 5, 'big.js was not reviewed, please check'),
-    { ...unreviewedNoteDiscussion('diff', 6, `${UNREVIEWED_MARKER}\nx`), position: { newPath: 'a.ts', newLine: 1, headSha: 'h' } },
+    {
+      ...unreviewedNoteDiscussion('diff', 6, `${UNREVIEWED_MARKER}\nx`),
+      position: { newPath: 'a.ts', newLine: 1, headSha: 'h' },
+    },
   ];
 
   await publishUnreviewed(writer, [tooLarge('big.js')]);

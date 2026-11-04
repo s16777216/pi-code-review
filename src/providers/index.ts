@@ -12,4 +12,7 @@ export type {
   MergeRequestWriter,
 } from './gitlab/client.ts';
 export { GitLabSourceProvider } from './gitlab/sourceProvider.ts';
+export { isMergeRequestPipeline, loadGitlabConnectionConfig } from './gitlab/config.ts';
+export type { GitlabConnectionConfig, GitlabConnectionOverrides } from './gitlab/config.ts';
+export { parseGitLabDiffRefs } from './gitlab/diffRefs.ts';
 export { GitLabSinkProvider } from './gitlab/sinkProvider.ts';

@@ -1,5 +1,16 @@
 import type { ChangedFileDiff, DiffLine } from '../types.ts';
 
+/** The path a changed file is known by: the new path, or the old path of a
+ * deleted file. */
+export function changedFilePath(file: ChangedFileDiff): string {
+  return file.newPath ?? file.oldPath ?? '(unknown path)';
+}
+
+/** Plain code-point order, so a sort by path does not depend on the locale. */
+export function compareCodePoints(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 /** The diff text's lines. GitLab's diff text ends with a line break, and
@@ -134,19 +145,11 @@ export function checkNewFileLine(files: ChangedFileDiff[], path: string, line: n
   return visible ? 'ok' : 'line_not_in_diff';
 }
 
-/** True when `checkNewFileLine` returns `'ok'` — i.e. a line an inline
- * comment can target. */
-export function isValidNewFileLine(files: ChangedFileDiff[], path: string, line: number): boolean {
-  return checkNewFileLine(files, path, line) === 'ok';
-}
-
 /** The text of `line` in the new version of `path`, taken from the diff (an
  * added or context line), or `null` when that line is not in the diff. */
 export function getNewFileLineText(files: ChangedFileDiff[], path: string, line: number): string | null {
   const file = files.find((f) => f.newPath === path);
   if (!file) return null;
-  const match = parseDiffHunks(file.hunks).find(
-    (diffLine) => diffLine.newLine === line && diffLine.type !== 'removed',
-  );
+  const match = parseDiffHunks(file.hunks).find((diffLine) => diffLine.newLine === line && diffLine.type !== 'removed');
   return match ? match.content : null;
 }

@@ -5,7 +5,6 @@ import {
   checkNewFileLine,
   getNewFileLineText,
   hunkStartLine,
-  isValidNewFileLine,
   numberDiffHunks,
   parseDiffHunks,
   splitHunks,
@@ -82,39 +81,39 @@ test('parseDiffHunks accepts a header with implicit count of 1', () => {
   ]);
 });
 
-test('isValidNewFileLine accepts an added line and a context line', () => {
+test('checkNewFileLine accepts an added line and a context line', () => {
   const files: ChangedFileDiff[] = [
     { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,3 @@', ' context1', '+added1', ' context2'].join('\n') },
   ];
 
-  assert.equal(isValidNewFileLine(files, 'a.ts', 1), true); // context1
-  assert.equal(isValidNewFileLine(files, 'a.ts', 2), true); // added1
-  assert.equal(isValidNewFileLine(files, 'a.ts', 3), true); // context2
+  assert.equal(checkNewFileLine(files, 'a.ts', 1) === 'ok', true); // context1
+  assert.equal(checkNewFileLine(files, 'a.ts', 2) === 'ok', true); // added1
+  assert.equal(checkNewFileLine(files, 'a.ts', 3) === 'ok', true); // context2
 });
 
-test('isValidNewFileLine rejects a line outside any hunk', () => {
+test('checkNewFileLine rejects a line outside any hunk', () => {
   const files: ChangedFileDiff[] = [
     { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,2 @@', ' context1', '+added1'].join('\n') },
   ];
 
-  assert.equal(isValidNewFileLine(files, 'a.ts', 99), false);
+  assert.equal(checkNewFileLine(files, 'a.ts', 99) === 'ok', false);
 });
 
-test('isValidNewFileLine rejects a file that is not in the changed files', () => {
+test('checkNewFileLine rejects a file that is not in the changed files', () => {
   const files: ChangedFileDiff[] = [
     { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,1 +1,1 @@', '+added1'].join('\n') },
   ];
 
-  assert.equal(isValidNewFileLine(files, 'b.ts', 1), false);
+  assert.equal(checkNewFileLine(files, 'b.ts', 1) === 'ok', false);
 });
 
-test('isValidNewFileLine rejects a removed-only line (not visible in the new file)', () => {
+test('checkNewFileLine rejects a removed-only line (not visible in the new file)', () => {
   const files: ChangedFileDiff[] = [
     { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,1 @@', '-removed1', ' context1'].join('\n') },
   ];
 
   // removed1 has no newLine, so it must never match as a valid new-file line.
-  assert.equal(isValidNewFileLine(files, 'a.ts', 1), true); // context1
+  assert.equal(checkNewFileLine(files, 'a.ts', 1) === 'ok', true); // context1
   assert.equal(
     parseDiffHunks(files[0]!.hunks).some((l) => l.type === 'removed' && l.newLine !== null),
     false,
@@ -126,9 +125,13 @@ test('numberDiffHunks numbers context and added lines and leaves removed lines b
 
   assert.equal(
     numberDiffHunks(diff),
-    ['@@ -10,3 +10,3 @@', '  10 |  const a = 1;', '  11 | +const b = 2;', '     | -const c = 3;', '  12 |  return a;'].join(
-      '\n',
-    ),
+    [
+      '@@ -10,3 +10,3 @@',
+      '  10 |  const a = 1;',
+      '  11 | +const b = 2;',
+      '     | -const c = 3;',
+      '  12 |  return a;',
+    ].join('\n'),
   );
 });
 

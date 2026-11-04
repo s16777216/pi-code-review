@@ -1,4 +1,4 @@
-import type { Finding, ResolvedDiscussion, ReviewContext, UnreviewedFile } from '../types.ts';
+import type { Finding, ResolvedDiscussion, ReviewContext, UnreviewedFile } from './types.ts';
 
 /** Produces the engine's input. The engine does not know, and must not need
  * to know, which concrete `SourceProvider` it got a `ReviewContext` from. */

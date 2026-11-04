@@ -24,7 +24,9 @@ function multiHunkFile(path: string, sizes: number[]): ChangedFileDiff {
 }
 
 const paths = (batches: BatchItem[][]) =>
-  batches.map((batch) => batch.map((item) => (item.part ? `${item.file.newPath}#${item.part.index}/${item.part.count}` : item.file.newPath)));
+  batches.map((batch) =>
+    batch.map((item) => (item.part ? `${item.file.newPath}#${item.part.index}/${item.part.count}` : item.file.newPath)),
+  );
 
 test('planBatches puts everything in one batch when it fits', () => {
   assert.deepEqual(paths(planBatches([file('b.ts', 2), file('a.ts', 2)], linesFit(100), 1000)), [['a.ts', 'b.ts']]);
@@ -61,7 +63,7 @@ test('planBatches splits a file that does not fit an empty batch at hunk boundar
   assert.match(batches[1]![0]!.hunks, /^@@ -201,0 \+201,2 @@/);
 });
 
-test('planBatches lets the next file share the batch of a split file\'s last part', () => {
+test("planBatches lets the next file share the batch of a split file's last part", () => {
   const batches = planBatches([multiHunkFile('a.ts', [2, 2, 2]), file('b.ts', 1)], linesFit(6), 1000);
 
   assert.deepEqual(paths(batches), [['a.ts#1/2'], ['a.ts#2/2', 'b.ts']]);

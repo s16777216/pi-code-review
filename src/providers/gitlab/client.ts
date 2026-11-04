@@ -1,5 +1,5 @@
-import { ConfigError } from "../../config.ts";
-import { silentLogger, type Logger } from "../../logger.ts";
+import { ConfigError } from '../../settings.ts';
+import { silentLogger, type Logger } from '../../logger.ts';
 
 export interface GitLabDiffRefs {
   baseSha: string;
@@ -110,7 +110,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
    * ID). Today's setup happens to be synchronous, but callers should not
    * depend on that. */
   private constructor(options: GitLabClientOptions) {
-    this.apiUrl = options.apiUrl.replace(/\/+$/, "");
+    this.apiUrl = options.apiUrl.replace(/\/+$/, '');
     this.projectId = options.projectId;
     this.token = options.token;
     this.logger = options.logger ?? silentLogger();
@@ -118,9 +118,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
 
   static async create(options: GitLabClientOptions): Promise<GitLabClient> {
     if (!options.token) {
-      throw new ConfigError(
-        "GitLabClient requires a non-empty token; refusing to call the GitLab API without one.",
-      );
+      throw new ConfigError('GitLabClient requires a non-empty token; refusing to call the GitLab API without one.');
     }
     return new GitLabClient(options);
   }
@@ -134,22 +132,20 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     if (searchParams) {
       for (const [key, value] of searchParams) url.searchParams.set(key, value);
     }
-    const method = init?.method ?? "GET";
+    const method = init?.method ?? 'GET';
     const response = await fetch(url, {
       method: init?.method,
       body: init?.body,
       headers: {
-        "PRIVATE-TOKEN": this.token,
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
+        'PRIVATE-TOKEN': this.token,
+        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
       },
     });
-    this.logger.debug({ method, url: url.toString(), status: response.status }, "gitlab request");
+    this.logger.debug({ method, url: url.toString(), status: response.status }, 'gitlab request');
     return response;
   }
 
-  async getMergeRequest(
-    mergeRequestIid: string,
-  ): Promise<MergeRequestMetadata> {
+  async getMergeRequest(mergeRequestIid: string): Promise<MergeRequestMetadata> {
     const response = await this.request(`/merge_requests/${mergeRequestIid}`);
     if (!response.ok) {
       throw new GitLabApiError(
@@ -164,7 +160,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     };
     return {
       title: body.title,
-      description: body.description ?? "",
+      description: body.description ?? '',
       diffRefs: {
         baseSha: body.diff_refs.base_sha,
         startSha: body.diff_refs.start_sha,
@@ -173,15 +169,13 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     };
   }
 
-  async getMergeRequestDiff(
-    mergeRequestIid: string,
-  ): Promise<GitLabChangedFile[]> {
+  async getMergeRequestDiff(mergeRequestIid: string): Promise<GitLabChangedFile[]> {
     const files: GitLabChangedFile[] = [];
     let page = 1;
     for (;;) {
       const response = await this.request(
         `/merge_requests/${mergeRequestIid}/diffs`,
-        new URLSearchParams({ page: String(page), per_page: "100" }),
+        new URLSearchParams({ page: String(page), per_page: '100' }),
       );
       if (!response.ok) {
         throw new GitLabApiError(
@@ -207,7 +201,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
           ...(entry.generated_file ? { generatedFile: true } : {}),
         });
       }
-      const nextPage = response.headers.get("x-next-page");
+      const nextPage = response.headers.get('x-next-page');
       if (!nextPage) break;
       page = Number(nextPage);
     }
@@ -233,7 +227,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     for (;;) {
       const response = await this.request(
         `/merge_requests/${mergeRequestIid}/discussions`,
-        new URLSearchParams({ page: String(page), per_page: "100" }),
+        new URLSearchParams({ page: String(page), per_page: '100' }),
       );
       if (!response.ok) {
         throw new GitLabApiError(
@@ -266,7 +260,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
             : null,
           notes: entry.notes.map((note) => ({
             id: note.id,
-            author: note.author?.username ?? "unknown",
+            author: note.author?.username ?? 'unknown',
             body: note.body,
             system: note.system ?? false,
             resolvable: note.resolvable ?? false,
@@ -274,7 +268,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
           })),
         });
       }
-      const nextPage = response.headers.get("x-next-page");
+      const nextPage = response.headers.get('x-next-page');
       if (!nextPage) break;
       page = Number(nextPage);
     }
@@ -283,11 +277,11 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
 
   async createDiscussion(mergeRequestIid: string, body: string, position: DiscussionPosition): Promise<void> {
     const response = await this.request(`/merge_requests/${mergeRequestIid}/discussions`, undefined, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({
         body,
         position: {
-          position_type: "text",
+          position_type: 'text',
           base_sha: position.baseSha,
           start_sha: position.startSha,
           head_sha: position.headSha,
@@ -309,7 +303,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     const response = await this.request(
       `/merge_requests/${mergeRequestIid}/discussions/${encodeURIComponent(discussionId)}/notes`,
       undefined,
-      { method: "POST", body: JSON.stringify({ body }) },
+      { method: 'POST', body: JSON.stringify({ body }) },
     );
     if (!response.ok) {
       throw new GitLabApiError(
@@ -323,7 +317,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     const response = await this.request(
       `/merge_requests/${mergeRequestIid}/discussions/${encodeURIComponent(discussionId)}`,
       new URLSearchParams({ resolved: String(resolved) }),
-      { method: "PUT" },
+      { method: 'PUT' },
     );
     if (!response.ok) {
       throw new GitLabApiError(
@@ -335,7 +329,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
 
   async createNote(mergeRequestIid: string, body: string): Promise<void> {
     const response = await this.request(`/merge_requests/${mergeRequestIid}/notes`, undefined, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({ body }),
     });
     if (!response.ok) {
@@ -348,7 +342,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
 
   async updateNote(mergeRequestIid: string, noteId: number, body: string): Promise<void> {
     const response = await this.request(`/merge_requests/${mergeRequestIid}/notes/${noteId}`, undefined, {
-      method: "PUT",
+      method: 'PUT',
       body: JSON.stringify({ body }),
     });
     if (!response.ok) {
