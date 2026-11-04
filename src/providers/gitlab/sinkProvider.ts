@@ -2,8 +2,9 @@ import { silentLogger, type Logger } from '../../logger.ts';
 import type { SinkProvider } from '../../core/review/providers.ts';
 import type { Finding, ResolvedDiscussion, UnreviewedFile } from '../../core/types.ts';
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestWriter } from './client.ts';
-import { discussionAnchor, isDiscussionResolved, isFromThisTool, userNotes } from './discussions.ts';
+import { discussionAnchor, isDiscussionResolved, isFromThisTool } from './discussions.ts';
 import { MARKER } from './marker.ts';
+import { publishUnreviewedNote, unreviewedNoteOf, type UnreviewedNote } from './unreviewedNote.ts';
 import { errorMessage } from '../../core/errorMessage.ts';
 
 export interface GitLabSinkProviderOptions {
@@ -37,12 +38,8 @@ interface ExistingDiscussions {
    * of the last such discussion in GitLab's list, which is the newest. */
   resolvedOwnByAnchor: Map<string, string>;
   /** The last general comment from this tool that lists unreviewed files. */
-  unreviewedNote: { id: number; body: string } | null;
+  unreviewedNote: UnreviewedNote | null;
 }
-
-/** The marker of the general comment on files too large to review. It has
- * no `anchor=`, so the anchor match never uses this comment. */
-export const UNREVIEWED_MARKER = '<!-- pi-code-review unreviewed -->';
 
 export class GitLabSinkProvider implements SinkProvider {
   private readonly logger: Logger;
@@ -106,44 +103,12 @@ export class GitLabSinkProvider implements SinkProvider {
     );
 
     await Promise.all(resolved.map((declaration) => this.resolveDiscussion(declaration, existing)));
-    await this.publishUnreviewedNote(unreviewedFiles, existing);
-  }
-
-  /** Keeps one general comment from this tool that lists the files too large
-   * to review (`handle-omitted-diffs` design, Decision 5):
-   *
-   * | Files too large | Existing comment | Action       |
-   * |-----------------|------------------|--------------|
-   * | some            | none             | create it    |
-   * | some            | same body        | nothing      |
-   * | some            | other body       | update it    |
-   * | none            | none             | nothing      |
-   * | none            | lists files      | update it to say every file was reviewed |
-   *
-   * Generated files are not listed. When the discussions could not be read,
-   * the comment is created when files are too large. A failure is logged at
-   * `warn`, and `publish` goes on. */
-  private async publishUnreviewedNote(
-    unreviewedFiles: UnreviewedFile[],
-    existing: ExistingDiscussions | null,
-  ): Promise<void> {
     const { client, mergeRequestIid } = this.options;
-    const tooLarge = unreviewedFiles.filter((file) => file.reason === 'too_large').map((file) => file.path);
-    const note = existing?.unreviewedNote ?? null;
-    if (tooLarge.length === 0 && note === null) return;
-
-    const body = formatUnreviewedBody(tooLarge);
-    if (note !== null && note.body === body) return;
-
-    try {
-      if (note === null) await client.createNote(mergeRequestIid, body);
-      else await client.updateNote(mergeRequestIid, note.id, body);
-    } catch (error) {
-      this.logger.warn(
-        { files: tooLarge, error: errorMessage(error) },
-        'could not post the comment on files too large to review',
-      );
-    }
+    await publishUnreviewedNote(
+      { client, mergeRequestIid, logger: this.logger },
+      unreviewedFiles,
+      existing === null ? null : existing.unreviewedNote,
+    );
   }
 
   /** The engine already checked the code. Here, only the facts that can change
@@ -211,9 +176,9 @@ export class GitLabSinkProvider implements SinkProvider {
     const resolvedOwnByAnchor = new Map<string, string>();
     let unreviewedNote: ExistingDiscussions['unreviewedNote'] = null;
     for (const discussion of discussions) {
-      const first = userNotes(discussion)[0];
-      if (discussion.position === null && first !== undefined && first.body.startsWith(UNREVIEWED_MARKER)) {
-        unreviewedNote = { id: first.id, body: first.body }; // the last one wins
+      const note = unreviewedNoteOf(discussion);
+      if (note !== null) {
+        unreviewedNote = note; // the last one wins
         continue;
       }
       if (!isFromThisTool(discussion)) continue;
@@ -307,15 +272,4 @@ function formatDiscussionBody(findings: Finding[]): string {
   const marker = anchor === undefined ? MARKER : `<!-- pi-code-review anchor=${anchor} -->`;
   const paragraphs = findings.map((finding) => `**[${finding.severity}]** ${finding.summary}`);
   return `${marker}\n${paragraphs.join('\n\n')}`;
-}
-
-/** The body of the comment on files too large to review, or, with no file,
- * the note that every changed file was reviewed. */
-function formatUnreviewedBody(paths: string[]): string {
-  if (paths.length === 0) {
-    return `${UNREVIEWED_MARKER}\nEvery changed file was reviewed in the latest review.`;
-  }
-  const list = paths.map((path) => `- \`${path}\``).join('\n');
-  const what = paths.length === 1 ? 'this file' : 'these files';
-  return `${UNREVIEWED_MARKER}\n**Not reviewed:** GitLab did not return the diff of ${what}, because it is too large. Review the change by hand.\n\n${list}`;
 }
