@@ -1,5 +1,5 @@
 import { silentLogger, type Logger } from '../../logger.ts';
-import type { SinkProvider } from '../../core/review/providers.ts';
+import type { SinkProvider } from '../../core/ports.ts';
 import type { Finding, ResolvedDiscussion, UnreviewedFile } from '../../core/types.ts';
 import type { GitLabDiffRefs, GitLabDiscussion, MergeRequestWriter } from './client.ts';
 import { discussionAnchor, isDiscussionResolved, isFromThisTool } from './discussions.ts';

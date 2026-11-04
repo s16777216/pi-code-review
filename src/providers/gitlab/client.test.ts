@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigError } from '../../config.ts';
+import { ConfigError } from '../../settings.ts';
 import { GitLabApiError, GitLabClient } from './client.ts';
 
 type FetchCall = { url: string; headers: Record<string, string>; method?: string; body?: string };

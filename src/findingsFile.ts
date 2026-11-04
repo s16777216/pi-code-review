@@ -1,15 +1,15 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import type { GitLabDiffRefs } from './providers/index.ts';
 import type { Finding, ResolvedDiscussion, UnreviewedFile } from './core/types.ts';
 import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
 import { errorMessage } from './core/errorMessage.ts';
 
 /** What `review` writes and `publish` reads. `diffRefs` is the one thing
- * `publish` cannot get anywhere else — `GitLabSinkProvider` needs it to
- * position inline comments, and it only comes from `GitLabSourceProvider`
- * during `review`. */
-export interface FindingsFile {
-  diffRefs: GitLabDiffRefs;
+ * `publish` cannot get anywhere else: the host's sink needs it to position
+ * inline comments, and it only comes from the host's source during
+ * `review`. Its shape belongs to the host, so it is a type parameter, and
+ * the caller of `readFindingsFile` checks it. */
+export interface FindingsFile<DiffRefs> {
+  diffRefs: DiffRefs;
   findings: Finding[];
   /** Fixed declarations that passed the engine's checks. A file without this
    * field (from an older `review`) reads as an empty list. */
@@ -21,16 +21,19 @@ export interface FindingsFile {
 
 export class FindingsFileError extends Error {}
 
-export async function writeFindingsFile(path: string, data: FindingsFile): Promise<void> {
+export async function writeFindingsFile<DiffRefs>(path: string, data: FindingsFile<DiffRefs>): Promise<void> {
   await writeFile(path, JSON.stringify(data, null, 2), 'utf8');
 }
 
 /** Reads and validates a findings file. Throws `FindingsFileError` when the
  * file cannot be read, is not JSON, or does not have the structure `publish`
- * needs — so a bad file stops `publish` before it calls the GitLab API,
+ * needs — so a bad file stops `publish` before it calls the host's API,
  * instead of failing quietly in the middle of publishing. Unknown extra
  * fields are ignored. */
-export async function readFindingsFile(path: string): Promise<FindingsFile> {
+export async function readFindingsFile<DiffRefs>(
+  path: string,
+  parseDiffRefs: (value: unknown) => DiffRefs,
+): Promise<FindingsFile<DiffRefs>> {
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -46,13 +49,11 @@ export async function readFindingsFile(path: string): Promise<FindingsFile> {
   }
 
   try {
-    return validateFindingsFile(parsed);
+    return validateFindingsFile(parsed, parseDiffRefs);
   } catch (error) {
     throw new FindingsFileError(`Findings file "${path}" is invalid: ${errorMessage(error)}`);
   }
 }
-
-const DIFF_REF_FIELDS = ['baseSha', 'startSha', 'headSha'] as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -62,21 +63,16 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * fields. Each finding goes through the engine's own `validateFinding`, and
  * the whole file is rejected on the first bad field: a file `review` wrote
  * always passes, so a bad one means something changed it. */
-function validateFindingsFile(value: unknown): FindingsFile {
+function validateFindingsFile<DiffRefs>(
+  value: unknown,
+  parseDiffRefs: (value: unknown) => DiffRefs,
+): FindingsFile<DiffRefs> {
   if (!isObject(value)) {
     throw new Error('the top-level value is not an object.');
   }
 
-  const { diffRefs, findings, resolved = [], unreviewedFiles = [] } = value;
-  if (!isObject(diffRefs)) {
-    throw new Error('"diffRefs" is missing or is not an object.');
-  }
-  for (const field of DIFF_REF_FIELDS) {
-    const sha = diffRefs[field];
-    if (typeof sha !== 'string' || sha.length === 0) {
-      throw new Error(`"diffRefs.${field}" is missing or is not a non-empty string.`);
-    }
-  }
+  const { findings, resolved = [], unreviewedFiles = [] } = value;
+  const diffRefs = parseDiffRefs(value.diffRefs);
 
   if (!Array.isArray(findings)) {
     throw new Error('"findings" is missing or is not an array.');
@@ -89,11 +85,7 @@ function validateFindingsFile(value: unknown): FindingsFile {
   }
 
   return {
-    diffRefs: {
-      baseSha: diffRefs.baseSha as string,
-      startSha: diffRefs.startSha as string,
-      headSha: diffRefs.headSha as string,
-    },
+    diffRefs,
     findings: findings.map((item, index) => validateFinding(item, index)),
     resolved: resolved.map((item, index) => validateResolvedDiscussion(item, index)),
     unreviewedFiles: unreviewedFiles.map((item, index) => validateUnreviewedFile(item, index)),

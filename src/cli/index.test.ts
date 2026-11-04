@@ -7,6 +7,7 @@ import type {
   DiscussionPosition,
   FileContentResult,
   GitLabChangedFile,
+  GitLabDiffRefs,
   GitLabDiscussion,
   MergeRequestMetadata,
   MergeRequestProvider,
@@ -191,7 +192,7 @@ test('runPublish publishes every finding', async () => {
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -221,7 +222,7 @@ test('runPublish publishes an important finding before failing on it (severity n
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -244,7 +245,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -285,7 +286,7 @@ test('runPublish still fails on an important finding that relates to an open dis
       ],
     },
   ];
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
@@ -303,7 +304,7 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile = {
+  const findingsFile: FindingsFile<GitLabDiffRefs> = {
     unreviewedFiles: [],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },

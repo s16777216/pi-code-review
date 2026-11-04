@@ -1,4 +1,4 @@
-import { ConfigError } from '../../config.ts';
+import { ConfigError } from '../../settings.ts';
 import { silentLogger, type Logger } from '../../logger.ts';
 
 export interface GitLabDiffRefs {

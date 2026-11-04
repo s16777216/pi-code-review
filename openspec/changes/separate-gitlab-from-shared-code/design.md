@@ -23,7 +23,7 @@ See `proposal.md` for the motivation. The project owner decided:
 ## Goals / Non-Goals
 
 **Goals:**
-- Shared code (`config.ts`, `findingsFile.ts`, `core/`) does not import from `providers/`.
+- Shared code (`core/`, `settings.ts`, `findingsFile.ts`) does not import from `providers/`. `config.ts` imports the GitLab provider only for its settings, because it builds the command configs (Decision 3).
 - A provider does not import from `config.ts`.
 - A second provider can add its own settings and diff refs next to its code.
 

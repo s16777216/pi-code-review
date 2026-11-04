@@ -9,12 +9,18 @@ import {
   type PublishConfigOverrides,
   type ReviewConfig,
   type ReviewConfigOverrides,
-  isMergeRequestPipeline,
   loadPublishConfig,
   loadReviewConfig,
 } from '../config.ts';
 import { type FindingsFile, readFindingsFile, writeFindingsFile } from '../findingsFile.ts';
-import { GitLabClient, type MergeRequestProvider, type MergeRequestWriter } from '../providers/index.ts';
+import {
+  GitLabClient,
+  isMergeRequestPipeline,
+  parseGitLabDiffRefs,
+  type GitLabDiffRefs,
+  type MergeRequestProvider,
+  type MergeRequestWriter,
+} from '../providers/index.ts';
 import { GitLabSinkProvider } from '../providers/index.ts';
 import { GitLabSourceProvider } from '../providers/index.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
@@ -55,7 +61,7 @@ export interface ReviewOptions {
  * findings plus the diff refs `publish` will need. Never contacts GitLab to
  * publish anything, and never decides pass/fail — see `design.md`'s
  * "Severity-threshold decision moves to publish, not review" decision. */
-export async function runReview(options: ReviewOptions): Promise<FindingsFile> {
+export async function runReview(options: ReviewOptions): Promise<FindingsFile<GitLabDiffRefs>> {
   const { config, client, provider } = options;
   const logger = options.logger ?? silentLogger();
 
@@ -82,7 +88,7 @@ export interface PublishOptions {
   config: PublishConfig;
   /** GitLab write access. Production passes a real `GitLabClient`; tests pass a fake. */
   client: MergeRequestWriter;
-  findingsFile: FindingsFile;
+  findingsFile: FindingsFile<GitLabDiffRefs>;
   /** Logs progress at `info` level. Defaults to a silent logger. */
   logger?: Logger;
 }
@@ -233,7 +239,7 @@ export async function runPublishCommand(argv: string[]): Promise<number> {
   // Read and validate the findings file before the GitLab client exists, so a
   // bad file can never reach the GitLab API (see the `review-cli` spec's
   // "Publish reads findings from a file" requirement).
-  const findingsFile = await readFindingsFile(fromPath);
+  const findingsFile = await readFindingsFile(fromPath, parseGitLabDiffRefs);
   const client = await GitLabClient.create({
     apiUrl: config.gitlab.apiUrl,
     projectId: config.gitlab.projectId,
