@@ -57,18 +57,23 @@ See `proposal.md` for the motivation. The project owner decided:
 // core/ports.ts
 
 /** One platform. What happens before a change request is known. */
-interface CodeHost<Snapshot> {
+interface CodeHost<Snapshot, Settings = unknown> {
   /** The platform's own CLI flags, merged into each command's flags. */
   readonly flags: Record<string, { type: 'string' }>;
   /** True when this run is about a change request (GitLab: an MR iid is set). */
   isChangeRequest(flags: HostFlags): boolean;
-  /** Reads the platform's settings, or throws ConfigError. Calls no API. */
-  open(flags: HostFlags, logger: Logger): Promise<ChangeRequest<Snapshot>>;
+  /** Reads the platform's settings, or throws ConfigError. Synchronous. */
+  readSettings(flags: HostFlags): Settings;
+  /** Connects with the settings. Calls no API. */
+  connect(settings: Settings, logger: Logger): Promise<HostConnection<Snapshot>>;
   /** Checks the snapshot from a findings file, or throws. Pure: calls no API. */
   parseSnapshot(value: unknown): Snapshot;
-  /** Reads the settings and gives the discussions of the change request
-   * that the snapshot names, or throws ConfigError. Calls no API. */
-  restore(snapshot: Snapshot, flags: HostFlags, logger: Logger): Promise<DiscussionGateway>;
+}
+
+/** A platform with its settings read. */
+interface HostConnection<Snapshot> {
+  openChangeRequest(): ChangeRequest<Snapshot>;              // for `review`
+  restore(snapshot: Snapshot): DiscussionGateway;          // for `publish`
 }
 
 /** One change request, for `review`. */
@@ -88,7 +93,13 @@ interface DiscussionGateway {
 }
 ```
 
-`HostFlags` is `Record<string, string | undefined>`, the raw values of the host's own flags. `open` and `restore` are async because creating the GitLab client is, but they still call no API, so a missing setting is reported before any network call.
+`HostFlags` is `Record<string, string | undefined>`, the raw values of the host's own flags. `connect` is async because creating the GitLab client is, but it calls no API, so a missing setting is reported before any network call.
+
+**Revised during implementation.** The first version of this design had `open(flags)` and `restore(snapshot, flags)` on `CodeHost`, each of which read the settings. That changed the order of errors in two ways:
+- `restore` needs the snapshot, so `publish` would read the findings file before the settings. Before this change, the settings come first.
+- The commands also check some settings before the GitLab ones: `loadReviewConfig` resolves `--max-tokens` and `--language` first, and `loadPublishConfig` checks `--fail-on` first.
+
+So the host now splits `readSettings` (synchronous) from `connect`, and `HostConnection` gives the change request. `loadReviewConfig` and `loadPublishConfig` take an optional `readHostSettings` callback, and call it where they used to read the GitLab settings (Decision 5). `config.ts` still names no host.
 
 The ports are split by scope:
 - `CodeHost` has no merge request yet.
@@ -110,7 +121,7 @@ Alternative: one `CodeHost` that also holds the discussion actions. Every action
 `providers/gitlab/host.ts` exports `gitlabHost: CodeHost<GitLabDiffRefs>`:
 - `flags` declares `gitlab-url`, `project-id`, `mr`, and `token`.
 - `isChangeRequest` is today's `isMergeRequestPipeline`.
-- `open` and `restore` read the settings with `loadGitlabConnectionConfig`, create the client, and return a `GitLabMergeRequest`.
+- `readSettings` is `loadGitlabConnectionConfig`. `connect` creates the client, and its connection gives a `GitLabMergeRequest` from `openChangeRequest()` or `restore(snapshot)`.
 - `parseSnapshot` is `parseGitLabDiffRefs`.
 
 `GitLabClient` stays as the thin HTTP layer under the class. `providers/index.ts` exports only `gitlabHost`.
@@ -159,17 +170,17 @@ The `Publisher` and `ChangeRequest.load()` use the same mapping.
 - `runReview({ config, changeRequest, provider, logger })` and `runPublish({ config, gateway, findingsFile, logger })` take the ports. The CLI tests fake `ChangeRequest` and `DiscussionGateway`, so they no longer need GitLab types.
 - `runReviewCommand` and `runPublishCommand` get a `CodeHost`. `main` passes `gitlabHost`, so `main` is the only place that names the GitLab provider.
 - Each command parses its own flags plus `host.flags`.
-- `ReviewConfig` and `PublishConfig` lose their `gitlab` field. The host reads its own settings in `open` or `restore`.
-- To keep today's error order, each command calls `host.open` or `host.restore` before it loads its other settings. `publish` reads and checks the findings file with `host.parseSnapshot` before `restore`, as today.
+- `ReviewConfig` and `PublishConfig` lose their `gitlab` field. The host reads its own settings in `readSettings`.
+- To keep today's error order, each command passes `() => host.readSettings(flags)` to `loadReviewConfig` or `loadPublishConfig`, which call it where the GitLab settings were read before. Then the command calls `host.connect`. `publish` reads and checks the findings file with `host.parseSnapshot` after the settings and before `connect`, as today. Then it calls `connection.restore`.
 - `FindingsFile<Snapshot>` keeps its `diffRefs` key.
 
 ### Decision 6: Folders
 
 - `core/ports.ts`: the three ports and `HostFlags`.
 - `core/publish/`: `publisher.ts`, `discussion.ts`, and `marker.ts`.
-- `providers/gitlab/`: `client.ts`, `config.ts`, `diffRefs.ts`, `mergeRequest.ts`, and `host.ts`.
+- `providers/gitlab/`: `client.ts`, `config.ts`, `diffRefs.ts`, `discussions.ts`, `mergeRequest.ts`, and `host.ts`.
 
-`sourceProvider.ts`, `sinkProvider.ts`, `discussions.ts`, `marker.ts`, and `unreviewedNote.ts` are removed from `providers/gitlab/`.
+`sourceProvider.ts`, `sinkProvider.ts`, `marker.ts`, and `unreviewedNote.ts` are removed from `providers/gitlab/`. `discussions.ts` stays, with only the mapping from `GitLabDiscussion` to `HostDiscussion` (revised during implementation: the first version removed it).
 
 ## Risks / Trade-offs
 

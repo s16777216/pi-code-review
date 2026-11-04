@@ -85,7 +85,7 @@ export interface PublishOptions {
   logger?: Logger;
 }
 
-/** Publishes findings to GitLab, then decides pass/fail from the severity
+/** Publishes findings to the host, then decides pass/fail from the severity
  * threshold — always after publishing completes, so a severity gate can
  * never prevent a finding from being published. */
 export async function runPublish(options: PublishOptions): Promise<boolean> {
