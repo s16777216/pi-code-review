@@ -5,10 +5,10 @@ import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
-import { keepOwnLines, listUnreviewedFiles, runChecks } from './checks.ts';
+import { ChangeSet } from './changedFile.ts';
+import { listUnreviewedFiles, runChecks } from './checks.ts';
 import { parseReviewOutput, ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
-import { buildReviewPrompt, type PromptBatch } from './prompt.ts';
-import { errorMessage } from '../errorMessage.ts';
+import { Batch, WholeChange, type RunScope } from './scope.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
 
@@ -36,14 +36,15 @@ export const MAX_RUN_TRIES = 3;
 /** The wait before the second and the third try, in milliseconds. */
 export const RETRY_DELAYS_MS: readonly number[] = [2_000, 4_000];
 
-/** The system prompt for one run: `SYSTEM_PROMPT`, then the batch paragraph
- * when the review runs in batches, then the language sentence when a
- * language is set. A single run with no language gets `SYSTEM_PROMPT`
+/** The system prompt for one run: `SYSTEM_PROMPT`, then the paragraph of the
+ * run's scope (a batch has one), then the language sentence when a language
+ * is set. A run over the whole change with no language gets `SYSTEM_PROMPT`
  * unchanged. */
-export function buildSystemPrompt(language?: string, batch?: { index: number; count: number }): string {
+export function buildSystemPrompt(language?: string, scope: RunScope = new WholeChange()): string {
   let prompt = SYSTEM_PROMPT;
-  if (batch !== undefined) {
-    prompt += `\n\nThis change is too large for one review, so it is split into ${batch.count} parts, and you review part ${batch.index}. The prompt lists every changed file, but shows only the diffs of this part. Report only problems on the numbered lines of this part's diffs. When you need code from another part, read it with get_file_content.`;
+  const paragraph = scope.systemPromptParagraph();
+  if (paragraph !== null) {
+    prompt += `\n\n${paragraph}`;
   }
   if (language !== undefined) {
     prompt += `\n\nWrite every "summary" in ${language}. Keep the JSON field names and the "severity" values exactly as specified above.`;
@@ -86,65 +87,66 @@ export class AgentReviewEngine implements ReviewEngine {
    * runs the checks once on the merged output (Decision 6). */
   async review(context: ReviewContext): Promise<ReviewResult> {
     const logger = this.options.logger ?? silentLogger();
-    const unreviewedFiles = listUnreviewedFiles(context, logger);
-    const runs = this.planRuns(context, logger);
-    const outputs = await this.runAll(context, runs, logger);
+    // The host's data, parsed once for the whole review (`model-diffs-and-run-scopes`, Decision 2).
+    const changes = ChangeSet.from(context.changedFiles);
+    const unreviewedFiles = listUnreviewedFiles(changes, logger);
+    const runs = this.planRuns(context, changes, logger);
+    const outputs = await this.runAll(context, changes, runs, logger);
 
     const findings: Finding[] = [];
     const resolvedById = new Map<string, ResolvedDiscussion>();
     outputs.forEach((output, i) => {
-      const batch = runs[i];
-      findings.push(...(batch === undefined ? output.findings : keepOwnLines(output.findings, batch, context, logger)));
+      findings.push(...runs[i]!.filterFindings(output.findings, changes, logger));
       for (const declaration of output.resolved) {
         if (!resolvedById.has(declaration.discussionId)) resolvedById.set(declaration.discussionId, declaration);
       }
     });
 
-    const checked = await runChecks({ findings, resolved: [...resolvedById.values()] }, context, logger);
+    const checked = await runChecks({ findings, resolved: [...resolvedById.values()] }, context, changes, logger);
     return { ...checked, unreviewedFiles };
   }
 
-  /** One `undefined` for a single run, or one batch for each run
+  /** One scope for the whole change, or one `Batch` for each run
    * (Decision 1). The budget is half of the context window. A model with no
    * known window (`contextWindow <= 0`) is not checked, as in `pi-ai`. */
-  private planRuns(context: ReviewContext, logger: Logger): (PromptBatch | undefined)[] {
+  private planRuns(context: ReviewContext, changes: ChangeSet, logger: Logger): RunScope[] {
     const { contextWindow } = this.options.model;
-    if (contextWindow <= 0) return [undefined];
+    const whole = new WholeChange();
+    if (contextWindow <= 0) return [whole];
     const budget = Math.floor(contextWindow / 2);
-    if (this.estimateFirstRequest(context, undefined) <= budget) return [undefined];
+    if (this.estimateFirstRequest(context, changes, whole) <= budget) return [whole];
 
     // The largest numbers a plan can have, so the size check never sees a
     // shorter text than the real one.
     const fits = (items: BatchItem[]) =>
-      this.estimateFirstRequest(context, { items, index: MAX_BATCHES, count: MAX_BATCHES }) <= budget;
-    const reviewable = context.changedFiles.filter((file) => file.omitted === undefined);
-    const batches = planBatches(reviewable, fits, contextWindow);
+      this.estimateFirstRequest(context, changes, new Batch(items, MAX_BATCHES, MAX_BATCHES)) <= budget;
+    const batches = planBatches(changes.reviewable(), fits, contextWindow);
     logger.info({ batches: batches.length }, `Reviewing the change in ${batches.length} batches.`);
-    return batches.map((items, i) => ({ items, index: i + 1, count: batches.length }));
+    return batches.map((items, i) => new Batch(items, i + 1, batches.length));
   }
 
   /** The estimated size of a run's first request: the agent's own transcript
    * before the prompt (its system message, with the system prompt and the
    * tool declarations) plus the user prompt. It uses `pi-ai`'s
    * `estimateContextTokens`, the same estimate as `pi-ai`'s answer cap. */
-  private estimateFirstRequest(context: ReviewContext, batch: PromptBatch | undefined): number {
-    const agent = this.createAgent(context, batch);
+  private estimateFirstRequest(context: ReviewContext, changes: ChangeSet, scope: RunScope): number {
+    const agent = this.createAgent(context, scope);
     const firstRequest: Message[] = [
       ...agent.state.messages,
-      { role: 'user', content: buildReviewPrompt(context, batch), timestamp: Date.now() },
+      { role: 'user', content: scope.prompt(context, changes), timestamp: Date.now() },
     ];
     return estimateContextTokens(firstRequest).tokens;
   }
 
   /** A new agent with new tools. The tools read the whole context, so a
    * batch can read any changed file. */
-  private createAgent(context: ReviewContext, batch: PromptBatch | undefined): Agent {
+  private createAgent(context: ReviewContext, scope: RunScope): Agent {
     const { provider, model, apiKey, language } = this.options;
     return new Agent({
       streamFn: (streamModel, streamContext, streamOptions) =>
         provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
       initialState: {
-        systemPrompt: buildSystemPrompt(language, batch),
+        systemPrompt: buildSystemPrompt(language, scope),
         model,
         tools: [createGetFileContentTool(context), createListDiscussionsTool(context)],
       },
@@ -156,7 +158,8 @@ export class AgentReviewEngine implements ReviewEngine {
    * start, and the review fails (Decision 9). */
   private async runAll(
     context: ReviewContext,
-    runs: (PromptBatch | undefined)[],
+    changes: ChangeSet,
+    runs: RunScope[],
     logger: Logger,
   ): Promise<ParsedReviewOutput[]> {
     const outputs: ParsedReviewOutput[] = [];
@@ -168,12 +171,12 @@ export class AgentReviewEngine implements ReviewEngine {
       while (failure === null && next < runs.length) {
         const i = next;
         next += 1;
-        const batch = runs[i];
+        const scope = runs[i]!;
         try {
-          outputs[i] = await this.runWithRetries(context, batch, logger, active, () => failure !== null);
+          outputs[i] = await this.runWithRetries(context, changes, scope, logger, active, () => failure !== null);
         } catch (error) {
           if (failure !== null) continue; // aborted because another run failed
-          failure = { error: batch === undefined ? error : batchFailure(batch, error) };
+          failure = { error: scope.describeFailure(error) };
           for (const agent of active) agent.abort();
         }
       }
@@ -188,19 +191,20 @@ export class AgentReviewEngine implements ReviewEngine {
    * final message with the stop reason `error` is tried again (Decision 8). */
   private async runWithRetries(
     context: ReviewContext,
-    batch: PromptBatch | undefined,
+    changes: ChangeSet,
+    scope: RunScope,
     logger: Logger,
     active: Set<Agent>,
     cancelled: () => boolean,
   ): Promise<ParsedReviewOutput> {
     const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     for (let attempt = 1; ; attempt += 1) {
-      const outcome = await this.runOnce(context, batch, logger, active);
+      const outcome = await this.runOnce(context, changes, scope, logger, active);
       if ('output' in outcome) return outcome.output;
       if (attempt >= MAX_RUN_TRIES || cancelled()) throw new ReviewFailureError(outcome.retryableError);
 
       logger.warn(
-        { ...batchField(batch), attempt: attempt + 1, error: outcome.retryableError },
+        { ...scope.logFields(), attempt: attempt + 1, error: outcome.retryableError },
         'retrying a model run that ended with an error',
       );
       await sleep(RETRY_DELAYS_MS[attempt - 1] ?? 0);
@@ -210,15 +214,16 @@ export class AgentReviewEngine implements ReviewEngine {
 
   private async runOnce(
     context: ReviewContext,
-    batch: PromptBatch | undefined,
+    changes: ChangeSet,
+    scope: RunScope,
     logger: Logger,
     active: Set<Agent>,
   ): Promise<RunOutcome> {
-    const agent = this.createAgent(context, batch);
-    const prompt = buildReviewPrompt(context, batch);
+    const agent = this.createAgent(context, scope);
+    const prompt = scope.prompt(context, changes);
     // The system prompt as the agent holds it, so the log shows exactly what
     // this run sends (`log-system-prompt` design, Decision 1).
-    logger.debug({ ...batchField(batch), systemPrompt: agent.state.systemPrompt, prompt }, 'review prompt');
+    logger.debug({ ...scope.logFields(), systemPrompt: agent.state.systemPrompt, prompt }, 'review prompt');
 
     active.add(agent);
     try {
@@ -250,7 +255,7 @@ export class AgentReviewEngine implements ReviewEngine {
     }
     logger.debug(
       {
-        ...batchField(batch),
+        ...scope.logFields(),
         stopReason: lastAssistant.stopReason,
         usage: lastAssistant.usage,
         contentBlockTypes: lastAssistant.content.map((block) => block.type),
@@ -263,17 +268,7 @@ export class AgentReviewEngine implements ReviewEngine {
       .map((block) => block.text)
       .join('');
 
-    logger.debug({ ...batchField(batch), response: text }, 'review response');
+    logger.debug({ ...scope.logFields(), response: text }, 'review response');
     return { output: parseReviewOutput(text, logger) };
   }
-}
-
-/** The `batch` log field in batch mode; nothing for a single run (Decision 10). */
-function batchField(batch: PromptBatch | undefined): { batch?: number } {
-  return batch === undefined ? {} : { batch: batch.index };
-}
-
-function batchFailure(batch: PromptBatch, error: unknown): ReviewFailureError {
-  const message = errorMessage(error);
-  return new ReviewFailureError(`Batch ${batch.index} of ${batch.count} failed: ${message}`);
 }

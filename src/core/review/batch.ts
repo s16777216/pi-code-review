@@ -1,5 +1,5 @@
-import type { ChangedFileDiff } from '../types.ts';
-import { changedFilePath, compareCodePoints, hunkStartLine, splitHunks } from './diff.ts';
+import type { ChangedFile } from './changedFile.ts';
+import { compareCodePoints, hunkStartLine } from './diff.ts';
 import { ReviewFailureError } from './findings.ts';
 
 /** A review needs at most this many batches; more fails before the first
@@ -7,11 +7,10 @@ import { ReviewFailureError } from './findings.ts';
 export const MAX_BATCHES = 20;
 
 /** One file's diff in a batch: the whole file, or one part of a file that is
- * split at hunk boundaries. */
+ * split at hunk boundaries (`model-diffs-and-run-scopes` design, Decision 4). */
 export interface BatchItem {
-  file: ChangedFileDiff;
-  /** The diff text of this item: all of the file's hunks, or a part of them. */
-  hunks: string;
+  /** The whole file, or a part of it with only some of the file's hunks. */
+  file: ChangedFile;
   /** Set only for a part of a split file. Both numbers start at 1. */
   part?: { index: number; count: number };
 }
@@ -34,8 +33,8 @@ const PROVISIONAL_PART = { index: MAX_BATCHES, count: MAX_BATCHES };
  * Throws `ReviewFailureError` when one hunk does not fit an empty batch, or
  * when the plan needs more than `MAX_BATCHES` batches. `contextWindow` is only
  * used in that error. */
-export function planBatches(files: ChangedFileDiff[], fits: FitsBudget, contextWindow: number): BatchItem[][] {
-  const sorted = [...files].sort((a, b) => compareCodePoints(changedFilePath(a), changedFilePath(b)));
+export function planBatches(files: readonly ChangedFile[], fits: FitsBudget, contextWindow: number): BatchItem[][] {
+  const sorted = [...files].sort((a, b) => compareCodePoints(a.path, b.path));
   const batches: BatchItem[][] = [];
   let current: BatchItem[] = [];
 
@@ -47,7 +46,7 @@ export function planBatches(files: ChangedFileDiff[], fits: FitsBudget, contextW
   };
 
   for (const file of sorted) {
-    const whole: BatchItem = { file, hunks: file.hunks };
+    const whole: BatchItem = { file };
     if (fits([...current, whole])) {
       current.push(whole);
       continue;
@@ -59,29 +58,29 @@ export function planBatches(files: ChangedFileDiff[], fits: FitsBudget, contextW
     }
 
     // The file does not fit an empty batch: split it at hunk boundaries.
-    const hunks = splitHunks(file.hunks);
+    const hunks = file.hunks();
     if (hunks.length === 0) {
       throw new ReviewFailureError(
-        `The diff of "${changedFilePath(file)}" is too large to review and has no hunk headers to split it at.`,
+        `The diff of "${file.path}" is too large to review and has no hunk headers to split it at.`,
       );
     }
     const parts: BatchItem[] = [];
-    let group: string[] = [];
+    let group: ChangedFile[] = [];
     for (const hunk of hunks) {
       const grown = [...group, hunk];
-      if (fits([{ file, hunks: grown.join('\n'), part: PROVISIONAL_PART }])) {
+      if (fits([{ file: file.withHunks(grown), part: PROVISIONAL_PART }])) {
         group = grown;
         continue;
       }
-      if (group.length === 0 || !fits([{ file, hunks: hunk, part: PROVISIONAL_PART }])) {
+      if (group.length === 0 || !fits([{ file: file.withHunks([hunk]), part: PROVISIONAL_PART }])) {
         throw new ReviewFailureError(
-          `The hunk at new-file line ${hunkStartLine(hunk) ?? '?'} of "${changedFilePath(file)}" is too large to review: it does not fit in one batch of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
+          `The hunk at new-file line ${hunkStartLine(hunk.hunkText) ?? '?'} of "${file.path}" is too large to review: it does not fit in one batch of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
         );
       }
-      parts.push({ file, hunks: group.join('\n') });
+      parts.push({ file: file.withHunks(group) });
       group = [hunk];
     }
-    if (group.length > 0) parts.push({ file, hunks: group.join('\n') });
+    if (group.length > 0) parts.push({ file: file.withHunks(group) });
 
     parts.forEach((part, index) => {
       part.part = { index: index + 1, count: parts.length };

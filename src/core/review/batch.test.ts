@@ -1,26 +1,30 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ChangedFileDiff } from '../types.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
+import { ChangedFile } from './changedFile.ts';
 import { ReviewFailureError } from './findings.ts';
 
 /** A budget of `limit` diff lines per batch, so a test can reason in lines. */
 function linesFit(limit: number) {
-  return (items: BatchItem[]) => items.reduce((sum, item) => sum + item.hunks.split('\n').length, 0) <= limit;
+  return (items: BatchItem[]) => items.reduce((sum, item) => sum + item.file.hunkText.split('\n').length, 0) <= limit;
 }
 
 /** A changed file with one hunk of `lines` added lines (plus its header). */
-function file(path: string, lines: number, startLine = 1): ChangedFileDiff {
+function file(path: string, lines: number, startLine = 1): ChangedFile {
   const body = Array.from({ length: lines }, (_, i) => `+line ${i}`);
-  return { oldPath: path, newPath: path, hunks: [`@@ -0,0 +${startLine},${lines} @@`, ...body].join('\n') };
+  return ChangedFile.from({
+    oldPath: path,
+    newPath: path,
+    hunks: [`@@ -0,0 +${startLine},${lines} @@`, ...body].join('\n'),
+  });
 }
 
 /** A changed file with hunks of the given sizes, in order. */
-function multiHunkFile(path: string, sizes: number[]): ChangedFileDiff {
+function multiHunkFile(path: string, sizes: number[]): ChangedFile {
   const hunks = sizes.map((size, k) =>
     [`@@ -${k * 100 + 1},0 +${k * 100 + 1},${size} @@`, ...Array.from({ length: size }, () => '+x')].join('\n'),
   );
-  return { oldPath: path, newPath: path, hunks: hunks.join('\n') };
+  return ChangedFile.from({ oldPath: path, newPath: path, hunks: hunks.join('\n') });
 }
 
 const paths = (batches: BatchItem[][]) =>
@@ -46,7 +50,7 @@ test('planBatches sorts by code point, not by locale', () => {
 });
 
 test('planBatches uses the old path of a deleted file', () => {
-  const deleted: ChangedFileDiff = { oldPath: 'a.ts', newPath: null, hunks: '@@ -1 +0,0 @@\n-x', deleted: true };
+  const deleted = ChangedFile.from({ oldPath: 'a.ts', newPath: null, hunks: '@@ -1 +0,0 @@\n-x', deleted: true });
 
   assert.deepEqual(
     planBatches([file('b.ts', 1), deleted], linesFit(100), 1000).map((batch) => batch.map((item) => item.file.oldPath)),
@@ -59,8 +63,8 @@ test('planBatches splits a file that does not fit an empty batch at hunk boundar
   const batches = planBatches([multiHunkFile('big.ts', [2, 2, 2])], linesFit(6), 1000);
 
   assert.deepEqual(paths(batches), [['big.ts#1/2'], ['big.ts#2/2']]);
-  assert.equal(batches[0]![0]!.hunks.split('\n').filter((line) => line.startsWith('@@')).length, 2);
-  assert.match(batches[1]![0]!.hunks, /^@@ -201,0 \+201,2 @@/);
+  assert.equal(batches[0]![0]!.file.hunkText.split('\n').filter((line) => line.startsWith('@@')).length, 2);
+  assert.match(batches[1]![0]!.file.hunkText, /^@@ -201,0 \+201,2 @@/);
 });
 
 test("planBatches lets the next file share the batch of a split file's last part", () => {
@@ -86,7 +90,7 @@ test('planBatches fails, naming the file and line, when one hunk does not fit an
 });
 
 test('planBatches fails when a file without hunk headers does not fit', () => {
-  const huge: ChangedFileDiff = { oldPath: 'x.bin', newPath: 'x.bin', hunks: 'a\nb\nc\nd' };
+  const huge = ChangedFile.from({ oldPath: 'x.bin', newPath: 'x.bin', hunks: 'a\nb\nc\nd' });
 
   assert.throws(() => planBatches([huge], linesFit(2), 1000), ReviewFailureError);
 });
