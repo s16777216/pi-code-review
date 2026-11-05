@@ -9,11 +9,12 @@ import { decidePassFail } from '../passFail.ts';
 import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
 import { ChangeSet } from './changedFile.ts';
-import { buildReviewPrompt as buildPrompt } from './prompt.ts';
+import { buildWholePrompt } from './prompt.ts';
+import { Batch } from './scope.ts';
 
 /** The prompt of a context, with its files parsed as the engine does. */
 function buildReviewPrompt(context: ReviewContext): string {
-  return buildPrompt(context, ChangeSet.from(context.changedFiles));
+  return buildWholePrompt(context, ChangeSet.from(context.changedFiles));
 }
 
 /** Most tests check what the agent reported; the anchor has its own tests. */
@@ -565,7 +566,7 @@ test('AgentReviewEngine reads each file at most once for several declarations', 
 // --- Batches (`review-large-changes-in-batches`) ---
 
 test('buildSystemPrompt adds the batch paragraph only in batch mode, before the language sentence', () => {
-  const prompt = buildSystemPrompt('zh-TW', { index: 2, count: 3 });
+  const prompt = buildSystemPrompt('zh-TW', new Batch([], 2, 3));
 
   assert.ok(prompt.startsWith(SYSTEM_PROMPT));
   assert.match(prompt, /split into 3 parts, and you review part 2/);
@@ -1013,6 +1014,6 @@ test('AgentReviewEngine logs each batch its own system prompt', async () => {
   const lines = debugs.filter((d) => 'prompt' in d) as { batch: number; systemPrompt: string }[];
   assert.equal(lines.length, 2);
   for (const line of lines) {
-    assert.equal(line.systemPrompt, buildSystemPrompt(undefined, { index: line.batch, count: 2 }));
+    assert.equal(line.systemPrompt, buildSystemPrompt(undefined, new Batch([], line.batch, 2)));
   }
 });

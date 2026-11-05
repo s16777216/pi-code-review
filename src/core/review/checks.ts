@@ -4,32 +4,9 @@ import { computeAnchor } from './anchor.ts';
 import type { ChangeSet } from './changedFile.ts';
 import { compareCodePoints } from './diff.ts';
 import type { ParsedReviewOutput } from './findings.ts';
-import type { PromptBatch } from './prompt.ts';
 
 // The fixed checks that run after the agent runs, in code, not in the model.
 // Nothing here names GitLab.
-
-/** Drops a finding that is on a line of the change's diff but not of this
- * batch's own items, with the reason `outside_batch` (Decision 5). A finding
- * that is not on the change's diff at all is left for the diff line check,
- * which logs its own reason. A file can have more than one item in a batch
- * (its parts), so a line is the batch's own when any item of that path has
- * it. */
-export function keepOwnLines(findings: Finding[], batch: PromptBatch, changes: ChangeSet, logger: Logger): Finding[] {
-  // A file can have more than one item in a batch (its parts).
-  const ownItems = (path: string) => batch.items.filter((item) => item.file.newPath === path);
-
-  return findings.filter((finding) => {
-    if (changes.isOmitted(finding.file)) return true; // dropped by `runChecks` as `diff_omitted`
-    if (changes.lineCheck(finding.file, finding.line) !== 'ok') return true;
-    if (ownItems(finding.file).some((item) => item.file.hasNewLine(finding.line))) return true;
-    logger.warn(
-      { file: finding.file, line: finding.line, batch: batch.index, reason: 'outside_batch' },
-      'discarded a finding that is outside its batch',
-    );
-    return false;
-  });
-}
 
 /** Every omitted changed file, in path order, with one `warn` line for each
  * file that is too large. A generated file is expected, so it gets no `warn`

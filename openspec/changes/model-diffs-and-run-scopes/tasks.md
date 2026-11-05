@@ -18,9 +18,9 @@
 
 ## 4. Run scopes
 
-- [ ] 4.1 Add `src/core/review/scope.ts` with `RunScope`, `WholeChange`, and `Batch` (Decision 3). Move `keepOwnLines`, `batchField`, `batchFailure`, and the batch paragraph into them.
-- [ ] 4.2 Change `planRuns` to return `RunScope[]`, and every engine method that takes `batch` to take a `RunScope`. Change `buildSystemPrompt` to take a scope, with `WholeChange` when none is given. Verify that no `batch === undefined` or `batch !== undefined` check is left in `src/core/review/`.
-- [ ] 4.3 Add `scope.test.ts` for each method of both classes, and update the engine and prompt tests that called the old signatures. Verify that the characterization test passes unchanged, and verify with `npm test`.
+- [x] 4.1 Add `src/core/review/scope.ts` with `RunScope`, `WholeChange`, and `Batch` (Decision 3). Move `keepOwnLines`, `batchField`, `batchFailure`, and the batch paragraph into them.
+- [x] 4.2 Change `planRuns` to return `RunScope[]`, and every engine method that takes `batch` to take a `RunScope`. Change `buildSystemPrompt` to take a scope, with `WholeChange` when none is given. Verify that no `batch === undefined` or `batch !== undefined` check is left in `src/core/review/`.
+- [x] 4.3 Add `scope.test.ts` for each method of both classes, and update the engine and prompt tests that called the old signatures. Verify that the characterization test passes unchanged, and verify with `npm test`.
 
 ## 5. Integration check
 

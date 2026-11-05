@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
 import { AgentReviewEngine, buildSystemPrompt } from './engine.ts';
+import { Batch } from './scope.ts';
 import { fixtureContext } from './characterization.fixtures.ts';
 
 /**
@@ -90,7 +91,7 @@ async function renderAll(): Promise<string> {
   const parts = [await render(128000, 'SINGLE RUN'), await render(3500, 'BATCHES')];
   parts.push('=== SYSTEM PROMPT TAILS ===');
   parts.push(buildSystemPrompt().slice(-60));
-  parts.push(buildSystemPrompt('繁體中文', { index: 2, count: 4 }).slice(-420));
+  parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4)).slice(-420));
   return parts.join('\n');
 }
 

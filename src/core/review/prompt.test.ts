@@ -2,11 +2,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ReviewContext } from '../types.ts';
 import { ChangeSet, ChangedFile } from './changedFile.ts';
-import { buildReviewPrompt as buildPrompt, type PromptBatch } from './prompt.ts';
+import type { BatchItem } from './batch.ts';
+import { buildBatchPrompt, buildWholePrompt } from './prompt.ts';
+
+/** A batch, as the planner gives it. */
+interface TestBatch {
+  items: BatchItem[];
+  index: number;
+  count: number;
+}
 
 /** The prompt of a context, with its files parsed as the engine does. */
-function buildReviewPrompt(context: ReviewContext, batch?: PromptBatch): string {
-  return buildPrompt(context, ChangeSet.from(context.changedFiles), batch);
+function buildReviewPrompt(context: ReviewContext, batch?: TestBatch): string {
+  const changes = ChangeSet.from(context.changedFiles);
+  return batch === undefined
+    ? buildWholePrompt(context, changes)
+    : buildBatchPrompt(context, changes, batch.items, batch.index, batch.count);
 }
 
 function fixture(): ReviewContext {
