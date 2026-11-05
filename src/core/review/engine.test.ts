@@ -8,7 +8,13 @@ import type { ReviewContext } from '../types.ts';
 import { decidePassFail } from '../passFail.ts';
 import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
-import { buildReviewPrompt } from './prompt.ts';
+import { ChangeSet } from './changedFile.ts';
+import { buildReviewPrompt as buildPrompt } from './prompt.ts';
+
+/** The prompt of a context, with its files parsed as the engine does. */
+function buildReviewPrompt(context: ReviewContext): string {
+  return buildPrompt(context, ChangeSet.from(context.changedFiles));
+}
 
 /** Most tests check what the agent reported; the anchor has its own tests. */
 function withoutAnchors(findings: Finding[]): Omit<Finding, 'anchor'>[] {

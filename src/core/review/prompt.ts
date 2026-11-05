@@ -1,6 +1,6 @@
-import type { ChangedFileDiff, OmittedReason, ReviewContext } from '../types.ts';
+import type { OmittedReason, ReviewContext } from '../types.ts';
 import type { BatchItem } from './batch.ts';
-import { changedFilePath, numberDiffHunks, parseDiffHunks } from './diff.ts';
+import type { ChangedFile, ChangeSet } from './changedFile.ts';
 
 /** One batch of a review that runs in batches. Both numbers start at 1. */
 export interface PromptBatch {
@@ -21,30 +21,30 @@ export interface PromptBatch {
  *
  * A file whose diff is omitted is shown with its path and the reason, and no
  * diff (`handle-omitted-diffs` design, Decision 2). */
-export function buildReviewPrompt(context: ReviewContext, batch?: PromptBatch): string {
+export function buildReviewPrompt(context: ReviewContext, changes: ChangeSet, batch?: PromptBatch): string {
   const header = [`# Change: ${context.title}`, '', context.description.trim() || '(no description provided)', ''];
 
   if (batch === undefined) {
-    const files = context.changedFiles
+    const files = changes.files
       .map((file) =>
         file.omitted === undefined
-          ? formatDiff(changedFilePath(file), file.hunks)
-          : `### ${changedFilePath(file)}\n(diff not shown: ${OMITTED_TEXT[file.omitted]})`,
+          ? formatDiff(file.path, file)
+          : `### ${file.path}\n(diff not shown: ${OMITTED_TEXT[file.omitted]})`,
       )
       .join('\n\n');
     return [...header, '## Changed files', '', files || '(no changed files)'].join('\n');
   }
 
-  const inBatch = new Set(batch.items.map((item) => item.file));
-  const list = context.changedFiles
-    .map((file) => `- ${describeFile(file)}${inBatch.has(file) ? ' [in this part]' : ''}`)
+  // A part of a file is a new object, so the batch's files are marked by path.
+  // A path is one file in a change.
+  const inBatch = new Set(batch.items.map((item) => item.file.path));
+  const list = changes.files
+    .map((file) => `- ${describeFile(file)}${inBatch.has(file.path) ? ' [in this part]' : ''}`)
     .join('\n');
   const diffs = batch.items
     .map((item) => {
-      const title = item.part
-        ? `${changedFilePath(item.file)} (part ${item.part.index} of ${item.part.count})`
-        : changedFilePath(item.file);
-      return formatDiff(title, item.hunks);
+      const title = item.part ? `${item.file.path} (part ${item.part.index} of ${item.part.count})` : item.file.path;
+      return formatDiff(title, item.file);
     })
     .join('\n\n');
 
@@ -69,25 +69,16 @@ const OMITTED_TEXT: Record<OmittedReason, string> = {
   generated: 'generated file',
 };
 
-function formatDiff(title: string, hunks: string): string {
-  return `### ${title}\n\`\`\`diff\n${numberDiffHunks(hunks)}\n\`\`\``;
+function formatDiff(title: string, file: ChangedFile): string {
+  return `### ${title}\n\`\`\`diff\n${file.numbered()}\n\`\`\``;
 }
 
 /** One line of the file list: the path, its state, and its counts of added
  * and removed lines. */
-function describeFile(file: ChangedFileDiff): string {
+function describeFile(file: ChangedFile): string {
   if (file.omitted !== undefined) {
-    return `${changedFilePath(file)} (${fileState(file)}, diff not shown: ${OMITTED_TEXT[file.omitted]})`;
+    return `${file.path} (${file.state()}, diff not shown: ${OMITTED_TEXT[file.omitted]})`;
   }
-  const lines = parseDiffHunks(file.hunks);
-  const added = lines.filter((line) => line.type === 'added').length;
-  const removed = lines.filter((line) => line.type === 'removed').length;
-  return `${changedFilePath(file)} (${fileState(file)}, +${added} -${removed})`;
-}
-
-function fileState(file: ChangedFileDiff): string {
-  if (file.deleted === true) return 'deleted';
-  if (file.oldPath === null || /^@@ -0,0 /.test(file.hunks)) return 'added';
-  if (file.newPath !== null && file.oldPath !== file.newPath) return `renamed from ${file.oldPath}`;
-  return 'modified';
+  const { added, removed } = file.counts();
+  return `${file.path} (${file.state()}, +${added} -${removed})`;
 }

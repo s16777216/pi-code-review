@@ -11,10 +11,10 @@
 
 ## 3. Use the value objects
 
-- [ ] 3.1 Change `planBatches` and `BatchItem` to `ChangedFile` (Decision 4), and mark the batch's files by path in the prompt's file list.
-- [ ] 3.2 Change `prompt.ts` to use `numbered`, `counts`, and `state`, and remove its own `fileState`.
-- [ ] 3.3 Change `checks.ts` to take a `ChangeSet`: `lineCheck`, `lineText`, `isOmitted`, and `isDeleted` in place of the scans and the free functions. Remove `checkNewFileLine` and `getNewFileLineText` from `diff.ts`.
-- [ ] 3.4 Build the `ChangeSet` once in `AgentReviewEngine.review`, and pass it on. Verify that the characterization test passes unchanged, and verify with `npm test`.
+- [x] 3.1 Change `planBatches` and `BatchItem` to `ChangedFile` (Decision 4), and mark the batch's files by path in the prompt's file list.
+- [x] 3.2 Change `prompt.ts` to use `numbered`, `counts`, and `state`, and remove its own `fileState`.
+- [x] 3.3 Change `checks.ts` to take a `ChangeSet`: `lineCheck`, `lineText`, `isOmitted`, and `isDeleted` in place of the scans and the free functions. Remove `checkNewFileLine` and `getNewFileLineText` from `diff.ts`.
+- [x] 3.4 Build the `ChangeSet` once in `AgentReviewEngine.review`, and pass it on. Verify that the characterization test passes unchanged, and verify with `npm test`.
 
 ## 4. Run scopes
 

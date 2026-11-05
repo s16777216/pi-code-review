@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ReviewContext } from '../types.ts';
-import { buildReviewPrompt } from './prompt.ts';
+import { ChangeSet, ChangedFile } from './changedFile.ts';
+import { buildReviewPrompt as buildPrompt, type PromptBatch } from './prompt.ts';
+
+/** The prompt of a context, with its files parsed as the engine does. */
+function buildReviewPrompt(context: ReviewContext, batch?: PromptBatch): string {
+  return buildPrompt(context, ChangeSet.from(context.changedFiles), batch);
+}
 
 function fixture(): ReviewContext {
   return {
@@ -63,14 +69,11 @@ test('buildReviewPrompt with a batch lists every changed file, marks the batch, 
     { oldPath: 'old.ts', newPath: 'old.ts', hunks: '@@ -1,2 +0,0 @@\n-x\n-y\n', deleted: true },
     { oldPath: 'from.ts', newPath: 'to.ts', hunks: '@@ -3,1 +3,1 @@\n-p\n+q' },
   );
-  const b = context.changedFiles[1]!;
-  const renamed = context.changedFiles[3]!;
+  const b = ChangedFile.from(context.changedFiles[1]!);
+  const renamed = ChangedFile.from(context.changedFiles[3]!);
 
   const prompt = buildReviewPrompt(context, {
-    items: [
-      { file: b, hunks: b.hunks },
-      { file: renamed, hunks: renamed.hunks },
-    ],
+    items: [{ file: b }, { file: renamed }],
     index: 2,
     count: 3,
   });
@@ -88,10 +91,10 @@ test('buildReviewPrompt with a batch lists every changed file, marks the batch, 
 
 test('buildReviewPrompt names a part of a split file and keeps its line numbers', () => {
   const context = fixture();
-  const file = context.changedFiles[0]!;
+  const file = ChangedFile.from({ ...context.changedFiles[0]!, hunks: '@@ -199,1 +200,1 @@\n-old\n+new' });
 
   const prompt = buildReviewPrompt(context, {
-    items: [{ file, hunks: '@@ -199,1 +200,1 @@\n-old\n+new', part: { index: 2, count: 3 } }],
+    items: [{ file, part: { index: 2, count: 3 } }],
     index: 4,
     count: 5,
   });
@@ -129,7 +132,7 @@ test('buildReviewPrompt lists an omitted file with its reason in the batch file 
   });
   const a = context.changedFiles[0]!;
 
-  const prompt = buildReviewPrompt(context, { items: [{ file: a, hunks: a.hunks }], index: 1, count: 2 });
+  const prompt = buildReviewPrompt(context, { items: [{ file: ChangedFile.from(a) }], index: 1, count: 2 });
 
   assert.match(prompt, /^- yarn\.lock \(modified, diff not shown: generated file\)$/m);
   assert.doesNotMatch(prompt, /^### yarn\.lock/m);

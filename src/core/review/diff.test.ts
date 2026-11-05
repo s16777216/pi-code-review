@@ -1,14 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ChangedFileDiff } from '../types.ts';
-import {
-  checkNewFileLine,
-  getNewFileLineText,
-  hunkStartLine,
-  numberDiffHunks,
-  parseDiffHunks,
-  splitHunks,
-} from './diff.ts';
+import { hunkStartLine, numberDiffHunks, parseDiffHunks, splitHunks } from './diff.ts';
 
 test('parseDiffHunks maps a simple hunk to old/new line numbers', () => {
   const diff = ['@@ -1,3 +1,4 @@', ' context1', '-removed1', '+added1', '+added2', ' context2'].join('\n');
@@ -81,45 +73,6 @@ test('parseDiffHunks accepts a header with implicit count of 1', () => {
   ]);
 });
 
-test('checkNewFileLine accepts an added line and a context line', () => {
-  const files: ChangedFileDiff[] = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,3 @@', ' context1', '+added1', ' context2'].join('\n') },
-  ];
-
-  assert.equal(checkNewFileLine(files, 'a.ts', 1) === 'ok', true); // context1
-  assert.equal(checkNewFileLine(files, 'a.ts', 2) === 'ok', true); // added1
-  assert.equal(checkNewFileLine(files, 'a.ts', 3) === 'ok', true); // context2
-});
-
-test('checkNewFileLine rejects a line outside any hunk', () => {
-  const files: ChangedFileDiff[] = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,2 @@', ' context1', '+added1'].join('\n') },
-  ];
-
-  assert.equal(checkNewFileLine(files, 'a.ts', 99) === 'ok', false);
-});
-
-test('checkNewFileLine rejects a file that is not in the changed files', () => {
-  const files: ChangedFileDiff[] = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,1 +1,1 @@', '+added1'].join('\n') },
-  ];
-
-  assert.equal(checkNewFileLine(files, 'b.ts', 1) === 'ok', false);
-});
-
-test('checkNewFileLine rejects a removed-only line (not visible in the new file)', () => {
-  const files: ChangedFileDiff[] = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,1 @@', '-removed1', ' context1'].join('\n') },
-  ];
-
-  // removed1 has no newLine, so it must never match as a valid new-file line.
-  assert.equal(checkNewFileLine(files, 'a.ts', 1) === 'ok', true); // context1
-  assert.equal(
-    parseDiffHunks(files[0]!.hunks).some((l) => l.type === 'removed' && l.newLine !== null),
-    false,
-  );
-});
-
 test('numberDiffHunks numbers context and added lines and leaves removed lines blank', () => {
   const diff = ['@@ -10,3 +10,3 @@', ' const a = 1;', '+const b = 2;', '-const c = 3;', ' return a;'].join('\n');
 
@@ -159,41 +112,6 @@ test('numberDiffHunks gives a "no newline" marker a blank gutter and does not co
   );
 });
 
-test('numberDiffHunks prints only lines that checkNewFileLine accepts', () => {
-  const hunks = ['@@ -3,3 +3,3 @@', ' keep', '-gone', '+new', ' tail'].join('\n');
-  const files: ChangedFileDiff[] = [{ oldPath: 'a.ts', newPath: 'a.ts', hunks }];
-
-  const printed = numberDiffHunks(hunks)
-    .split('\n')
-    .map((line) => /^\s*(\d+) \|/.exec(line)?.[1])
-    .filter((n): n is string => n !== undefined)
-    .map(Number);
-
-  assert.deepEqual(printed, [3, 4, 5]);
-  for (const line of printed) assert.equal(checkNewFileLine(files, 'a.ts', line), 'ok');
-});
-
-test('checkNewFileLine returns ok, file_not_changed, or line_not_in_diff', () => {
-  const files: ChangedFileDiff[] = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,1 +1,2 @@', ' context1', '+added1'].join('\n') },
-  ];
-
-  assert.equal(checkNewFileLine(files, 'a.ts', 2), 'ok');
-  assert.equal(checkNewFileLine(files, 'b.ts', 1), 'file_not_changed');
-  assert.equal(checkNewFileLine(files, 'a.ts', 99), 'line_not_in_diff');
-});
-
-test('getNewFileLineText returns the text of an added or context line, and null otherwise', () => {
-  const files: ChangedFileDiff[] = [
-    { oldPath: 'a.ts', newPath: 'a.ts', hunks: ['@@ -1,2 +1,2 @@', ' keep();', '-gone();', '+added();'].join('\n') },
-  ];
-
-  assert.equal(getNewFileLineText(files, 'a.ts', 1), 'keep();');
-  assert.equal(getNewFileLineText(files, 'a.ts', 2), 'added();');
-  assert.equal(getNewFileLineText(files, 'a.ts', 3), null);
-  assert.equal(getNewFileLineText(files, 'b.ts', 1), null);
-});
-
 // GitLab's diff text ends with a line break (seen on gitlab.com). The empty
 // string after it is not a line of the diff.
 test('parseDiffHunks ignores the line break at the end of the diff text', () => {
@@ -223,22 +141,6 @@ test('parseDiffHunks still reads an empty line inside a hunk as a blank context 
 
 test('numberDiffHunks prints no line past the end of the hunk', () => {
   assert.equal(numberDiffHunks('@@ -1 +1,2 @@\n // a\n+b\n'), '@@ -1 +1,2 @@\n   1 |  // a\n   2 | +b');
-});
-
-test('a deleted file has no new-file line, not even line 0', () => {
-  const hunks = '@@ -1,3 +0,0 @@\n-export function oldHelper(x) {\n-  return x * 2;\n-}\n';
-  const files: ChangedFileDiff[] = [{ oldPath: 'old.js', newPath: 'old.js', hunks, deleted: true }];
-
-  assert.equal(checkNewFileLine(files, 'old.js', 0), 'line_not_in_diff');
-  assert.equal(getNewFileLineText(files, 'old.js', 0), null);
-  assert.doesNotMatch(numberDiffHunks(hunks), /\d+ \|/);
-});
-
-test('checkNewFileLine rejects the line one past the end of a diff that ends with a line break', () => {
-  const files: ChangedFileDiff[] = [{ oldPath: 'a.js', newPath: 'a.js', hunks: '@@ -0,0 +1,2 @@\n+a\n+b\n' }];
-
-  assert.equal(checkNewFileLine(files, 'a.js', 2), 'ok');
-  assert.equal(checkNewFileLine(files, 'a.js', 3), 'line_not_in_diff');
 });
 
 test('splitHunks returns one hunk for a single-hunk diff', () => {

@@ -130,26 +130,3 @@ export function hunkStartLine(hunkText: string): number | null {
 }
 
 export type NewFileLineCheck = 'ok' | 'file_not_changed' | 'line_not_in_diff';
-
-/** Why `line` can or cannot carry an inline comment on `path`: `'ok'` when it
- * is a visible line in the new version of the file's diff (an added or
- * context line), `'file_not_changed'` when `path` is not a changed file, and
- * `'line_not_in_diff'` when the file changed but `line` is not a new-file
- * line in any of its hunks. */
-export function checkNewFileLine(files: ChangedFileDiff[], path: string, line: number): NewFileLineCheck {
-  const file = files.find((f) => f.newPath === path);
-  if (!file) return 'file_not_changed';
-  const visible = parseDiffHunks(file.hunks).some(
-    (diffLine) => diffLine.newLine === line && diffLine.type !== 'removed',
-  );
-  return visible ? 'ok' : 'line_not_in_diff';
-}
-
-/** The text of `line` in the new version of `path`, taken from the diff (an
- * added or context line), or `null` when that line is not in the diff. */
-export function getNewFileLineText(files: ChangedFileDiff[], path: string, line: number): string | null {
-  const file = files.find((f) => f.newPath === path);
-  if (!file) return null;
-  const match = parseDiffHunks(file.hunks).find((diffLine) => diffLine.newLine === line && diffLine.type !== 'removed');
-  return match ? match.content : null;
-}
