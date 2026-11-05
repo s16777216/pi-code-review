@@ -24,9 +24,9 @@
 
 ## 5. Integration check
 
-- [ ] 5.1 Verify that `src/cli/`, `src/providers/`, `src/core/ports.ts`, and `src/core/types.ts` did not change, and that `src/cli/index.entrypoint.test.ts` passes unchanged.
-- [ ] 5.2 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`. Verify that all exit with code 0.
-- [ ] 5.3 Run `openspec validate model-diffs-and-run-scopes --strict`. Verify that it reports no errors or warnings.
+- [x] 5.1 Verify that `src/cli/`, `src/providers/`, `src/core/ports.ts`, and `src/core/types.ts` did not change, and that `src/cli/index.entrypoint.test.ts` passes unchanged.
+- [x] 5.2 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`. Verify that all exit with code 0.
+- [x] 5.3 Run `openspec validate model-diffs-and-run-scopes --strict`. Verify that it reports no errors or warnings.
 
 ## Workflow follow-up
 
