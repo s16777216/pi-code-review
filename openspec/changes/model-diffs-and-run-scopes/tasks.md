@@ -2,7 +2,7 @@
 
 ## 1. Pin today's behavior
 
-- [ ] 1.1 Add `src/core/review/characterization.test.ts` (Decision 5). It covers the exact single-run prompt and system prompt, and the prompt and system prompt of each batch for a change with a split file and an omitted file. It also covers the findings and warnings from `runChecks` for a fixed agent output with valid lines, a line outside its batch, an omitted file, an unknown `relatesTo`, and a fixed declaration. Store the expected strings in the test. Verify that it passes on the current code with `npm test`, and commit it on its own.
+- [x] 1.1 Add `src/core/review/characterization.test.ts` (Decision 5). It covers the exact single-run prompt and system prompt, and the prompt and system prompt of each batch for a change with a split file and an omitted file. It also covers the findings and warnings from `runChecks` for a fixed agent output with valid lines, a line outside its batch, an omitted file, an unknown `relatesTo`, and a fixed declaration. Store the expected strings in the test. Verify that it passes on the current code with `npm test`, and commit it on its own.
 
 ## 2. Value objects
 

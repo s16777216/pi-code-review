@@ -1,0 +1,634 @@
+=== SINGLE RUN (calls=1) ===
+{
+ "findings": [
+  {
+   "file": "src/a.ts",
+   "line": 2,
+   "severity": "important",
+   "summary": "ok line",
+   "anchor": "7245d82fa6677b40"
+  },
+  {
+   "file": "src/a.ts",
+   "line": 22,
+   "severity": "nit",
+   "summary": "ok line in part 2",
+   "relatesTo": "own-open",
+   "anchor": "f33ac683e7cf24b2"
+  },
+  {
+   "file": "src/a.ts",
+   "line": 3,
+   "severity": "nit",
+   "summary": "unknown relatesTo",
+   "anchor": "03d02f5ba60712e4"
+  },
+  {
+   "file": "src/b.ts",
+   "line": 1,
+   "severity": "nit",
+   "summary": "in b first hunk",
+   "anchor": "5ffbec37d2ff7e9d"
+  },
+  {
+   "file": "src/b.ts",
+   "line": 41,
+   "severity": "nit",
+   "summary": "in b second hunk",
+   "anchor": "ed754a6a73cfe51e"
+  },
+  {
+   "file": "src/new-name.ts",
+   "line": 3,
+   "severity": "important",
+   "summary": "renamed file",
+   "anchor": "031dd4ccc2dad25e"
+  },
+  {
+   "file": "src/a.ts",
+   "line": 1,
+   "severity": "nit",
+   "summary": "context line",
+   "anchor": "02c16c1b214c6428"
+  }
+ ],
+ "resolved": [],
+ "unreviewedFiles": [
+  {
+   "path": "data/huge.json",
+   "reason": "too_large"
+  },
+  {
+   "path": "yarn.lock",
+   "reason": "generated"
+  }
+ ]
+}
+WARNS [
+ {
+  "file": "data/huge.json",
+  "reason": "too_large"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 3,
+  "relatesTo": "nope",
+  "reason": "unknown_discussion"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 99,
+  "reason": "line_not_in_diff"
+ },
+ {
+  "file": "src/zzz.ts",
+  "line": 1,
+  "reason": "file_not_changed"
+ },
+ {
+  "file": "yarn.lock",
+  "line": 1,
+  "reason": "diff_omitted"
+ },
+ {
+  "discussionId": "own-open",
+  "reason": "linked_by_finding"
+ },
+ {
+  "discussionId": "missing",
+  "reason": "discussion_not_found"
+ }
+]
+INFOS []
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":2770}]
+DEBUG OTHER KEYS ["contentBlockTypes,stopReason,usage","response"]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Changed files
+
+### src/a.ts
+```diff
+@@ -1,4 +1,5 @@
+   1 |  import { x } from "./x";
+     | -const n = 1;
+   2 | +const n = 2;
+   3 | +const m = 3;
+   4 |  
+   5 |  export { n };
+@@ -20,3 +21,4 @@
+  21 |  function f() {
+     | -  return 1;
+  22 | +  return 2;
+  23 | +  // changed
+  24 |  }
+```
+
+### src/b.ts
+```diff
+@@ -1,0 +1,14 @@
+   1 | +export const b0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   2 | +export const b1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   3 | +export const b2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   4 | +export const b3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   5 | +export const b4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   6 | +export const b5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   7 | +export const b6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   8 | +export const b7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   9 | +export const b8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  10 | +export const b9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  11 | +export const b10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  12 | +export const b11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  13 | +export const b12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  14 | +export const b13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+@@ -41,0 +41,14 @@
+  41 | +export const c0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  42 | +export const c1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  43 | +export const c2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  44 | +export const c3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  45 | +export const c4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  46 | +export const c5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  47 | +export const c6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  48 | +export const c7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  49 | +export const c8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  50 | +export const c9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  51 | +export const c10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  52 | +export const c11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  53 | +export const c12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  54 | +export const c13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+@@ -81,0 +81,14 @@
+  81 | +export const d0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  82 | +export const d1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  83 | +export const d2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  84 | +export const d3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  85 | +export const d4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  86 | +export const d5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  87 | +export const d6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  88 | +export const d7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  89 | +export const d8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  90 | +export const d9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  91 | +export const d10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  92 | +export const d11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  93 | +export const d12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  94 | +export const d13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### src/gone.ts
+```diff
+@@ -1,2 +0,0 @@
+     | -old line one
+     | -old line two
+```
+
+### src/new-name.ts
+```diff
+@@ -3,1 +3,1 @@
+     | -before
+   3 | +after
+```
+
+### yarn.lock
+(diff not shown: generated file)
+
+### data/huge.json
+(diff not shown: too large)
+=== BATCHES (calls=4) ===
+{
+ "findings": [
+  {
+   "file": "src/a.ts",
+   "line": 2,
+   "severity": "important",
+   "summary": "ok line",
+   "anchor": "7245d82fa6677b40"
+  },
+  {
+   "file": "src/a.ts",
+   "line": 22,
+   "severity": "nit",
+   "summary": "ok line in part 2",
+   "relatesTo": "own-open",
+   "anchor": "f33ac683e7cf24b2"
+  },
+  {
+   "file": "src/a.ts",
+   "line": 3,
+   "severity": "nit",
+   "summary": "unknown relatesTo",
+   "anchor": "03d02f5ba60712e4"
+  },
+  {
+   "file": "src/a.ts",
+   "line": 1,
+   "severity": "nit",
+   "summary": "context line",
+   "anchor": "02c16c1b214c6428"
+  },
+  {
+   "file": "src/b.ts",
+   "line": 1,
+   "severity": "nit",
+   "summary": "in b first hunk",
+   "anchor": "5ffbec37d2ff7e9d"
+  },
+  {
+   "file": "src/b.ts",
+   "line": 41,
+   "severity": "nit",
+   "summary": "in b second hunk",
+   "anchor": "ed754a6a73cfe51e"
+  },
+  {
+   "file": "src/new-name.ts",
+   "line": 3,
+   "severity": "important",
+   "summary": "renamed file",
+   "anchor": "031dd4ccc2dad25e"
+  }
+ ],
+ "resolved": [],
+ "unreviewedFiles": [
+  {
+   "path": "data/huge.json",
+   "reason": "too_large"
+  },
+  {
+   "path": "yarn.lock",
+   "reason": "generated"
+  }
+ ]
+}
+WARNS [
+ {
+  "file": "data/huge.json",
+  "reason": "too_large"
+ },
+ {
+  "file": "src/b.ts",
+  "line": 1,
+  "batch": 1,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/b.ts",
+  "line": 41,
+  "batch": 1,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/new-name.ts",
+  "line": 3,
+  "batch": 1,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 2,
+  "batch": 2,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 22,
+  "batch": 2,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 3,
+  "batch": 2,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/b.ts",
+  "line": 41,
+  "batch": 2,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/new-name.ts",
+  "line": 3,
+  "batch": 2,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 1,
+  "batch": 2,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 2,
+  "batch": 3,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 22,
+  "batch": 3,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 3,
+  "batch": 3,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/b.ts",
+  "line": 1,
+  "batch": 3,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/new-name.ts",
+  "line": 3,
+  "batch": 3,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 1,
+  "batch": 3,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 2,
+  "batch": 4,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 22,
+  "batch": 4,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 3,
+  "batch": 4,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/b.ts",
+  "line": 1,
+  "batch": 4,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/b.ts",
+  "line": 41,
+  "batch": 4,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 1,
+  "batch": 4,
+  "reason": "outside_batch"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 3,
+  "relatesTo": "nope",
+  "reason": "unknown_discussion"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 99,
+  "reason": "line_not_in_diff"
+ },
+ {
+  "file": "src/zzz.ts",
+  "line": 1,
+  "reason": "file_not_changed"
+ },
+ {
+  "file": "yarn.lock",
+  "line": 1,
+  "reason": "diff_omitted"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 99,
+  "reason": "line_not_in_diff"
+ },
+ {
+  "file": "src/zzz.ts",
+  "line": 1,
+  "reason": "file_not_changed"
+ },
+ {
+  "file": "yarn.lock",
+  "line": 1,
+  "reason": "diff_omitted"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 99,
+  "reason": "line_not_in_diff"
+ },
+ {
+  "file": "src/zzz.ts",
+  "line": 1,
+  "reason": "file_not_changed"
+ },
+ {
+  "file": "yarn.lock",
+  "line": 1,
+  "reason": "diff_omitted"
+ },
+ {
+  "file": "src/a.ts",
+  "line": 99,
+  "reason": "line_not_in_diff"
+ },
+ {
+  "file": "src/zzz.ts",
+  "line": 1,
+  "reason": "file_not_changed"
+ },
+ {
+  "file": "yarn.lock",
+  "line": 1,
+  "reason": "diff_omitted"
+ },
+ {
+  "discussionId": "own-open",
+  "reason": "linked_by_finding"
+ },
+ {
+  "discussionId": "missing",
+  "reason": "discussion_not_found"
+ }
+]
+INFOS [{"batches":4}]
+DEBUG PROMPT FIELDS [{"batch":1,"promptChars":756,"systemChars":3074},{"batch":2,"promptChars":1562,"systemChars":3074},{"batch":3,"promptChars":1564,"systemChars":3074},{"batch":4,"promptChars":1759,"systemChars":3074}]
+DEBUG OTHER KEYS ["batch,contentBlockTypes,stopReason,usage","batch,response","batch,contentBlockTypes,stopReason,usage","batch,response","batch,contentBlockTypes,stopReason,usage","batch,response","batch,contentBlockTypes,stopReason,usage","batch,response"]
+--- logged prompt batch=1 ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## All changed files
+
+This change is reviewed in 4 parts. This is part 1. Files marked [in this part] have their diff below.
+
+- src/a.ts (modified, +4 -2) [in this part]
+- src/b.ts (modified, +42 -0)
+- src/gone.ts (deleted, +0 -2)
+- src/new-name.ts (renamed from src/old-name.ts, +1 -1)
+- yarn.lock (modified, diff not shown: generated file)
+- data/huge.json (modified, diff not shown: too large)
+
+## Diffs in part 1 of 4
+
+### src/a.ts
+```diff
+@@ -1,4 +1,5 @@
+   1 |  import { x } from "./x";
+     | -const n = 1;
+   2 | +const n = 2;
+   3 | +const m = 3;
+   4 |  
+   5 |  export { n };
+@@ -20,3 +21,4 @@
+  21 |  function f() {
+     | -  return 1;
+  22 | +  return 2;
+  23 | +  // changed
+  24 |  }
+```
+--- logged prompt batch=2 ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## All changed files
+
+This change is reviewed in 4 parts. This is part 2. Files marked [in this part] have their diff below.
+
+- src/a.ts (modified, +4 -2)
+- src/b.ts (modified, +42 -0) [in this part]
+- src/gone.ts (deleted, +0 -2)
+- src/new-name.ts (renamed from src/old-name.ts, +1 -1)
+- yarn.lock (modified, diff not shown: generated file)
+- data/huge.json (modified, diff not shown: too large)
+
+## Diffs in part 2 of 4
+
+### src/b.ts (part 1 of 3)
+```diff
+@@ -1,0 +1,14 @@
+   1 | +export const b0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   2 | +export const b1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   3 | +export const b2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   4 | +export const b3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   5 | +export const b4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   6 | +export const b5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   7 | +export const b6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   8 | +export const b7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   9 | +export const b8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  10 | +export const b9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  11 | +export const b10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  12 | +export const b11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  13 | +export const b12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  14 | +export const b13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+--- logged prompt batch=3 ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## All changed files
+
+This change is reviewed in 4 parts. This is part 3. Files marked [in this part] have their diff below.
+
+- src/a.ts (modified, +4 -2)
+- src/b.ts (modified, +42 -0) [in this part]
+- src/gone.ts (deleted, +0 -2)
+- src/new-name.ts (renamed from src/old-name.ts, +1 -1)
+- yarn.lock (modified, diff not shown: generated file)
+- data/huge.json (modified, diff not shown: too large)
+
+## Diffs in part 3 of 4
+
+### src/b.ts (part 2 of 3)
+```diff
+@@ -41,0 +41,14 @@
+  41 | +export const c0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  42 | +export const c1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  43 | +export const c2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  44 | +export const c3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  45 | +export const c4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  46 | +export const c5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  47 | +export const c6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  48 | +export const c7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  49 | +export const c8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  50 | +export const c9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  51 | +export const c10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  52 | +export const c11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  53 | +export const c12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  54 | +export const c13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+--- logged prompt batch=4 ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## All changed files
+
+This change is reviewed in 4 parts. This is part 4. Files marked [in this part] have their diff below.
+
+- src/a.ts (modified, +4 -2)
+- src/b.ts (modified, +42 -0) [in this part]
+- src/gone.ts (deleted, +0 -2) [in this part]
+- src/new-name.ts (renamed from src/old-name.ts, +1 -1) [in this part]
+- yarn.lock (modified, diff not shown: generated file)
+- data/huge.json (modified, diff not shown: too large)
+
+## Diffs in part 4 of 4
+
+### src/b.ts (part 3 of 3)
+```diff
+@@ -81,0 +81,14 @@
+  81 | +export const d0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  82 | +export const d1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  83 | +export const d2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  84 | +export const d3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  85 | +export const d4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  86 | +export const d5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  87 | +export const d6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  88 | +export const d7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  89 | +export const d8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  90 | +export const d9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  91 | +export const d10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  92 | +export const d11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  93 | +export const d12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  94 | +export const d13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### src/gone.ts
+```diff
+@@ -1,2 +0,0 @@
+     | -old line one
+     | -old line two
+```
+
+### src/new-name.ts
+```diff
+@@ -3,1 +3,1 @@
+     | -before
+   3 | +after
+```
+=== SYSTEM PROMPT TAILS ===
+dings": [], "resolved": []} when you have nothing to report.
+ort.
+
+This change is too large for one review, so it is split into 4 parts, and you review part 2. The prompt lists every changed file, but shows only the diffs of this part. Report only problems on the numbered lines of this part's diffs. When you need code from another part, read it with get_file_content.
+
+Write every "summary" in 繁體中文. Keep the JSON field names and the "severity" values exactly as specified above.
