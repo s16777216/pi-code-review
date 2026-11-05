@@ -6,8 +6,8 @@
 
 ## 2. Value objects
 
-- [ ] 2.1 Add `src/core/review/changedFile.ts` with `ChangedFile` and `ChangeSet` (Decisions 1 and 2), built on today's parsing functions in `diff.ts`.
-- [ ] 2.2 Add `changedFile.test.ts`. Move the tests of `checkNewFileLine` and `getNewFileLineText` to it as tests of `lineCheck` and `lineText`, with the same cases. Add tests for `hasNewLine`, `numbered`, `counts`, `state`, `hunks`, `withHunks`, `isOmitted`, `isDeleted`, and `reviewable`. Verify with `npm test`.
+- [x] 2.1 Add `src/core/review/changedFile.ts` with `ChangedFile` and `ChangeSet` (Decisions 1 and 2), built on today's parsing functions in `diff.ts`.
+- [x] 2.2 Add `changedFile.test.ts`. Move the tests of `checkNewFileLine` and `getNewFileLineText` to it as tests of `lineCheck` and `lineText`, with the same cases. Add tests for `hasNewLine`, `numbered`, `counts`, `state`, `hunks`, `withHunks`, `isOmitted`, `isDeleted`, and `reviewable`. Verify with `npm test`.
 
 ## 3. Use the value objects
 
