@@ -15,6 +15,8 @@ const REFS = { baseSha: 'base', startSha: 'start', headSha: 'head' };
 class FakeWriter implements GitLabApi {
   log: unknown[][] = [];
   discussions: GitLabDiscussion[] = [];
+  /** What `getMergeRequestDiff` returns, for `createDiscussion`'s old-line lookup. */
+  diff: GitLabChangedFile[] = [];
   async listDiscussions(iid: string): Promise<GitLabDiscussion[]> {
     this.log.push(['list', iid]);
     return this.discussions;
@@ -23,7 +25,7 @@ class FakeWriter implements GitLabApi {
     throw new Error('not used');
   }
   async getMergeRequestDiff(): Promise<GitLabChangedFile[]> {
-    throw new Error('not used');
+    return this.diff;
   }
   async getFileContent(): Promise<FileContentResult> {
     throw new Error('not used');
@@ -47,6 +49,7 @@ class FakeWriter implements GitLabApi {
 
 test('GitLabMergeRequest positions a new discussion with the diff refs and the new-file line', async () => {
   const writer = new FakeWriter();
+  writer.diff = [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,2 @@\n context\n+added3' }];
   await new GitLabMergeRequest(writer, '5', REFS).createDiscussion({ file: 'a.ts', line: 3 }, 'Body.');
 
   assert.deepEqual(writer.log, [
@@ -54,9 +57,51 @@ test('GitLabMergeRequest positions a new discussion with the diff refs and the n
       'createDiscussion',
       '5',
       'Body.',
-      { baseSha: 'base', startSha: 'start', headSha: 'head', oldPath: 'a.ts', newPath: 'a.ts', newLine: 3 },
+      {
+        baseSha: 'base',
+        startSha: 'start',
+        headSha: 'head',
+        oldPath: 'a.ts',
+        newPath: 'a.ts',
+        newLine: 3,
+        oldLine: null,
+      },
     ],
   ]);
+});
+
+test('GitLabMergeRequest includes the old-file line when positioning a comment on a context line', async () => {
+  const writer = new FakeWriter();
+  writer.diff = [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -10,2 +20,3 @@\n keep\n-gone\n+added' }];
+  await new GitLabMergeRequest(writer, '5', REFS).createDiscussion({ file: 'a.ts', line: 20 }, 'Context note.');
+
+  const [, , , position] = writer.log[0]!;
+  assert.deepEqual(position, {
+    baseSha: 'base',
+    startSha: 'start',
+    headSha: 'head',
+    oldPath: 'a.ts',
+    newPath: 'a.ts',
+    newLine: 20,
+    oldLine: 10,
+  });
+});
+
+test('GitLabMergeRequest fetches the diff for old-line lookup only once across several createDiscussion calls', async () => {
+  const writer = new FakeWriter();
+  let diffCalls = 0;
+  const original = writer.getMergeRequestDiff.bind(writer);
+  writer.getMergeRequestDiff = async () => {
+    diffCalls += 1;
+    return original();
+  };
+  writer.diff = [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,2 @@\n context\n+added3' }];
+  const mr = new GitLabMergeRequest(writer, '5', REFS);
+
+  await mr.createDiscussion({ file: 'a.ts', line: 3 }, 'One.');
+  await mr.createDiscussion({ file: 'a.ts', line: 3 }, 'Two.');
+
+  assert.equal(diffCalls, 1);
 });
 
 test('GitLabMergeRequest sends each gateway action to its merge request', async () => {
