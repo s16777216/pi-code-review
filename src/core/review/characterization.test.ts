@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import { AgentReviewEngine, buildSystemPrompt } from './engine.ts';
 import { Batch } from './scope.ts';
 import { fixtureContext } from './characterization.fixtures.ts';
@@ -41,7 +41,11 @@ const AGENT_OUTPUT = {
 
 async function render(window: number, label: string): Promise<string> {
   const faux = fauxProvider();
-  faux.setResponses(Array.from({ length: 12 }, () => fauxAssistantMessage(JSON.stringify(AGENT_OUTPUT))));
+  faux.setResponses(
+    Array.from({ length: 12 }, () =>
+      fauxAssistantMessage([fauxToolCall('submit_review', AGENT_OUTPUT as never)], { stopReason: 'toolUse' }),
+    ),
+  );
   const warns: unknown[] = [];
   const infos: unknown[] = [];
   const debugs: Record<string, unknown>[] = [];
@@ -88,7 +92,7 @@ async function render(window: number, label: string): Promise<string> {
 }
 
 async function renderAll(): Promise<string> {
-  const parts = [await render(128000, 'SINGLE RUN'), await render(3500, 'BATCHES')];
+  const parts = [await render(128000, 'SINGLE RUN'), await render(3700, 'BATCHES')];
   parts.push('=== SYSTEM PROMPT TAILS ===');
   parts.push(buildSystemPrompt().slice(-60));
   parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4)).slice(-420));

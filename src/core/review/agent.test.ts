@@ -4,11 +4,14 @@ import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import {
   createGetFileContentTool,
   createListDiscussionsTool,
+  createSubmitReviewTool,
   DISCUSSIONS_FRAMING,
   MAX_DISCUSSIONS_CALLS,
   MAX_FILE_CONTENT_CALLS,
   MAX_FILE_CONTENT_CHARS,
+  MAX_SUBMIT_ATTEMPTS,
 } from './agent.ts';
+import type { ParsedReviewOutput } from './findings.ts';
 
 function fixture(getFileContent: ReviewContext['getFileContent']): ReviewContext {
   return {
@@ -183,4 +186,91 @@ test('list_discussions refuses the 11th call without reading the discussions', a
   assert.equal(eleventh.isError, true);
   assert.match(textOf(eleventh), /at most 10 times/);
   assert.equal(reads, MAX_DISCUSSIONS_CALLS);
+});
+
+function submissions(): { onSubmit: (output: ParsedReviewOutput) => void; calls: ParsedReviewOutput[] } {
+  const calls: ParsedReviewOutput[] = [];
+  return { onSubmit: (output) => calls.push(output), calls };
+}
+
+test('submit_review accepts a valid call and reports terminate: true', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+
+  const result = await tool.execute('call-1', {
+    findings: [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }],
+    resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
+  });
+
+  assert.equal(result.isError, undefined);
+  assert.equal(result.terminate, true);
+  assert.deepEqual(calls, [
+    { findings: [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }], resolved: [{ discussionId: 'd1', reason: 'Fixed.' }] },
+  ]);
+});
+
+test('submit_review rejects a call with one invalid finding and keeps none of it', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+
+  const result = await tool.execute('call-1', {
+    findings: [
+      { file: 'a.ts', line: 1, severity: 'important', summary: 'Good.' },
+      { file: 'a.ts', line: 2, severity: 'critical' as never, summary: 'Bad severity.' },
+    ],
+    resolved: [],
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /invalid "severity"/);
+  assert.equal(calls.length, 0);
+});
+
+test('submit_review rejects a call with one invalid declaration and keeps none of it', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+
+  const result = await tool.execute('call-1', {
+    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }],
+    resolved: [{ discussionId: 'd1', reason: '' }],
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /"reason"/);
+  assert.equal(calls.length, 0);
+});
+
+test('submit_review accepts a corrected second call after a rejected first call', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+
+  const first = await tool.execute('call-1', {
+    findings: [{ file: 'a.ts', line: 1, severity: 'critical' as never, summary: 'Bad.' }],
+    resolved: [],
+  });
+  const second = await tool.execute('call-2', {
+    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Fixed call.' }],
+    resolved: [],
+  });
+
+  assert.equal(first.isError, true);
+  assert.equal(second.isError, undefined);
+  assert.equal(second.terminate, true);
+  assert.deepEqual(calls, [{ findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Fixed call.' }], resolved: [] }]);
+});
+
+test('submit_review ends the run on the attempt-limit-th invalid call', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+  const badCall = { findings: [{ file: 'a.ts', line: 1, severity: 'critical' as never, summary: 'Bad.' }], resolved: [] };
+
+  let last: Awaited<ReturnType<typeof tool.execute>> | undefined;
+  for (let i = 1; i <= MAX_SUBMIT_ATTEMPTS; i += 1) {
+    last = await tool.execute(`call-${i}`, badCall);
+  }
+
+  assert.equal(last!.isError, true);
+  assert.equal(last!.terminate, true);
+  assert.match(textOf(last!), new RegExp(`at most ${MAX_SUBMIT_ATTEMPTS} times`));
+  assert.equal(calls.length, 0);
 });

@@ -100,8 +100,8 @@ WARNS [
  }
 ]
 INFOS []
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":2770}]
-DEBUG OTHER KEYS ["contentBlockTypes,stopReason,usage","response"]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":2778}]
+DEBUG OTHER KEYS ["contentBlockTypes,stopReason,usage"]
 --- logged prompt batch=- ---
 # Change: Characterization change
 
@@ -467,8 +467,8 @@ WARNS [
  }
 ]
 INFOS [{"batches":4}]
-DEBUG PROMPT FIELDS [{"batch":1,"promptChars":756,"systemChars":3074},{"batch":2,"promptChars":1562,"systemChars":3074},{"batch":3,"promptChars":1564,"systemChars":3074},{"batch":4,"promptChars":1759,"systemChars":3074}]
-DEBUG OTHER KEYS ["batch,contentBlockTypes,stopReason,usage","batch,response","batch,contentBlockTypes,stopReason,usage","batch,response","batch,contentBlockTypes,stopReason,usage","batch,response","batch,contentBlockTypes,stopReason,usage","batch,response"]
+DEBUG PROMPT FIELDS [{"batch":1,"promptChars":756,"systemChars":3082},{"batch":2,"promptChars":1562,"systemChars":3082},{"batch":3,"promptChars":1564,"systemChars":3082},{"batch":4,"promptChars":1759,"systemChars":3082}]
+DEBUG OTHER KEYS ["batch,contentBlockTypes,stopReason,usage","batch,contentBlockTypes,stopReason,usage","batch,contentBlockTypes,stopReason,usage","batch,contentBlockTypes,stopReason,usage"]
 --- logged prompt batch=1 ---
 # Change: Characterization change
 
@@ -626,7 +626,7 @@ This change is reviewed in 4 parts. This is part 4. Files marked [in this part] 
    3 | +after
 ```
 === SYSTEM PROMPT TAILS ===
-dings": [], "resolved": []} when you have nothing to report.
+ings" and "resolved" arrays when you have nothing to report.
 ort.
 
 This change is too large for one review, so it is split into 4 parts, and you review part 2. The prompt lists every changed file, but shows only the diffs of this part. Report only problems on the numbered lines of this part's diffs. When you need code from another part, read it with get_file_content.

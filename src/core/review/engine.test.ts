@@ -22,15 +22,20 @@ function withoutAnchors(findings: Finding[]): Omit<Finding, 'anchor'>[] {
   return findings.map(({ anchor: _anchor, ...rest }) => rest);
 }
 
+/** A `submit_review` tool call with the given findings and declarations,
+ * matching the existing two-step `get_file_content` pattern: the agent's
+ * accepted submission ends the run with no further model call. */
+function submitReview(findings: Record<string, unknown>[] = [], resolved: Record<string, unknown>[] = []) {
+  return fauxAssistantMessage([fauxToolCall('submit_review', { findings, resolved } as never)], {
+    stopReason: 'toolUse',
+  });
+}
+
 test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API involved', async () => {
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('get_file_content', { path: 'a.ts' })], { stopReason: 'toolUse' }),
-    fauxAssistantMessage(
-      JSON.stringify([
-        { file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' },
-      ]),
-    ),
+    submitReview([{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' }]),
   ]);
 
   let fileContentRequested: string | null = null;
@@ -68,11 +73,9 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
   assert.equal(decidePassFail(findings, 'important'), false);
 });
 
-test('AgentReviewEngine logs the prompt and raw response, and never logs the apiKey', async () => {
+test('AgentReviewEngine logs the prompt and the final assistant message, and never logs the apiKey', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }])),
-  ]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }])]);
 
   const context: ReviewContext = {
     title: 'Small change',
@@ -95,24 +98,20 @@ test('AgentReviewEngine logs the prompt and raw response, and never logs the api
 
   await engine.review(context);
 
-  assert.equal(debugCalls.length, 3);
-  const [promptCall, finalMessageCall, responseCall] = debugCalls as [
+  assert.equal(debugCalls.length, 2);
+  const [promptCall, finalMessageCall] = debugCalls as [
     { prompt: string },
     { stopReason: string; usage: unknown; contentBlockTypes: string[] },
-    { response: string },
   ];
   assert.match(promptCall.prompt, /Small change/);
-  assert.deepEqual(finalMessageCall.contentBlockTypes, ['text']);
-  assert.match(responseCall.response, /Minor\./);
+  assert.deepEqual(finalMessageCall.contentBlockTypes, ['toolCall']);
   const serialized = JSON.stringify(debugCalls);
   assert.doesNotMatch(serialized, /test-key/);
 });
 
 test('AgentReviewEngine drops a finding whose line is not in the diff', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 999, severity: 'important', summary: 'Bogus line.' }])),
-  ]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 999, severity: 'important', summary: 'Bogus line.' }])]);
 
   const context: ReviewContext = {
     title: 'Small change',
@@ -138,6 +137,11 @@ test('SYSTEM_PROMPT tells the agent that the number before "|" is the new-file l
   assert.match(SYSTEM_PROMPT, /"line" \(the number shown before "\|"/);
 });
 
+test('SYSTEM_PROMPT tells the agent to call submit_review instead of writing free text', () => {
+  assert.match(SYSTEM_PROMPT, /call the submit_review tool once/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /output ONLY a JSON object/);
+});
+
 function smallContext(): ReviewContext {
   return {
     title: 'Small change',
@@ -159,33 +163,9 @@ function recordingLogger(): { logger: import('../../logger.ts').Logger; warnings
   return { logger, warnings };
 }
 
-test('AgentReviewEngine keeps a valid finding when another finding in the same output is invalid', async () => {
-  const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify([
-        { file: 'a.ts', line: 1, severity: 'critical', summary: 'Bad severity.' },
-        { file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' },
-      ]),
-    ),
-  ]);
-  const { logger, warnings } = recordingLogger();
-  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
-
-  const { findings } = await engine.review(smallContext());
-
-  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }]);
-  assert.equal(warnings.length, 1);
-  assert.equal(warnings[0]!.index, 0);
-});
-
 test('AgentReviewEngine logs a finding on a file the change did not touch, and does not return it', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify([{ file: 'other.ts', line: 1, severity: 'pre_existing', summary: 'Elsewhere.' }]),
-    ),
-  ]);
+  faux.setResponses([submitReview([{ file: 'other.ts', line: 1, severity: 'pre_existing', summary: 'Elsewhere.' }])]);
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
@@ -197,9 +177,7 @@ test('AgentReviewEngine logs a finding on a file the change did not touch, and d
 
 test('AgentReviewEngine logs a finding on a line outside the diff, and does not return it', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 999, severity: 'important', summary: 'Bogus line.' }])),
-  ]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 999, severity: 'important', summary: 'Bogus line.' }])]);
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
@@ -211,7 +189,7 @@ test('AgentReviewEngine logs a finding on a line outside the diff, and does not 
 
 test('AgentReviewEngine sends a request whose input fits the context window', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
+  faux.setResponses([submitReview()]);
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
   assert.deepEqual((await engine.review(smallContext())).findings, []);
@@ -220,7 +198,7 @@ test('AgentReviewEngine sends a request whose input fits the context window', as
 
 test('AgentReviewEngine refuses an input that leaves too little room for the answer, without calling the model', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
+  faux.setResponses([submitReview()]);
   const model = { ...faux.getModel(), contextWindow: 10_000 };
   const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'test-key' });
   const context = smallContext();
@@ -252,7 +230,7 @@ test('AgentReviewEngine reports a final message cut at the token limit instead o
 
 test('AgentReviewEngine counts the system prompt and tool declarations in the input estimate', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
+  faux.setResponses([submitReview()]);
   // A budget (half of the window) with room for the small user prompt alone,
   // but not for the system message with the system prompt and the tool
   // declarations (more than a thousand tokens). The one hunk then cannot fit
@@ -285,7 +263,7 @@ test('AgentReviewEngine sends the language sentence to the model only when a lan
   const requests: string[] = [];
   const capture = (context: unknown) => {
     requests.push(JSON.stringify(context));
-    return fauxAssistantMessage('[]');
+    return submitReview();
   };
 
   const faux = fauxProvider();
@@ -328,9 +306,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('list_discussions', { file: 'a.ts' })], { stopReason: 'toolUse' }),
-    fauxAssistantMessage(
-      JSON.stringify([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Still broken.', relatesTo: 'd1' }]),
-    ),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Still broken.', relatesTo: 'd1' }]),
   ]);
   let reads = 0;
   const context = smallContext();
@@ -351,11 +327,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
 
 test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and logs it', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.', relatesTo: 'nope' }]),
-    ),
-  ]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.', relatesTo: 'nope' }])]);
   const context = smallContext();
   context.listDiscussions = async () => [knownDiscussion];
   const { logger, warnings } = recordingLogger();
@@ -369,11 +341,7 @@ test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and log
 
 test('AgentReviewEngine removes every relatesTo when the discussions cannot be read', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.', relatesTo: 'd1' }]),
-    ),
-  ]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.', relatesTo: 'd1' }])]);
   const context = smallContext();
   context.listDiscussions = async () => ({ error: 'Failed to list discussions: 500' });
   const { logger, warnings } = recordingLogger();
@@ -387,7 +355,7 @@ test('AgentReviewEngine removes every relatesTo when the discussions cannot be r
 
 test('AgentReviewEngine does not read discussions when no finding has relatesTo', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }]))]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }])]);
   let reads = 0;
   const context = smallContext();
   context.listDiscussions = async () => {
@@ -404,12 +372,10 @@ test('AgentReviewEngine does not read discussions when no finding has relatesTo'
 test('AgentReviewEngine anchors each finding on its file and the trimmed text of its line', async () => {
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify([
-        { file: 'a.ts', line: 2, severity: 'important', summary: 'One.' },
-        { file: 'a.ts', line: 4, severity: 'nit', summary: 'Two.', anchor: 'ffffffffffffffff' },
-      ]),
-    ),
+    submitReview([
+      { file: 'a.ts', line: 2, severity: 'important', summary: 'One.' },
+      { file: 'a.ts', line: 4, severity: 'nit', summary: 'Two.' },
+    ]),
   ]);
   const context = smallContext();
   context.changedFiles = [
@@ -432,8 +398,6 @@ test('AgentReviewEngine anchors each finding on its file and the trimmed text of
   // Same code at a different line and with different indentation: same anchor.
   assert.equal(first!.anchor, computeAnchor('a.ts', 'for (i = 0; i <= n; i++)'));
   assert.equal(second!.anchor, first!.anchor);
-  // The agent-supplied anchor was replaced.
-  assert.notEqual(second!.anchor, 'ffffffffffffffff');
 });
 
 const FIXED_CODE = 'for (i = 0; i <= n; i++)';
@@ -457,17 +421,12 @@ function ownDiscussion(overrides: Partial<ReviewDiscussion> = {}): ReviewDiscuss
 async function reviewWithDeclaration(options: {
   discussion?: ReviewDiscussion;
   fileContent?: string | { error: string };
-  findings?: unknown[];
+  findings?: Record<string, unknown>[];
   deleted?: boolean;
 }): Promise<{ resolved: unknown[]; warnings: Record<string, unknown>[]; reads: number }> {
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify({
-        findings: options.findings ?? [],
-        resolved: [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }],
-      }),
-    ),
+    submitReview(options.findings ?? [], [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }]),
   ]);
   let reads = 0;
   const context = smallContext();
@@ -535,14 +494,12 @@ test('AgentReviewEngine accepts a fixed declaration on a deleted file without re
 test('AgentReviewEngine reads each file at most once for several declarations', async () => {
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify({
-        findings: [],
-        resolved: [
-          { discussionId: 'd1', reason: 'Fixed one.' },
-          { discussionId: 'd2', reason: 'Fixed two.' },
-        ],
-      }),
+    submitReview(
+      [],
+      [
+        { discussionId: 'd1', reason: 'Fixed one.' },
+        { discussionId: 'd2', reason: 'Fixed two.' },
+      ],
     ),
   ]);
   let reads = 0;
@@ -595,9 +552,9 @@ function bigContext(count: number, overrides: Partial<ReviewContext> = {}): Revi
   };
 }
 
-/** A window whose half (12,000 tokens) holds one `bigFile` with the system
- * message, but not two. */
-const BATCH_WINDOW = 24_000;
+/** A window whose half holds one `bigFile` with the system message (which
+ * now includes the submit_review tool declaration), but not two. */
+const BATCH_WINDOW = 26_000;
 
 type FauxStep = Parameters<ReturnType<typeof fauxProvider>['setResponses']>[0][number];
 type FauxFactory = Extract<FauxStep, (...args: never[]) => unknown>;
@@ -631,7 +588,7 @@ const noSleep = async () => {};
 
 test('AgentReviewEngine runs a small change once, with the same prompt as before batches', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  faux.setResponses([submitReview()]);
   const { logger, debugs, infos } = fullLogger();
   const context = smallContext();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', logger });
@@ -649,12 +606,7 @@ test('AgentReviewEngine reviews a large change in batches and merges their findi
   faux.setResponses(
     steps(3, (context) => {
       const part = partOf(context);
-      return fauxAssistantMessage(
-        JSON.stringify({
-          findings: [{ file: `f${part}.ts`, line: part, severity: 'nit', summary: `From part ${part}.` }],
-          resolved: [],
-        }),
-      );
+      return submitReview([{ file: `f${part}.ts`, line: part, severity: 'nit', summary: `From part ${part}.` }]);
     }),
   );
   const { logger, debugs, infos } = fullLogger();
@@ -687,13 +639,8 @@ test('AgentReviewEngine drops a finding outside its batch and logs outside_batch
   const faux = fauxProvider();
   faux.setResponses(
     steps(2, (context) =>
-      fauxAssistantMessage(
-        JSON.stringify({
-          // Part 1 reports on f2.ts, which is in part 2.
-          findings: [{ file: 'f2.ts', line: 5, severity: 'nit', summary: `From part ${partOf(context)}.` }],
-          resolved: [],
-        }),
-      ),
+      // Part 1 reports on f2.ts, which is in part 2.
+      submitReview([{ file: 'f2.ts', line: 5, severity: 'nit', summary: `From part ${partOf(context)}.` }]),
     ),
   );
   const { logger, warnings } = fullLogger();
@@ -726,16 +673,9 @@ test('AgentReviewEngine drops a declaration in batch 1 that a finding in batch 2
   const faux = fauxProvider();
   faux.setResponses(
     steps(2, (context) =>
-      fauxAssistantMessage(
-        JSON.stringify(
-          partOf(context) === 1
-            ? { findings: [], resolved: [{ discussionId: 'd1', reason: 'Fixed.' }] }
-            : {
-                findings: [{ file: 'f2.ts', line: 1, severity: 'nit', summary: 'Same.', relatesTo: 'd1' }],
-                resolved: [],
-              },
-        ),
-      ),
+      partOf(context) === 1
+        ? submitReview([], [{ discussionId: 'd1', reason: 'Fixed.' }])
+        : submitReview([{ file: 'f2.ts', line: 1, severity: 'nit', summary: 'Same.', relatesTo: 'd1' }]),
     ),
   );
   const { logger, warnings } = fullLogger();
@@ -755,12 +695,7 @@ test('AgentReviewEngine keeps the first of two declarations for the same discuss
   const faux = fauxProvider();
   faux.setResponses(
     steps(2, (context) =>
-      fauxAssistantMessage(
-        JSON.stringify({
-          findings: [],
-          resolved: [{ discussionId: 'd1', reason: `Fixed, says part ${partOf(context)}.` }],
-        }),
-      ),
+      submitReview([], [{ discussionId: 'd1', reason: `Fixed, says part ${partOf(context)}.` }]),
     ),
   );
   const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
@@ -781,7 +716,7 @@ test('AgentReviewEngine runs at most 3 batches at the same time', async () => {
       maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, 20));
       active -= 1;
-      return fauxAssistantMessage('{"findings": [], "resolved": []}');
+      return submitReview();
     }),
   );
   const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
@@ -797,7 +732,7 @@ test('AgentReviewEngine retries a run that ends with an error and uses the next 
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Request timed out.' }),
-    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }])),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]),
   ]);
   const { logger, warnings } = fullLogger();
   const waits: number[] = [];
@@ -845,7 +780,7 @@ test('AgentReviewEngine fails after the third try that ends with an error', asyn
 
 test('AgentReviewEngine does not retry a run that stops at the token limit', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[{"file', { stopReason: 'length' }), fauxAssistantMessage('[]')]);
+  faux.setResponses([fauxAssistantMessage('[{"file', { stopReason: 'length' }), submitReview()]);
   const engine = new AgentReviewEngine({
     provider: faux.provider,
     model: faux.getModel(),
@@ -872,7 +807,7 @@ test('AgentReviewEngine aborts the active runs and starts no more when a batch f
         options?.signal?.addEventListener('abort', () => resolve());
       });
       aborted.push(part);
-      return fauxAssistantMessage('{"findings": [], "resolved": []}');
+      return submitReview();
     }),
   );
   const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
@@ -888,20 +823,82 @@ test('AgentReviewEngine aborts the active runs and starts no more when a batch f
   assert.deepEqual(aborted.sort(), [1, 3]);
 });
 
+test('AgentReviewEngine fails the run when the agent ends with no accepted submit_review call', async () => {
+  const faux = fauxProvider();
+  faux.setResponses(Array.from({ length: 3 }, () => fauxAssistantMessage('Looks fine to me, no issues found.')));
+  const waits: number[] = [];
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+  });
+
+  await assert.rejects(() => engine.review(smallContext()), /ended without an accepted submit_review call/);
+  assert.equal(faux.state.callCount, 3);
+});
+
+test('AgentReviewEngine accepts a corrected submit_review call after a rejected call, without consuming a run retry', async () => {
+  const faux = fauxProvider();
+  faux.setResponses([
+    submitReview([{ file: 'a.ts', line: 1, severity: 'critical', summary: 'Bad severity.' }]),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Fixed call.' }]),
+  ]);
+  const waits: number[] = [];
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'k',
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+  });
+
+  const { findings } = await engine.review(smallContext());
+
+  assert.deepEqual(
+    findings.map((f) => f.summary),
+    ['Fixed call.'],
+  );
+  // One run, two tool calls (each needs its own model turn), not two full runs.
+  assert.equal(faux.state.callCount, 2);
+  assert.deepEqual(waits, []);
+});
+
+test('AgentReviewEngine retries the whole run when submit_review is invalid on every attempt', async () => {
+  const faux = fauxProvider();
+  const badCall = () => submitReview([{ file: 'a.ts', line: 1, severity: 'critical', summary: 'Bad.' }]);
+  faux.setResponses([
+    badCall(),
+    badCall(),
+    badCall(),
+    badCall(),
+    badCall(),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Second run succeeds.' }]),
+  ]);
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', sleep: noSleep });
+
+  const { findings } = await engine.review(smallContext());
+
+  assert.deepEqual(
+    findings.map((f) => f.summary),
+    ['Second run succeeds.'],
+  );
+  // 5 tool calls for the first (exhausted) run, then a fresh run's first call.
+  assert.equal(faux.state.callCount, 6);
+});
+
 // --- Omitted files (`handle-omitted-diffs`) ---
 
 test('AgentReviewEngine drops a finding on a generated file and reports the omitted files', async () => {
   const faux = fauxProvider();
   faux.setResponses([
-    fauxAssistantMessage(
-      JSON.stringify({
-        findings: [
-          { file: 'yarn.lock', line: 1, severity: 'nit', summary: 'Lock file.' },
-          { file: 'a.ts', line: 1, severity: 'nit', summary: 'Real.' },
-        ],
-        resolved: [],
-      }),
-    ),
+    submitReview([
+      { file: 'yarn.lock', line: 1, severity: 'nit', summary: 'Lock file.' },
+      { file: 'a.ts', line: 1, severity: 'nit', summary: 'Real.' },
+    ]),
   ]);
   const { logger, warnings } = fullLogger();
   const context = smallContext();
@@ -929,7 +926,7 @@ test('AgentReviewEngine drops a finding on a generated file and reports the omit
 
 test('AgentReviewEngine returns no unreviewed files when nothing is omitted', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  faux.setResponses([submitReview()]);
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k' });
 
   assert.deepEqual((await engine.review(smallContext())).unreviewedFiles, []);
@@ -938,14 +935,7 @@ test('AgentReviewEngine returns no unreviewed files when nothing is omitted', as
 test('AgentReviewEngine keeps an omitted file out of every batch, and drops its findings as diff_omitted', async () => {
   const faux = fauxProvider();
   faux.setResponses(
-    steps(2, () =>
-      fauxAssistantMessage(
-        JSON.stringify({
-          findings: [{ file: 'gen.ts', line: 1, severity: 'nit', summary: 'Generated.' }],
-          resolved: [],
-        }),
-      ),
-    ),
+    steps(2, () => submitReview([{ file: 'gen.ts', line: 1, severity: 'nit', summary: 'Generated.' }])),
   );
   const { logger, debugs, warnings } = fullLogger();
   // Without the omitted file the change needs 2 batches; a generated file
@@ -973,20 +963,20 @@ test('AgentReviewEngine keeps an omitted file out of every batch, and drops its 
 
 test('AgentReviewEngine logs the system prompt of a single run on the review prompt line', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  faux.setResponses([submitReview()]);
   const { logger, debugs } = fullLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', logger });
 
   await engine.review(smallContext());
 
-  assert.equal(debugs.length, 3);
+  assert.equal(debugs.length, 2);
   assert.equal(debugs[0]!.systemPrompt, buildSystemPrompt());
   assert.equal(debugs[0]!.prompt, buildReviewPrompt(smallContext()));
 });
 
 test('AgentReviewEngine logs the language sentence in the system prompt', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  faux.setResponses([submitReview()]);
   const { logger, debugs } = fullLogger();
   const engine = new AgentReviewEngine({
     provider: faux.provider,
@@ -1004,7 +994,7 @@ test('AgentReviewEngine logs the language sentence in the system prompt', async 
 
 test('AgentReviewEngine logs each batch its own system prompt', async () => {
   const faux = fauxProvider();
-  faux.setResponses(steps(2, () => fauxAssistantMessage('{"findings": [], "resolved": []}')));
+  faux.setResponses(steps(2, () => submitReview()));
   const { logger, debugs } = fullLogger();
   const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
   const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });

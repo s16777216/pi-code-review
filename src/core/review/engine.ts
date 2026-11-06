@@ -1,13 +1,13 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
-import type { Api, AssistantMessage, Message, Model, Provider, TextContent } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Message, Model, Provider } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
-import { createGetFileContentTool, createListDiscussionsTool } from './agent.ts';
+import { createGetFileContentTool, createListDiscussionsTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
 import { listUnreviewedFiles, runChecks } from './checks.ts';
-import { parseReviewOutput, ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
+import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { Batch, WholeChange, type RunScope } from './scope.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
@@ -25,7 +25,7 @@ For each problem, decide a severity:
 
 You can also declare that an existing discussion is fixed. Declare it only for a discussion with "fromThisTool": true that is not resolved, only after you read the current code and confirmed that the problem is gone, and give a one-sentence reason. Never declare a discussion that a person started. Do not declare a discussion fixed and also link a finding to it.
 
-When you are done, output ONLY a JSON object with no other text. It has two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Output {"findings": [], "resolved": []} when you have nothing to report.`;
+When you are done, call the submit_review tool once with two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "important", "nit", "pre_existing"), and "summary" (one sentence). Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with empty "findings" and "resolved" arrays when you have nothing to report.`;
 
 /** At most this many agent runs are active at the same time
  * (`review-large-changes-in-batches` design, Decision 7). */
@@ -139,16 +139,24 @@ export class AgentReviewEngine implements ReviewEngine {
   }
 
   /** A new agent with new tools. The tools read the whole context, so a
-   * batch can read any changed file. */
-  private createAgent(context: ReviewContext, scope: RunScope): Agent {
+   * batch can read any changed file. `onSubmit` receives the run's output
+   * once the agent makes an accepted `submit_review` call; it defaults to a
+   * no-op so `estimateFirstRequest` (which never prompts the agent) can call
+   * this with only the tool's declaration in mind. */
+  private createAgent(context: ReviewContext, scope: RunScope, onSubmit: (output: ParsedReviewOutput) => void = () => {}): Agent {
     const { provider, model, apiKey, language } = this.options;
+    const logger = this.options.logger ?? silentLogger();
     return new Agent({
       streamFn: (streamModel, streamContext, streamOptions) =>
         provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
       initialState: {
         systemPrompt: buildSystemPrompt(language, scope),
         model,
-        tools: [createGetFileContentTool(context), createListDiscussionsTool(context)],
+        tools: [
+          createGetFileContentTool(context),
+          createListDiscussionsTool(context),
+          createSubmitReviewTool(onSubmit, logger),
+        ],
       },
     });
   }
@@ -219,7 +227,10 @@ export class AgentReviewEngine implements ReviewEngine {
     logger: Logger,
     active: Set<Agent>,
   ): Promise<RunOutcome> {
-    const agent = this.createAgent(context, scope);
+    let submission: ParsedReviewOutput | undefined;
+    const agent = this.createAgent(context, scope, (output) => {
+      submission = output;
+    });
     const prompt = scope.prompt(context, changes);
     // The system prompt as the agent holds it, so the log shows exactly what
     // this run sends (`log-system-prompt` design, Decision 1).
@@ -263,12 +274,7 @@ export class AgentReviewEngine implements ReviewEngine {
       'review final assistant message',
     );
 
-    const text = lastAssistant.content
-      .filter((block): block is TextContent => block.type === 'text')
-      .map((block) => block.text)
-      .join('');
-
-    logger.debug({ ...scope.logFields(), response: text }, 'review response');
-    return { output: parseReviewOutput(text, logger) };
+    if (submission !== undefined) return { output: submission };
+    return { retryableError: 'The agent run ended without an accepted submit_review call.' };
   }
 }
