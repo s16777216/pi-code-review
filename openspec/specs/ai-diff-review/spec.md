@@ -43,27 +43,31 @@ The system SHALL give the AI agent a tool that returns the full content of a nam
 - **THEN** the tool returns an error result that tells the agent to finish with the information it has, and does not call `ReviewContext.getFileContent`
 
 ### Requirement: Produce structured findings
-The system SHALL parse the agent's output into a list of findings. Each finding MUST have a file path, a line number, a severity, and a one-sentence summary. The system MUST keep each valid finding when another finding in the same output is invalid.
+The system SHALL accept the agent's findings only through a `submit_review` tool call that the agent makes when it finishes reviewing. Each finding MUST have a file path, a line number, a severity, and a one-sentence summary. When one finding in a `submit_review` call is invalid, the system MUST reject the whole call and MUST NOT keep any finding from that call.
 
 #### Scenario: Agent output parses into findings
-- **WHEN** the agent finishes a review turn
-- **THEN** the system parses its output into zero or more findings, each with a file, a line, a severity, and a summary
+- **WHEN** the agent calls `submit_review` with zero or more findings, each with a file, a line, a severity, and a summary
+- **THEN** the system accepts the call and returns those findings
 
 #### Scenario: Agent output does not parse
-- **WHEN** the agent's output is not valid structured data
+- **WHEN** the agent's `submit_review` call does not match the tool's required argument shape
 - **THEN** the system reports a review failure instead of returning findings
 
 #### Scenario: Agent output is not a list
-- **WHEN** the agent's output is valid JSON but is not an array
+- **WHEN** the agent's `submit_review` call has a `findings` value that is not an array
 - **THEN** the system reports a review failure instead of returning findings
 
 #### Scenario: One finding is invalid
-- **WHEN** the agent's output is an array with two valid findings and one finding that has an invalid severity
-- **THEN** the system returns the two valid findings and drops the invalid finding
+- **WHEN** the agent calls `submit_review` with two valid findings and one finding that has an invalid severity
+- **THEN** the system rejects the call and keeps none of the three findings
 
 #### Scenario: A dropped finding is logged
-- **WHEN** the system drops an invalid finding
-- **THEN** the system writes one `warn` log line that names the finding's position in the array and the reason
+- **WHEN** the system rejects a `submit_review` call
+- **THEN** the system writes one `warn` log line that names each invalid finding or declaration in that call
+
+#### Scenario: Agent corrects a rejected call
+- **WHEN** the agent calls `submit_review` again in the same run after a rejected call, and every finding and declaration of the new call is valid
+- **THEN** the system accepts the new call's findings and declarations as the run's output
 
 ### Requirement: Classify each finding with a severity
 The system SHALL assign each finding exactly one severity: `critical`, `high`, `medium`, `low`, or `pre_existing`. A bug the diff introduces SHALL be classified `critical`, `high`, `medium`, or `low` by impact. A bug in code the change did not modify SHALL be classified `pre_existing`, regardless of how severe it would otherwise be.
@@ -216,22 +220,22 @@ The system SHALL add an `anchor` to each returned finding. The anchor MUST be th
 - **THEN** the two findings have the same anchor
 
 ### Requirement: Declare fixed discussions
-The system SHALL let the agent declare that a discussion is fixed, with the discussion ID and a one-sentence reason. The agent output SHALL be a JSON object with a `findings` array and a `resolved` array. The system SHALL also accept a bare JSON array, as findings with no declarations. The system SHALL drop an invalid declaration and write one `warn` log line.
+The system SHALL let the agent declare that a discussion is fixed, with the discussion ID and a one-sentence reason, in the same `submit_review` call as its findings. The call's `resolved` array MUST list these declarations. When one declaration in a call is invalid, the system MUST reject the whole call, as for an invalid finding.
 
 #### Scenario: Agent declares a fix
-- **WHEN** the agent output is an object with one finding and one declaration with a discussion ID and a reason
-- **THEN** the system parses one finding and one declaration
+- **WHEN** the agent calls `submit_review` with one finding and one declaration that has a discussion ID and a reason
+- **THEN** the system accepts one finding and one declaration
 
 #### Scenario: Agent returns a bare array
-- **WHEN** the agent output is a JSON array of findings
-- **THEN** the system parses the findings and returns no declarations
+- **WHEN** the agent calls `submit_review` with findings and an empty `resolved` array
+- **THEN** the system accepts the findings and returns no declarations
 
 #### Scenario: A declaration has no reason
-- **WHEN** a declaration has a discussion ID but no reason
-- **THEN** the system drops that declaration, keeps the rest of the output, and writes one `warn` log line
+- **WHEN** a declaration in a `submit_review` call has a discussion ID but no reason
+- **THEN** the system rejects the whole call and writes one `warn` log line
 
 #### Scenario: Output object has no findings array
-- **WHEN** the agent output is a JSON object without a `findings` array
+- **WHEN** the agent's `submit_review` call does not include a `findings` array
 - **THEN** the system reports a review failure
 
 ### Requirement: Accept a fixed declaration only after the checks
@@ -336,15 +340,19 @@ The system SHALL merge the outputs of all batches before it runs the checks on `
 - **THEN** the merged output has one declaration for that discussion, with the reason from batch 1, before the checks
 
 ### Requirement: Retry a model run that ends with an error
-The system SHALL start a run again, with a new agent and new tools, when its final message has the stop reason `error`. The system SHALL try a run at most 3 times in total, and SHALL wait 2 seconds before the second try and 4 seconds before the third. Each retry MUST write one `warn` log line with the batch number, the try number, and the error message. The system MUST NOT retry a run that stops with `length` or `aborted`, or whose output cannot be parsed.
+The system SHALL start a run again, with a new agent and new tools, when its final message has the stop reason `error`, or when the run ends with no accepted `submit_review` call. The system SHALL try a run at most 3 times in total, and SHALL wait 2 seconds before the second try and 4 seconds before the third. Each retry MUST write one `warn` log line with the batch number, the try number, and the error message. The system MUST NOT retry a run that stops with `length` or `aborted`.
 
 #### Scenario: Run passes on the second try
-- **WHEN** a run's first try ends with the stop reason `error` and its second try produces valid output
+- **WHEN** a run's first try ends with the stop reason `error` and its second try produces an accepted `submit_review` call
 - **THEN** the system uses the output of the second try and logs one retry
 
 #### Scenario: Run stops at the token limit
 - **WHEN** a run's final message has the stop reason `length`
 - **THEN** the system does not retry the run
+
+#### Scenario: Run ends with no accepted submission
+- **WHEN** a run's final message has a normal stop reason, and the agent never made an accepted `submit_review` call
+- **THEN** the system treats the run as a failed try, the same as a run that stops with the reason `error`
 
 ### Requirement: Fail the review when a batch fails
 The system SHALL fail the review when a run still fails after its last try. The system SHALL then abort the active runs and start no more runs. The failure MUST name the batch number and the cause.
@@ -408,3 +416,10 @@ The system SHALL return every omitted changed file as an unreviewed file, with i
 #### Scenario: One file is generated
 - **WHEN** one changed file is omitted because it is generated
 - **THEN** the review result lists that file with the reason `generated`, and the system writes no `warn` log line for it
+
+### Requirement: Limit submit_review attempts in one run
+The system SHALL accept at most 5 `submit_review` calls in one run. After the limit, the system SHALL end the run without accepting any call.
+
+#### Scenario: Agent exhausts the attempt limit
+- **WHEN** the agent calls `submit_review` with an invalid finding or declaration on 5 calls in one run
+- **THEN** the system stops accepting further calls in that run, and the run ends without an accepted submission
