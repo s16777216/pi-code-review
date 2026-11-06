@@ -11,7 +11,7 @@
 ## 3. GitLab host
 
 - [ ] 3.1 In `src/providers/gitlab/config.ts`, split the settings into the connection (API URL, token) and the target (project ID, merge request IID). Verify with tests in `src/providers/gitlab/config.test.ts`.
-- [ ] 3.2 In `src/providers/gitlab/host.ts`, declare `--gitlab-url` and `--token` for `publish`, and all four flags for `review`. Create the `GitLabClient` for the source project inside `restore`. Add `parseSource` for `{ projectId, mergeRequestIid }`. Verify with tests in `src/providers/gitlab/host.test.ts`, including a test that `publish` ignores `CI_PROJECT_ID` and `CI_MERGE_REQUEST_IID`.
+- [ ] 3.2 In `src/providers/gitlab/host.ts`, declare `--gitlab-url` and `--token` for `publish`, and all four flags for `review`. Create the `GitLabClient` for the source project inside `restore`. Add `parseSource` for `{ host, projectId, mergeRequestIid }`, and reject a host that is not `gitlab`. Verify with tests in `src/providers/gitlab/host.test.ts`, including tests that `publish` ignores `CI_PROJECT_ID` and `CI_MERGE_REQUEST_IID`, and that another host name fails.
 
 ## 4. CLI
 

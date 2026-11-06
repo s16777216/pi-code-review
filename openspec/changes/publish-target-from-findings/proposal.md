@@ -4,8 +4,9 @@ The `publish` command reads its target merge request from flags and environment 
 
 ## What Changes
 
-- The `review` command writes the source of the review to the findings file. For GitLab, the source is the project ID and the merge request IID.
-- The `publish` command reads the project ID and the merge request IID from the findings file.
+- The `review` command writes the source of the review to the findings file. For GitLab, the source is the host name `gitlab`, the project ID, and the merge request IID.
+- The `publish` command reads the host name, the project ID, and the merge request IID from the findings file.
+- The `publish` command stops when the host name is not one that it supports.
 - **BREAKING**: The `publish` command no longer accepts the `--project-id` and `--mr` flags. It no longer reads `CI_PROJECT_ID` and `CI_MERGE_REQUEST_IID`.
 - **BREAKING**: A findings file without a `source` field is invalid for `publish`. The `publish` command stops before it calls the host API.
 - The `publish` command still reads the GitLab API URL and the token from flags and environment variables.

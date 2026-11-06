@@ -1,11 +1,11 @@
 ## MODIFIED Requirements
 
 ### Requirement: Review writes findings to a file
-The `review` command SHALL write the findings, the accepted fixed declarations, the unreviewed files, the diff refs, and the source of the review to a JSON file. The source names the project and the merge request that the review read. The default file path MUST be `findings.json` in the working directory.
+The `review` command SHALL write the findings, the accepted fixed declarations, the unreviewed files, the diff refs, and the source of the review to a JSON file. The source names the host, the project, and the merge request that the review read. The default file path MUST be `findings.json` in the working directory.
 
 #### Scenario: Review produces a findings file
 - **WHEN** the `review` command finishes a review
-- **THEN** the system writes a JSON file containing every valid finding, every accepted fixed declaration, every unreviewed file, the diff refs for the reviewed merge request, and the source with its project ID and merge request IID
+- **THEN** the system writes a JSON file containing every valid finding, every accepted fixed declaration, every unreviewed file, the diff refs for the reviewed merge request, and the source with its host name, project ID, and merge request IID
 
 #### Scenario: Review produces no findings
 - **WHEN** the `review` command finds no valid findings
@@ -20,7 +20,7 @@ The `review` command SHALL write the findings, the accepted fixed declarations, 
 - **THEN** the system writes an empty `unreviewedFiles` list
 
 ### Requirement: Publish reads findings from a file
-The `publish` command SHALL read findings, diff refs, and the source from a JSON file given by a command-line flag, defaulting to `findings.json`. The `publish` command SHALL publish to the project and the merge request that the source names. The `publish` command SHALL reject a findings file with an invalid structure before it calls the GitLab API.
+The `publish` command SHALL read findings, diff refs, and the source from a JSON file given by a command-line flag, defaulting to `findings.json`. The `publish` command SHALL publish to the project and the merge request that the source names, and MUST stop when the source names a host that it does not support. The `publish` command SHALL reject a findings file with an invalid structure before it calls the GitLab API.
 
 #### Scenario: Publish reads the default file
 - **WHEN** the `publish` command runs without specifying a file
@@ -31,7 +31,7 @@ The `publish` command SHALL read findings, diff refs, and the source from a JSON
 - **THEN** the system reads that file instead of `findings.json`
 
 #### Scenario: Publish targets the source in the file
-- **WHEN** the findings file has the source with project ID `12` and merge request IID `7`
+- **WHEN** the findings file has the source with host `gitlab`, project ID `12`, and merge request IID `7`
 - **THEN** the system publishes to merge request `7` of project `12`
 
 #### Scenario: Findings file is missing or unreadable
@@ -39,8 +39,12 @@ The `publish` command SHALL read findings, diff refs, and the source from a JSON
 - **THEN** the system stops before it calls the GitLab API, and reports a clear error
 
 #### Scenario: Findings file has no source
-- **WHEN** the findings file is valid JSON but has no `source` object, or its project ID or merge request IID is not a non-empty string
+- **WHEN** the findings file is valid JSON but has no `source` object, or its host, project ID, or merge request IID is not a non-empty string
 - **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, and reports an error that names the file and the missing field
+
+#### Scenario: Findings file names another host
+- **WHEN** the findings file has a source whose host is not `gitlab`
+- **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, and reports an error that names the file and the host
 
 #### Scenario: Findings file has no diff refs
 - **WHEN** the findings file is valid JSON but has no `diffRefs` object, or one of its three SHA fields is not a non-empty string
