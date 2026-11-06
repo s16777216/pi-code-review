@@ -20,5 +20,5 @@
 
 ## 5. Docs and checks
 
-- [ ] 5.1 Refresh `src/cli/SPEC.md` and `src/providers/gitlab/SPEC.md` with `openspec-sync-specs`. Verify that both files describe the source and the new publish flags.
+- [x] 5.1 Refresh `src/cli/SPEC.md` and `src/providers/gitlab/SPEC.md` with `openspec-sync-specs`. Verify that both files describe the source and the new publish flags.
 - [x] 5.2 Run `npm run build`, `npm test`, `npm run lint`, and `openspec validate --specs --strict`. Verify that all pass.

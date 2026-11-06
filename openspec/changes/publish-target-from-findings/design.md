@@ -28,11 +28,6 @@ Local `SPEC.md` files that `openspec-sync-specs` must refresh after the implemen
 
 - **The port loses `connect` and `HostConnection`.** The host gets `openChangeRequest(settings, logger)` and `restore(settings, source, snapshot, logger)` instead. Both create the `GitLabClient`, because `restore` needs the project from the source. Alternative: keep `connect` and add a second call for the client. Rejected, because it keeps a half-built connection that no command can use.
 
-## Pending sync notes
-
-- `src/cli/SPEC.md`, capability `review-cli`: `publish` takes its target from `findings.json`. Entry points `runReviewCommand`, `runPublishCommand`, and `src/findingsFile.ts`.
-- `src/providers/gitlab/SPEC.md`, capability `gitlab-mr-context`: the host has `reviewFlags`, `publishFlags`, `openChangeRequest`, `restore`, and `parseSource`. Source parser in `source.ts`.
-
 ## Risks / Trade-offs
 
 - [Pipelines that pass `--mr` or `--project-id` to `publish` fail] → The error comes from `parseArgs` and names the flag. The proposal marks the change as breaking.
