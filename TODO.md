@@ -2,3 +2,4 @@
 - [ ] review 參考 docs/solving-code-review-at-anthropic.md 設計多 agent 架構
 - [ ] publish 可自定義輸出模板
 - [ ] review/publish 支援 github、gitea
+- [ ] important、nit 改成 critical、high、medium、low
