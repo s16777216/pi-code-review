@@ -41,8 +41,8 @@ picr publish  [flags]   # read findings.json, post inline comments, decide pass/
 ```
 
 - **`review`** never contacts GitLab to publish anything, and never decides pass or fail. Its exit code reflects only whether the review process itself completed (a GitLab or OpenAI API error) — not the severity of what it found. Running it locally and stopping there is the normal way to just see what the AI found, with no side effect on the merge request.
-- **`publish`** reads the findings file `review` wrote, publishes every finding, and only then decides pass/fail from the severity threshold. Publishing always happens first, so a severity threshold can never prevent a finding from reaching the merge request.
-- Each command only accepts the flags it needs. `review` has no `--fail-on`; `publish` has no `--model`/`--openai-base-url`/`--openai-api-key`.
+- **`publish`** reads the findings file `review` wrote, publishes every finding to the merge request that file names (its `source`: the host, the project ID, and the merge request IID), and only then decides pass/fail from the severity threshold. Publishing always happens first, so a severity threshold can never prevent a finding from reaching the merge request.
+- Each command only accepts the flags it needs. `review` has no `--fail-on`; `publish` has no `--model`/`--openai-base-url`/`--openai-api-key`, and no `--project-id` or `--mr`: it takes the project and the merge request from the findings file. A findings file without a `source` (from an older `review`) is rejected, so run `review` again.
 
 ### Exit codes
 
@@ -60,15 +60,18 @@ Every setting can come from an environment variable or a CLI flag. **A CLI flag 
 
 Used by both commands:
 
-| Environment variable   | CLI flag       | Required                                                                        | Notes                                                                                                                                                                                 |
-| ---------------------- | -------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CI_API_V4_URL`        | `--gitlab-url` | Yes                                                                             | e.g. `https://gitlab.com/api/v4`. Set automatically by GitLab CI.                                                                                                                     |
-| `CI_PROJECT_ID`        | `--project-id` | Yes                                                                             | Set automatically by GitLab CI.                                                                                                                                                       |
-| `CI_MERGE_REQUEST_IID` | `--mr`         | Yes for `publish`; `review` skips and exits 0 if neither this nor `--mr` is set | Set automatically by GitLab CI on a merge-request pipeline.                                                                                                                           |
-| `GITLAB_TOKEN`         | `--token`      | Yes                                                                             | **Secret.** A personal or project access token with the `api` scope, sent under the `PRIVATE-TOKEN` header. This is **not** GitLab CI's own `CI_JOB_TOKEN` — see [Auth](#auth) below. |
-| `DEBUG`                | `--debug`      | No (default off)                                                                | `true`/`1` (env) or bare `--debug` (flag) turns on debug logging to stderr — see [Debug logging](#debug-logging) below.                                                               |
+| Environment variable | CLI flag       | Required         | Notes                                                                                                                                                                                 |
+| -------------------- | -------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CI_API_V4_URL`      | `--gitlab-url` | Yes              | e.g. `https://gitlab.com/api/v4`. Set automatically by GitLab CI.                                                                                                                     |
+| `GITLAB_TOKEN`       | `--token`      | Yes              | **Secret.** A personal or project access token with the `api` scope, sent under the `PRIVATE-TOKEN` header. This is **not** GitLab CI's own `CI_JOB_TOKEN` — see [Auth](#auth) below. |
+| `DEBUG`              | `--debug`      | No (default off) | `true`/`1` (env) or bare `--debug` (flag) turns on debug logging to stderr — see [Debug logging](#debug-logging) below.                                                               |
 
 `review`-only:
+
+| Environment variable   | CLI flag       | Required                                                           | Notes                                                                                                       |
+| ---------------------- | -------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `CI_PROJECT_ID`        | `--project-id` | Yes                                                                | Set automatically by GitLab CI. `review` writes it to the findings file, and `publish` reads it from there. |
+| `CI_MERGE_REQUEST_IID` | `--mr`         | Yes (`review` skips and exits 0 if neither this nor `--mr` is set) | Set automatically by GitLab CI on a merge-request pipeline. Written to the findings file in the same way.   |
 
 | Environment variable    | CLI flag            | Required                     | Notes                                                                                                                                                                                                                                                                                                                                                                                                            |
 | ----------------------- | ------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -82,10 +85,10 @@ Used by both commands:
 
 `publish`-only:
 
-| Environment variable | CLI flag    | Required                     | Notes                                                                                                                                                                           |
-| -------------------- | ----------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `FAIL_ON_SEVERITY`   | `--fail-on` | No (default `important`)     | `important`, `nit`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
-| (n/a)                | `--from`    | No (default `findings.json`) | Which findings file `publish` reads.                                                                                                                                            |
+| Environment variable | CLI flag    | Required                     | Notes                                                                                                                                                                                            |
+| -------------------- | ----------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `FAIL_ON_SEVERITY`   | `--fail-on` | No (default `high`)          | `critical`, `high`, `medium`, `low`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
+| (n/a)                | `--from`    | No (default `findings.json`) | Which findings file `publish` reads.                                                                                                                                                             |
 
 ### Auth
 
@@ -137,7 +140,7 @@ allow_failure:
   exit_codes: [1]
 ```
 
-`CI_API_V4_URL`, `CI_PROJECT_ID`, and `CI_MERGE_REQUEST_IID` are already set by GitLab CI. `GITLAB_TOKEN` is not — set it yourself as a masked CI/CD variable (**Settings → CI/CD → Variables**), holding a personal or project access token (see [Auth](#auth)); both jobs need it. Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL` the same way — only the `review` job needs those three.
+`CI_API_V4_URL`, `CI_PROJECT_ID`, and `CI_MERGE_REQUEST_IID` are already set by GitLab CI. `review` reads the project and the merge request from them and writes both to `findings.json`. `publish` ignores `CI_PROJECT_ID` and `CI_MERGE_REQUEST_IID` and uses the ones in the file. `GITLAB_TOKEN` is not — set it yourself as a masked CI/CD variable (**Settings → CI/CD → Variables**), holding a personal or project access token (see [Auth](#auth)); both jobs need it. Set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_BASE_URL` the same way — only the `review` job needs those three.
 
 ## Running locally
 
@@ -155,14 +158,12 @@ picr review \
 
 This writes `findings.json` in the current directory. Open it to see what the AI found.
 
-To actually publish those findings to the merge request, run `publish` against the same `findings.json`:
+To actually publish those findings to the merge request, run `publish` against the same `findings.json`. It posts to the project and the merge request that `review` recorded in the file, so it needs no `--project-id` or `--mr`:
 
 ```bash
 GITLAB_TOKEN="<personal or project access token>" \
 picr publish \
-  --gitlab-url "https://gitlab.example.com/api/v4" \
-  --project-id 123 \
-  --mr 7
+  --gitlab-url "https://gitlab.example.com/api/v4"
 ```
 
 PowerShell:
@@ -182,9 +183,7 @@ picr review `
 $env:GITLAB_TOKEN = "<personal or project access token>"
 
 picr publish `
-  --gitlab-url "https://gitlab.example.com/api/v4" `
-  --project-id 123 `
-  --mr 7
+  --gitlab-url "https://gitlab.example.com/api/v4"
 ```
 
 Running from source instead of the npm package: replace `picr` with `node dist/cli/index.js` everywhere above.

@@ -3,13 +3,15 @@ import type { Finding, ResolvedDiscussion, UnreviewedFile } from './core/types.t
 import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
 import { errorMessage } from './core/errorMessage.ts';
 
-/** What `review` writes and `publish` reads. `diffRefs` is the one thing
- * `publish` cannot get anywhere else: the host's sink needs it to position
- * inline comments, and it only comes from the host's source during
- * `review`. Its shape belongs to the host, so it is a type parameter, and
- * the caller of `readFindingsFile` checks it. */
-export interface FindingsFile<DiffRefs> {
+/** What `review` writes and `publish` reads. `diffRefs` and `source` are the
+ * two things `publish` cannot get anywhere else. `diffRefs` lets the host's
+ * sink position inline comments. `source` names the change request that
+ * `review` read, so `publish` posts to the same one. Their shapes belong to
+ * the host, so they are type parameters, and the caller of `readFindingsFile`
+ * checks them. */
+export interface FindingsFile<DiffRefs, Source> {
   diffRefs: DiffRefs;
+  source: Source;
   findings: Finding[];
   /** Fixed declarations that passed the engine's checks. A file without this
    * field (from an older `review`) reads as an empty list. */
@@ -21,7 +23,10 @@ export interface FindingsFile<DiffRefs> {
 
 export class FindingsFileError extends Error {}
 
-export async function writeFindingsFile<DiffRefs>(path: string, data: FindingsFile<DiffRefs>): Promise<void> {
+export async function writeFindingsFile<DiffRefs, Source>(
+  path: string,
+  data: FindingsFile<DiffRefs, Source>,
+): Promise<void> {
   await writeFile(path, JSON.stringify(data, null, 2), 'utf8');
 }
 
@@ -30,10 +35,11 @@ export async function writeFindingsFile<DiffRefs>(path: string, data: FindingsFi
  * needs — so a bad file stops `publish` before it calls the host's API,
  * instead of failing quietly in the middle of publishing. Unknown extra
  * fields are ignored. */
-export async function readFindingsFile<DiffRefs>(
+export async function readFindingsFile<DiffRefs, Source>(
   path: string,
   parseDiffRefs: (value: unknown) => DiffRefs,
-): Promise<FindingsFile<DiffRefs>> {
+  parseSource: (value: unknown) => Source,
+): Promise<FindingsFile<DiffRefs, Source>> {
   let raw: string;
   try {
     raw = await readFile(path, 'utf8');
@@ -49,7 +55,7 @@ export async function readFindingsFile<DiffRefs>(
   }
 
   try {
-    return validateFindingsFile(parsed, parseDiffRefs);
+    return validateFindingsFile(parsed, parseDiffRefs, parseSource);
   } catch (error) {
     throw new FindingsFileError(`Findings file "${path}" is invalid: ${errorMessage(error)}`);
   }
@@ -63,16 +69,18 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * fields. Each finding goes through the engine's own `validateFinding`, and
  * the whole file is rejected on the first bad field: a file `review` wrote
  * always passes, so a bad one means something changed it. */
-function validateFindingsFile<DiffRefs>(
+function validateFindingsFile<DiffRefs, Source>(
   value: unknown,
   parseDiffRefs: (value: unknown) => DiffRefs,
-): FindingsFile<DiffRefs> {
+  parseSource: (value: unknown) => Source,
+): FindingsFile<DiffRefs, Source> {
   if (!isObject(value)) {
     throw new Error('the top-level value is not an object.');
   }
 
   const { findings, resolved = [], unreviewedFiles = [] } = value;
   const diffRefs = parseDiffRefs(value.diffRefs);
+  const source = parseSource(value.source);
 
   if (!Array.isArray(findings)) {
     throw new Error('"findings" is missing or is not an array.');
@@ -86,6 +94,7 @@ function validateFindingsFile<DiffRefs>(
 
   return {
     diffRefs,
+    source,
     findings: findings.map((item, index) => validateFinding(item, index)),
     resolved: resolved.map((item, index) => validateResolvedDiscussion(item, index)),
     unreviewedFiles: unreviewedFiles.map((item, index) => validateUnreviewedFile(item, index)),

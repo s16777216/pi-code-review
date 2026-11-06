@@ -85,10 +85,6 @@ test('publish with an invalid findings file exits 2 and names the file, before a
             'publish',
             '--gitlab-url',
             'http://127.0.0.1:9/api/v4',
-            '--project-id',
-            '1',
-            '--mr',
-            '1',
             '--token',
             'test-token',
             '--from',
@@ -148,18 +144,17 @@ async function runEntrypoint(args: string[]): Promise<{ code: number; stderr: st
 }
 
 test('publish exits 2 when a required setting is missing', async () => {
-  const { code, stderr } = await runEntrypoint([
-    'publish',
-    '--gitlab-url',
-    'http://127.0.0.1:9/api/v4',
-    '--mr',
-    '1',
-    '--token',
-    't',
-  ]);
+  const { code, stderr } = await runEntrypoint(['publish', '--gitlab-url', 'http://127.0.0.1:9/api/v4']);
 
   assert.equal(code, 2);
-  assert.match(stderr, /CI_PROJECT_ID|--project-id/);
+  assert.match(stderr, /GITLAB_TOKEN|--token/);
+});
+
+test('publish exits 2 when it gets the merge request flags, which the findings file supplies', async () => {
+  const { code, stderr } = await runEntrypoint(['publish', '--mr', '1', '--project-id', '1']);
+
+  assert.equal(code, 2);
+  assert.match(stderr, /--mr|--project-id/);
 });
 
 test('an unknown command exits 2', async () => {

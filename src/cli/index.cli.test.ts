@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { gitlabHost } from '../providers/index.ts';
 import { parsePublishCliOptions, parseReviewCliOptions } from './index.ts';
 
 /** A host's own flags; the commands add them to their own. */
@@ -103,4 +104,23 @@ test('parsePublishCliOptions rejects a review-only flag', () => {
   assert.throws(() => parsePublishCliOptions(['--max-tokens', '64000'], HOST_FLAGS));
   assert.throws(() => parsePublishCliOptions(['--context-window', '400000'], HOST_FLAGS));
   assert.throws(() => parsePublishCliOptions(['--language', 'Japanese'], HOST_FLAGS));
+});
+
+test('parsePublishCliOptions rejects the GitLab merge request flags, which the findings file now supplies', () => {
+  assert.throws(() => parsePublishCliOptions(['--mr', '7'], gitlabHost.publishFlags));
+  assert.throws(() => parsePublishCliOptions(['--project-id', '12'], gitlabHost.publishFlags));
+});
+
+test('parsePublishCliOptions accepts the GitLab URL and token flags', () => {
+  const options = parsePublishCliOptions(
+    ['--gitlab-url', 'https://gitlab.example.com/api/v4', '--token', 't'],
+    gitlabHost.publishFlags,
+  );
+  assert.deepEqual(options.host, { 'gitlab-url': 'https://gitlab.example.com/api/v4', token: 't' });
+});
+
+test('parseReviewCliOptions still accepts the GitLab merge request flags', () => {
+  const options = parseReviewCliOptions(['--mr', '7', '--project-id', '12'], gitlabHost.reviewFlags);
+  assert.equal(options.host.mr, '7');
+  assert.equal(options.host['project-id'], '12');
 });
