@@ -5,43 +5,43 @@
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-apply-change/SKILL.md",
-      "computedHash": "1d678a0c23254b34cb4412ca3f8c04420e02519555a95ff3b0b616caae303ff8"
+      "computedHash": "4864bca364781852c115216a5e140d09d681585c5beaf2fffdcbd9279cee619f"
     },
     "openspec-archive-change": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-archive-change/SKILL.md",
-      "computedHash": "0a439ccfc52df261d83213e93648c5df9a4cef76d8bca92e63086ba499368174"
+      "computedHash": "96a8d7791d8461cd9c46791988a518aac77b6e92f1d3c75feac192edd43e7de8"
     },
     "openspec-bulk-archive-change": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-bulk-archive-change/SKILL.md",
-      "computedHash": "67af810e809b9e7541709680a02cdd5f7c2d8eb77f7b6101670b6d62a6a9afd8"
+      "computedHash": "b05c230806c649b73838fe6beaf528cd5b056225fe2e05bb103df9dda67983ea"
     },
     "openspec-continue-change": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-continue-change/SKILL.md",
-      "computedHash": "dd546e2fc3a7ed24d38d05b1f01b73931bb60d3ab991b5a22cb3079aa32aa48f"
+      "computedHash": "1011b00dca3aaea8f991fef22177139a6d2f0704525e6a129fbbb94eb518026f"
     },
     "openspec-explore": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-explore/SKILL.md",
-      "computedHash": "788140382faf44513c42c739756ba6a77a5dacaf63d9ad0b39d67b9232701e77"
+      "computedHash": "190ce569055f3790ea5f96af4ce0e6a5a45862259bbe0c3651046e9d8bca945a"
     },
     "openspec-ff-change": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-ff-change/SKILL.md",
-      "computedHash": "f9570c24fd291d30b5b987fc51d79aac88467dfd7528ae658d5d94f522100dbe"
+      "computedHash": "e6cdb360f110376d9d7792a6dd72bdfc8b5e1164e49dca108b93716c53af9f5c"
     },
     "openspec-grill": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-grill/SKILL.md",
-      "computedHash": "ce775f648158154a4902f3f08917c6956cc027c38377c8b8192d9e5a2b84e723"
+      "computedHash": "1a8958c3715573676aa92f62cce66129940139d31f16b96be065e0a21248119c"
     },
     "openspec-new-change": {
       "source": "s16777216/openspec-improve",
@@ -53,13 +53,13 @@
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-onboard/SKILL.md",
-      "computedHash": "261581ca2899c3d23c06457ba3816f3d377a413eb4a50520cae5806f4146f21e"
+      "computedHash": "67a9eeefd582b4a789e630b3e065b6ed304a6debc7d5edbf42ca15fc8f6eae82"
     },
     "openspec-propose": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-propose/SKILL.md",
-      "computedHash": "919650052cb6d11c77929a32fd78279ae4aa2c5e0304b3c1ceff7e0c58e2dd32"
+      "computedHash": "63313df88f7a472099865d46537bd5850252c4c994c1911f102239bce1b97028"
     },
     "openspec-setup": {
       "source": "s16777216/openspec-improve",
@@ -77,19 +77,19 @@
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-sync-specs/SKILL.md",
-      "computedHash": "3b49d5d42937d4d369e6e58bd11f363e0120e9e6e4e0d3982c8a5b8c115b69d7"
+      "computedHash": "1de79c1020d9330eeb95a0a2c569d30683bf59a4d0efa8073e507a4294760eea"
     },
     "openspec-update-change": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-update-change/SKILL.md",
-      "computedHash": "9fc198858c40408c7b1dac9e13078b37ea6ad01994ad4d4a4556dd3a17ec9896"
+      "computedHash": "c4f22a27c83992c8346457f34e22c05a49d70848555407682ca71348edc06504"
     },
     "openspec-verify-change": {
       "source": "s16777216/openspec-improve",
       "sourceType": "github",
       "skillPath": "skills/openspec-verify-change/SKILL.md",
-      "computedHash": "348cf236592e3aabbab860d81c7af4b525a792f658f554e23099852fe3bb4a64"
+      "computedHash": "9e5c1e394f1da893191720ed5fc1bb697b8b247115cf888d8514903c9e4223c7"
     }
   }
 }
