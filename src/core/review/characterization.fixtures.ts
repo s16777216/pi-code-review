@@ -54,7 +54,7 @@ export function fixtureDiscussions(): ReviewDiscussion[] {
       resolved: false,
       fromThisTool: true,
       anchor: '0123456789abcdef',
-      notes: [{ author: 'bot', body: '**[important]** Earlier problem.' }],
+      notes: [{ author: 'bot', body: '**[high]** Earlier problem.' }],
     },
   ];
 }

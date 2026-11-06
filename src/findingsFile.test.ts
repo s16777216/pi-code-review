@@ -17,7 +17,7 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    findings: [{ file: 'a.ts', line: 3, severity: 'important', summary: 'Off-by-one.' }],
+    findings: [{ file: 'a.ts', line: 3, severity: 'high', summary: 'Off-by-one.' }],
   };
 
   try {
@@ -78,7 +78,7 @@ async function readRaw(content: unknown): Promise<FindingsFile<GitLabDiffRefs>> 
 }
 
 const validRefs = { baseSha: 'base', startSha: 'start', headSha: 'head' };
-const validFinding = { file: 'a.ts', line: 3, severity: 'important', summary: 'Off-by-one.' };
+const validFinding = { file: 'a.ts', line: 3, severity: 'high', summary: 'Off-by-one.' };
 
 test('readFindingsFile rejects a file with no diffRefs, naming the file and the field', async () => {
   await assert.rejects(
@@ -114,7 +114,7 @@ test('readFindingsFile rejects a bad severity at index 2, naming the index and t
     () =>
       readRaw({
         diffRefs: validRefs,
-        findings: [validFinding, validFinding, { ...validFinding, severity: 'critical' }],
+        findings: [validFinding, validFinding, { ...validFinding, severity: 'severe' }],
       }),
     (error: unknown) =>
       error instanceof FindingsFileError && /index 2/.test(error.message) && /"severity"/.test(error.message),

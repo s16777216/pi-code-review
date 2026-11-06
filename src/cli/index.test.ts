@@ -73,7 +73,7 @@ function fixtureReviewConfig(overrides: Partial<ReviewConfig> = {}): ReviewConfi
 
 function fixturePublishConfig(overrides: Partial<PublishConfig> = {}): PublishConfig {
   return {
-    failOnSeverity: 'important',
+    failOnSeverity: 'high',
     ...overrides,
   };
 }
@@ -88,7 +88,7 @@ function submitReview(findings: Record<string, unknown>[] = [], resolved: Record
 
 test('runReview returns findings and the snapshot, and never posts anything', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'Off-by-one.' }])]);
 
   const client = new FakeMergeRequest(
     {
@@ -107,7 +107,7 @@ test('runReview returns findings and the snapshot, and never posts anything', as
 
   assert.deepEqual(findingsFile.diffRefs, { baseSha: 'base', startSha: 'start', headSha: 'head' });
   assert.deepEqual(findingsFile.findings, [
-    { file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.', anchor: computeAnchor('a.ts', 'new') },
+    { file: 'a.ts', line: 1, severity: 'high', summary: 'Off-by-one.', anchor: computeAnchor('a.ts', 'new') },
   ]);
   // runReview gets only the read side; createDiscussion is only ever called by runPublish.
   assert.equal(client.discussions.length, 0);
@@ -186,7 +186,7 @@ test('runPublish publishes every finding', async () => {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor nit.' }],
+    findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor nit.' }],
   };
 
   const passed = await runPublish({
@@ -195,12 +195,12 @@ test('runPublish publishes every finding', async () => {
     findingsFile,
   });
 
-  assert.equal(passed, true); // "nit" is below the default "important" threshold
+  assert.equal(passed, true); // "low" is below the default "high" threshold
   assert.equal(client.discussions.length, 1);
   assert.deepEqual(client.discussions[0]!.position, { file: 'a.ts', line: 1 });
 });
 
-test('runPublish publishes an important finding before failing on it (severity never blocks publishing)', async () => {
+test('runPublish publishes a high finding before failing on it (severity never blocks publishing)', async () => {
   const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
@@ -209,7 +209,7 @@ test('runPublish publishes an important finding before failing on it (severity n
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.' }],
+    findings: [{ file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug.' }],
   };
 
   const passed = await runPublish({
@@ -248,7 +248,7 @@ test('main rejects a missing or unknown subcommand with a clear error', async ()
   await assert.rejects(() => main(['bogus']), /Unknown command "bogus"/);
 });
 
-test('runPublish still fails on an important finding that relates to an open discussion, and posts nothing', async () => {
+test('runPublish still fails on a high finding that relates to an open discussion, and posts nothing', async () => {
   const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
@@ -258,14 +258,14 @@ test('runPublish still fails on an important finding that relates to an open dis
       id: 'd1',
       position: { file: 'a.ts', line: 2, commit: 'old' },
       resolved: false,
-      notes: [{ id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[important]** Off-by-one.' }],
+      notes: [{ id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[high]** Off-by-one.' }],
     },
   ];
   const findingsFile: FindingsFile<unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
-    findings: [{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
+    findings: [{ file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
   };
 
   const passed = await runPublish({ config: fixturePublishConfig(), gateway: client, findingsFile });

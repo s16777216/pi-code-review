@@ -1,12 +1,14 @@
 import type { FailOnSeverity, Finding, Severity } from './types.ts';
 
-/** Higher rank meets a stricter threshold. `pre_existing` never meets
- * `important` or `nit`, matching the article's view that a bug the change
- * did not introduce should not block that change on its own. */
+/** Higher rank meets a stricter threshold. `pre_existing` ranks below every
+ * impact level, matching the article's view that a bug the change did not
+ * introduce should not block that change on its own. */
 const SEVERITY_RANK: Record<Severity, number> = {
   pre_existing: 0,
-  nit: 1,
-  important: 2,
+  low: 1,
+  medium: 2,
+  high: 3,
+  critical: 4,
 };
 
 /** True when the review passes: no finding's severity meets or exceeds

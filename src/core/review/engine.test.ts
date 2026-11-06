@@ -35,7 +35,7 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('get_file_content', { path: 'a.ts' })], { stopReason: 'toolUse' }),
-    submitReview([{ file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' }]),
+    submitReview([{ file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug introduced by the diff.' }]),
   ]);
 
   let fileContentRequested: string | null = null;
@@ -66,16 +66,16 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
   const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [
-    { file: 'a.ts', line: 2, severity: 'important', summary: 'Off-by-one bug introduced by the diff.' },
+    { file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug introduced by the diff.' },
   ]);
   assert.equal(fileContentRequested, 'a.ts');
   assert.equal(faux.state.callCount, 2);
-  assert.equal(decidePassFail(findings, 'important'), false);
+  assert.equal(decidePassFail(findings, 'high'), false);
 });
 
 test('AgentReviewEngine logs the prompt and the final assistant message, and never logs the apiKey', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }])]);
 
   const context: ReviewContext = {
     title: 'Small change',
@@ -111,7 +111,7 @@ test('AgentReviewEngine logs the prompt and the final assistant message, and nev
 
 test('AgentReviewEngine drops a finding whose line is not in the diff', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 999, severity: 'important', summary: 'Bogus line.' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 999, severity: 'high', summary: 'Bogus line.' }])]);
 
   const context: ReviewContext = {
     title: 'Small change',
@@ -128,7 +128,7 @@ test('AgentReviewEngine drops a finding whose line is not in the diff', async ()
   const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), []);
-  assert.equal(decidePassFail(findings, 'important'), true);
+  assert.equal(decidePassFail(findings, 'high'), true);
 });
 
 test('SYSTEM_PROMPT tells the agent that the number before "|" is the new-file line to report', () => {
@@ -177,7 +177,7 @@ test('AgentReviewEngine logs a finding on a file the change did not touch, and d
 
 test('AgentReviewEngine logs a finding on a line outside the diff, and does not return it', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 999, severity: 'important', summary: 'Bogus line.' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 999, severity: 'high', summary: 'Bogus line.' }])]);
   const { logger, warnings } = recordingLogger();
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
 
@@ -306,7 +306,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage([fauxToolCall('list_discussions', { file: 'a.ts' })], { stopReason: 'toolUse' }),
-    submitReview([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Still broken.', relatesTo: 'd1' }]),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', relatesTo: 'd1' }]),
   ]);
   let reads = 0;
   const context = smallContext();
@@ -319,7 +319,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
   const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [
-    { file: 'a.ts', line: 1, severity: 'important', summary: 'Still broken.', relatesTo: 'd1' },
+    { file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', relatesTo: 'd1' },
   ]);
   assert.equal(faux.state.callCount, 2);
   assert.equal(reads >= 1, true);
@@ -327,7 +327,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
 
 test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and logs it', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.', relatesTo: 'nope' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.', relatesTo: 'nope' }])]);
   const context = smallContext();
   context.listDiscussions = async () => [knownDiscussion];
   const { logger, warnings } = recordingLogger();
@@ -335,13 +335,13 @@ test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and log
 
   const { findings } = await engine.review(context);
 
-  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
+  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }]);
   assert.deepEqual(warnings, [{ file: 'a.ts', line: 1, relatesTo: 'nope', reason: 'unknown_discussion' }]);
 });
 
 test('AgentReviewEngine removes every relatesTo when the discussions cannot be read', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.', relatesTo: 'd1' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.', relatesTo: 'd1' }])]);
   const context = smallContext();
   context.listDiscussions = async () => ({ error: 'Failed to list discussions: 500' });
   const { logger, warnings } = recordingLogger();
@@ -349,13 +349,13 @@ test('AgentReviewEngine removes every relatesTo when the discussions cannot be r
 
   const { findings } = await engine.review(context);
 
-  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]);
+  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }]);
   assert.equal(warnings[0]!.reason, 'discussions_unavailable');
 });
 
 test('AgentReviewEngine does not read discussions when no finding has relatesTo', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'x' }])]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'x' }])]);
   let reads = 0;
   const context = smallContext();
   context.listDiscussions = async () => {
@@ -373,8 +373,8 @@ test('AgentReviewEngine anchors each finding on its file and the trimmed text of
   const faux = fauxProvider();
   faux.setResponses([
     submitReview([
-      { file: 'a.ts', line: 2, severity: 'important', summary: 'One.' },
-      { file: 'a.ts', line: 4, severity: 'nit', summary: 'Two.' },
+      { file: 'a.ts', line: 2, severity: 'high', summary: 'One.' },
+      { file: 'a.ts', line: 4, severity: 'low', summary: 'Two.' },
     ]),
   ]);
   const context = smallContext();
@@ -467,7 +467,7 @@ for (const [name, options, reason] of [
     'a discussion a finding links to',
     {
       discussion: ownDiscussion(),
-      findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Still here.', relatesTo: 'd1' }],
+      findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Still here.', relatesTo: 'd1' }],
     },
     'linked_by_finding',
   ],
@@ -606,7 +606,7 @@ test('AgentReviewEngine reviews a large change in batches and merges their findi
   faux.setResponses(
     steps(3, (context) => {
       const part = partOf(context);
-      return submitReview([{ file: `f${part}.ts`, line: part, severity: 'nit', summary: `From part ${part}.` }]);
+      return submitReview([{ file: `f${part}.ts`, line: part, severity: 'low', summary: `From part ${part}.` }]);
     }),
   );
   const { logger, debugs, infos } = fullLogger();
@@ -640,7 +640,7 @@ test('AgentReviewEngine drops a finding outside its batch and logs outside_batch
   faux.setResponses(
     steps(2, (context) =>
       // Part 1 reports on f2.ts, which is in part 2.
-      submitReview([{ file: 'f2.ts', line: 5, severity: 'nit', summary: `From part ${partOf(context)}.` }]),
+      submitReview([{ file: 'f2.ts', line: 5, severity: 'low', summary: `From part ${partOf(context)}.` }]),
     ),
   );
   const { logger, warnings } = fullLogger();
@@ -675,7 +675,7 @@ test('AgentReviewEngine drops a declaration in batch 1 that a finding in batch 2
     steps(2, (context) =>
       partOf(context) === 1
         ? submitReview([], [{ discussionId: 'd1', reason: 'Fixed.' }])
-        : submitReview([{ file: 'f2.ts', line: 1, severity: 'nit', summary: 'Same.', relatesTo: 'd1' }]),
+        : submitReview([{ file: 'f2.ts', line: 1, severity: 'low', summary: 'Same.', relatesTo: 'd1' }]),
     ),
   );
   const { logger, warnings } = fullLogger();
@@ -732,7 +732,7 @@ test('AgentReviewEngine retries a run that ends with an error and uses the next 
   const faux = fauxProvider();
   faux.setResponses([
     fauxAssistantMessage('', { stopReason: 'error', errorMessage: 'Request timed out.' }),
-    submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }]),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }]),
   ]);
   const { logger, warnings } = fullLogger();
   const waits: number[] = [];
@@ -843,8 +843,8 @@ test('AgentReviewEngine fails the run when the agent ends with no accepted submi
 test('AgentReviewEngine accepts a corrected submit_review call after a rejected call, without consuming a run retry', async () => {
   const faux = fauxProvider();
   faux.setResponses([
-    submitReview([{ file: 'a.ts', line: 1, severity: 'critical', summary: 'Bad severity.' }]),
-    submitReview([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Fixed call.' }]),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'severe', summary: 'Bad severity.' }]),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'Fixed call.' }]),
   ]);
   const waits: number[] = [];
   const engine = new AgentReviewEngine({
@@ -869,14 +869,14 @@ test('AgentReviewEngine accepts a corrected submit_review call after a rejected 
 
 test('AgentReviewEngine retries the whole run when submit_review is invalid on every attempt', async () => {
   const faux = fauxProvider();
-  const badCall = () => submitReview([{ file: 'a.ts', line: 1, severity: 'critical', summary: 'Bad.' }]);
+  const badCall = () => submitReview([{ file: 'a.ts', line: 1, severity: 'severe', summary: 'Bad.' }]);
   faux.setResponses([
     badCall(),
     badCall(),
     badCall(),
     badCall(),
     badCall(),
-    submitReview([{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Second run succeeds.' }]),
+    submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Second run succeeds.' }]),
   ]);
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'k', sleep: noSleep });
 
@@ -896,8 +896,8 @@ test('AgentReviewEngine drops a finding on a generated file and reports the omit
   const faux = fauxProvider();
   faux.setResponses([
     submitReview([
-      { file: 'yarn.lock', line: 1, severity: 'nit', summary: 'Lock file.' },
-      { file: 'a.ts', line: 1, severity: 'nit', summary: 'Real.' },
+      { file: 'yarn.lock', line: 1, severity: 'low', summary: 'Lock file.' },
+      { file: 'a.ts', line: 1, severity: 'low', summary: 'Real.' },
     ]),
   ]);
   const { logger, warnings } = fullLogger();
@@ -935,7 +935,7 @@ test('AgentReviewEngine returns no unreviewed files when nothing is omitted', as
 test('AgentReviewEngine keeps an omitted file out of every batch, and drops its findings as diff_omitted', async () => {
   const faux = fauxProvider();
   faux.setResponses(
-    steps(2, () => submitReview([{ file: 'gen.ts', line: 1, severity: 'nit', summary: 'Generated.' }])),
+    steps(2, () => submitReview([{ file: 'gen.ts', line: 1, severity: 'low', summary: 'Generated.' }])),
   );
   const { logger, debugs, warnings } = fullLogger();
   // Without the omitted file the change needs 2 batches; a generated file

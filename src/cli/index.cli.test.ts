@@ -59,7 +59,7 @@ test('parseReviewCliOptions returns all-undefined fields when no flags are given
 });
 
 test('parseReviewCliOptions rejects a publish-only flag', () => {
-  assert.throws(() => parseReviewCliOptions(['--fail-on', 'nit'], HOST_FLAGS));
+  assert.throws(() => parseReviewCliOptions(['--fail-on', 'low'], HOST_FLAGS));
   assert.throws(() => parseReviewCliOptions(['--from', 'findings.json'], HOST_FLAGS));
 });
 
@@ -71,7 +71,7 @@ test('parsePublishCliOptions maps every publish flag to the matching field', () 
       '--change',
       '7',
       '--fail-on',
-      'nit',
+      'low',
       '--from',
       'my-findings.json',
       '--debug',
@@ -81,7 +81,7 @@ test('parsePublishCliOptions maps every publish flag to the matching field', () 
 
   assert.deepEqual(options, {
     host: { 'host-url': 'https://host.example.com', change: '7' },
-    failOnSeverity: 'nit',
+    failOnSeverity: 'low',
     from: 'my-findings.json',
     debug: true,
   });

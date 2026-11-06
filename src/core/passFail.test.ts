@@ -7,26 +7,30 @@ function finding(severity: Finding['severity']): Finding {
   return { file: 'a.ts', line: 1, severity, summary: 's' };
 }
 
-test('an important finding fails the default threshold', () => {
-  assert.equal(decidePassFail([finding('important')], 'important'), false);
+test('a high finding fails the default threshold', () => {
+  assert.equal(decidePassFail([finding('high')], 'high'), false);
 });
 
 test('every finding below the threshold passes', () => {
-  assert.equal(decidePassFail([finding('nit'), finding('pre_existing')], 'important'), true);
+  assert.equal(decidePassFail([finding('medium'), finding('pre_existing')], 'high'), true);
 });
 
 test('threshold set to none always passes', () => {
-  assert.equal(decidePassFail([finding('important')], 'none'), true);
+  assert.equal(decidePassFail([finding('high')], 'none'), true);
 });
 
-test('a nit finding fails a nit threshold', () => {
-  assert.equal(decidePassFail([finding('nit')], 'nit'), false);
+test('a low finding fails a low threshold', () => {
+  assert.equal(decidePassFail([finding('low')], 'low'), false);
 });
 
-test('a pre_existing-only finding passes a nit threshold', () => {
-  assert.equal(decidePassFail([finding('pre_existing')], 'nit'), true);
+test('a pre_existing-only finding passes a low threshold', () => {
+  assert.equal(decidePassFail([finding('pre_existing')], 'low'), true);
+});
+
+test('a critical finding fails every threshold below it', () => {
+  assert.equal(decidePassFail([finding('critical')], 'low'), false);
 });
 
 test('no findings always passes', () => {
-  assert.equal(decidePassFail([], 'important'), true);
+  assert.equal(decidePassFail([], 'high'), true);
 });
