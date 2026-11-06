@@ -1,6 +1,8 @@
 import { Type } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
+import { silentLogger, type Logger } from '../../logger.ts';
 import type { ReviewContext, ReviewDiscussion } from '../types.ts';
+import { ReviewFailureError, validateFinding, validateResolvedDiscussion, type ParsedReviewOutput } from './findings.ts';
 
 /** At most this many characters of one file go back to the agent, about
  * 25,000 tokens. A longer file is cut, and the result says so. */
@@ -140,6 +142,83 @@ export function createListDiscussionsTool(context: ReviewContext): AgentTool<typ
           : json;
 
       return { content: [{ type: 'text', text: `${DISCUSSIONS_FRAMING}\n${body}` }], details: null };
+    },
+  };
+}
+
+/** The agent loop has no turn limit of its own, so the tool caps how many
+ * `submit_review` calls one run accepts. */
+export const MAX_SUBMIT_ATTEMPTS = 5;
+
+const SubmitReviewParams = Type.Object({
+  findings: Type.Array(
+    Type.Object({
+      file: Type.String(),
+      line: Type.Integer(),
+      severity: Type.Union([Type.Literal('important'), Type.Literal('nit'), Type.Literal('pre_existing')]),
+      summary: Type.String(),
+      relatesTo: Type.Optional(Type.String()),
+    }),
+  ),
+  resolved: Type.Array(
+    Type.Object({
+      discussionId: Type.String(),
+      reason: Type.String(),
+    }),
+  ),
+});
+
+/** The submit-review tool: the agent's only way to report its findings and
+ * fixed-discussion declarations. Each call stands on its own and replaces any
+ * earlier call in the same run. A call with one invalid item is rejected
+ * whole; the agent may call the tool again, up to `MAX_SUBMIT_ATTEMPTS` times
+ * per run (`submit-review-via-tool` design, Decisions 2 and 3). */
+export function createSubmitReviewTool(
+  onSubmit: (output: ParsedReviewOutput) => void,
+  logger: Logger = silentLogger(),
+): AgentTool<typeof SubmitReviewParams> {
+  let calls = 0;
+
+  return {
+    name: 'submit_review',
+    label: 'Submit review',
+    description:
+      'Submits the review\'s findings and fixed-discussion declarations. Call this once, when you are done reviewing, with your complete set of findings and declarations.',
+    parameters: SubmitReviewParams,
+    async execute(_toolCallId, params) {
+      calls += 1;
+      const atLimit = calls >= MAX_SUBMIT_ATTEMPTS;
+
+      const errors: string[] = [];
+      const findings = params.findings.flatMap((item, index) => {
+        try {
+          return [validateFinding(item, index)];
+        } catch (error) {
+          if (!(error instanceof ReviewFailureError)) throw error;
+          errors.push(error.message);
+          return [];
+        }
+      });
+      const resolved = params.resolved.flatMap((item, index) => {
+        try {
+          return [validateResolvedDiscussion(item, index)];
+        } catch (error) {
+          if (!(error instanceof ReviewFailureError)) throw error;
+          errors.push(error.message);
+          return [];
+        }
+      });
+
+      if (errors.length > 0) {
+        logger.warn({ errors }, 'rejected a submit_review call with an invalid finding or declaration');
+        const text = atLimit
+          ? `submit_review can be called at most ${MAX_SUBMIT_ATTEMPTS} times in one review; this call is invalid and was the last one allowed:\n${errors.join('\n')}`
+          : `This submit_review call is invalid and none of it was kept. Fix every issue below and call submit_review again with your complete, corrected findings and declarations:\n${errors.join('\n')}`;
+        return { content: [{ type: 'text', text }], details: null, isError: true, terminate: atLimit };
+      }
+
+      onSubmit({ findings, resolved });
+      return { content: [{ type: 'text', text: 'Review submitted.' }], details: null, terminate: true };
     },
   };
 }

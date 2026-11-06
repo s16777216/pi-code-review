@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fauxAssistantMessage, fauxProvider } from '@earendil-works/pi-ai';
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import pino from 'pino';
 import type { PublishConfig, ReviewConfig } from '../config.ts';
 import type { ChangeRequest, DiscussionGateway } from '../core/ports.ts';
@@ -78,11 +78,17 @@ function fixturePublishConfig(overrides: Partial<PublishConfig> = {}): PublishCo
   };
 }
 
+/** A `submit_review` tool call, so the queued answer matches the agent's
+ * tool-call protocol instead of free text. */
+function submitReview(findings: Record<string, unknown>[] = [], resolved: Record<string, unknown>[] = []) {
+  return fauxAssistantMessage([fauxToolCall('submit_review', { findings, resolved } as never)], {
+    stopReason: 'toolUse',
+  });
+}
+
 test('runReview returns findings and the snapshot, and never posts anything', async () => {
   const faux = fauxProvider();
-  faux.setResponses([
-    fauxAssistantMessage(JSON.stringify([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }])),
-  ]);
+  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'important', summary: 'Off-by-one.' }])]);
 
   const client = new FakeMergeRequest(
     {
@@ -109,7 +115,7 @@ test('runReview returns findings and the snapshot, and never posts anything', as
 
 test('runReview returns an empty findings list when the review finds nothing', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
+  faux.setResponses([submitReview()]);
 
   const client = new FakeMergeRequest(
     { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
@@ -127,7 +133,7 @@ test('runReview returns an empty findings list when the review finds nothing', a
 
 test('runReview never logs the OpenAI API key', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('[]')]);
+  faux.setResponses([submitReview()]);
 
   const client = new FakeMergeRequest(
     { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
@@ -285,7 +291,7 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
 
 test('runReview writes the omitted files, and runPublish posts the comment on them', async () => {
   const faux = fauxProvider();
-  faux.setResponses([fauxAssistantMessage('{"findings": [], "resolved": []}')]);
+  faux.setResponses([submitReview()]);
   const client = new FakeMergeRequest(
     { title: 'Big', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [
