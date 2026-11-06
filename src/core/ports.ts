@@ -22,31 +22,38 @@ export interface DiscussionGateway {
 export type HostFlags = Record<string, string | undefined>;
 
 /** One platform: what happens before a change request is known
- * (`introduce-code-host` design, Decision 1). `Snapshot` is what `review`
- * writes to the findings file so that `publish` can find the same change
- * request again; its shape belongs to the host. */
-export interface CodeHost<Snapshot, Settings = unknown> {
-  /** The host's own CLI flags, added to the flags of each command. */
-  readonly flags: Record<string, { type: 'string' }>;
+ * (`introduce-code-host` design, Decision 1). `Snapshot` and `Source` are what
+ * `review` writes to the findings file so that `publish` can find the same
+ * change request again (`publish-target-from-findings` design). `Source`
+ * names the change request; `Snapshot` is the state that `publish` needs to
+ * post to it. Their shapes belong to the host. */
+export interface CodeHost<Snapshot, Source, ReviewSettings = unknown, PublishSettings = unknown> {
+  /** The host's own CLI flags for `review`. */
+  readonly reviewFlags: Record<string, { type: 'string' }>;
+  /** The host's own CLI flags for `publish`. None of them names a change request. */
+  readonly publishFlags: Record<string, { type: 'string' }>;
   /** True when this run is about a change request. */
   isChangeRequest(flags: HostFlags): boolean;
-  /** Reads the host's settings from its flags and environment variables, or
-   * throws `ConfigError`. Synchronous, so a command can read it at a fixed
-   * place among its other settings. */
-  readSettings(flags: HostFlags): Settings;
-  /** Connects with the settings. Calls no API. */
-  connect(settings: Settings, logger: Logger): Promise<HostConnection<Snapshot>>;
+  /** Reads the host's settings for `review` from its flags and environment
+   * variables, or throws `ConfigError`. Synchronous, so a command can read it
+   * at a fixed place among its other settings. */
+  readReviewSettings(flags: HostFlags): ReviewSettings;
+  /** Reads the host's settings for `publish`, in the same way. */
+  readPublishSettings(flags: HostFlags): PublishSettings;
+  /** Connects for `review`. Calls no API. Gives the change request of this run
+   * and the source to write to the findings file. */
+  openChangeRequest(
+    settings: ReviewSettings,
+    logger: Logger,
+  ): Promise<{ changeRequest: ChangeRequest<Snapshot>; source: Source }>;
+  /** Connects for `publish` to the change request that `source` names. Calls no API. */
+  restore(settings: PublishSettings, source: Source, snapshot: Snapshot, logger: Logger): Promise<DiscussionGateway>;
   /** Checks the snapshot from a findings file, or throws an `Error` that names
    * the field. Pure: calls no API. */
   parseSnapshot(value: unknown): Snapshot;
-}
-
-/** A host with its settings read: gives the change request of this run. */
-export interface HostConnection<Snapshot> {
-  /** The change request, for `review`. */
-  openChangeRequest(): ChangeRequest<Snapshot>;
-  /** The discussions of the change request that the snapshot names, for `publish`. */
-  restore(snapshot: Snapshot): DiscussionGateway;
+  /** Checks the source from a findings file, or throws an `Error` that names
+   * the field. Pure: calls no API. */
+  parseSource(value: unknown): Source;
 }
 
 /** One change request, for `review`: the read side. */

@@ -42,6 +42,8 @@ export interface ReviewOptions {
   config: ReviewConfig;
   /** The change request to review. Production passes the host's; tests pass a fake. */
   changeRequest: ChangeRequest<unknown>;
+  /** What names the change request in the findings file, for `publish`. */
+  source: unknown;
   /** The model provider to stream from. Production passes `openaiProvider()`;
    * tests pass `fauxProvider().provider` so no network call happens. */
   provider: Provider;
@@ -54,8 +56,8 @@ export interface ReviewOptions {
  * findings plus the snapshot `publish` will need. Never publishes anything
  * (a `ChangeRequest` cannot), and never decides pass/fail — see `design.md`'s
  * "Severity-threshold decision moves to publish, not review" decision. */
-export async function runReview(options: ReviewOptions): Promise<FindingsFile<unknown>> {
-  const { config, changeRequest, provider } = options;
+export async function runReview(options: ReviewOptions): Promise<FindingsFile<unknown, unknown>> {
+  const { config, changeRequest, source, provider } = options;
   const logger = options.logger ?? silentLogger();
 
   logger.info('Fetching merge request context from GitLab...');
@@ -73,14 +75,14 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<un
   const { findings, resolved, unreviewedFiles } = await engine.review(context);
   logger.info(`Review produced ${findings.length} finding(s) and ${resolved.length} fixed discussion(s).`);
 
-  return { diffRefs: snapshot, findings, resolved, unreviewedFiles };
+  return { diffRefs: snapshot, source, findings, resolved, unreviewedFiles };
 }
 
 export interface PublishOptions {
   config: PublishConfig;
   /** The discussions of the change request. Production passes the host's; tests pass a fake. */
   gateway: DiscussionGateway;
-  findingsFile: FindingsFile<unknown>;
+  findingsFile: FindingsFile<unknown, unknown>;
   /** Logs progress at `info` level. Defaults to a silent logger. */
   logger?: Logger;
 }
@@ -109,7 +111,7 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
  * configuration it needs" requirement). */
 export function parseReviewCliOptions(
   argv: string[],
-  hostFlags: CodeHost<unknown>['flags'],
+  hostFlags: CodeHost<unknown, unknown>['reviewFlags'],
 ): ReviewConfigOverrides & { out?: string; debug?: boolean; host: HostFlags } {
   const { values } = parseArgs({
     args: argv,
@@ -143,7 +145,7 @@ export function parseReviewCliOptions(
  * `--openai-api-key` — `publish` never contacts OpenAI. */
 export function parsePublishCliOptions(
   argv: string[],
-  hostFlags: CodeHost<unknown>['flags'],
+  hostFlags: CodeHost<unknown, unknown>['publishFlags'],
 ): PublishConfigOverrides & { from?: string; debug?: boolean; host: HostFlags } {
   const { values } = parseArgs({
     args: argv,
@@ -164,7 +166,7 @@ export function parsePublishCliOptions(
 }
 
 /** The values of the host's own flags, by flag name. */
-function pickHostFlags(values: Record<string, unknown>, hostFlags: CodeHost<unknown>['flags']): HostFlags {
+function pickHostFlags(values: Record<string, unknown>, hostFlags: Record<string, { type: 'string' }>): HostFlags {
   return Object.fromEntries(Object.keys(hostFlags).map((flag) => [flag, asString(values[flag])]));
 }
 
@@ -195,11 +197,11 @@ export const EXIT_ERROR = 2;
  * `review-cli` spec's "Review's exit code reflects only process success"
  * requirement. Exits 0 without writing a findings file when the pipeline is
  * not a merge request pipeline. */
-export async function runReviewCommand<Snapshot, Settings>(
+export async function runReviewCommand<Snapshot, Source, ReviewSettings, PublishSettings>(
   argv: string[],
-  host: CodeHost<Snapshot, Settings>,
+  host: CodeHost<Snapshot, Source, ReviewSettings, PublishSettings>,
 ): Promise<number> {
-  const cliOptions = parseReviewCliOptions(argv, host.flags);
+  const cliOptions = parseReviewCliOptions(argv, host.reviewFlags);
   const outPath = cliOptions.out ?? DEFAULT_FINDINGS_PATH;
   const logger = buildLogger(resolveDebug(cliOptions.debug));
 
@@ -208,15 +210,16 @@ export async function runReviewCommand<Snapshot, Settings>(
     return EXIT_PASS;
   }
 
-  let settings: Settings | undefined;
+  let settings: ReviewSettings | undefined;
   const config = loadReviewConfig(cliOptions, () => {
-    settings = host.readSettings(cliOptions.host);
+    settings = host.readReviewSettings(cliOptions.host);
   });
-  const connection = await host.connect(settings as Settings, logger);
+  const { changeRequest, source } = await host.openChangeRequest(settings as ReviewSettings, logger);
 
   const findingsFile = await runReview({
     config,
-    changeRequest: connection.openChangeRequest(),
+    changeRequest,
+    source,
     provider: openaiProvider(),
     logger,
   });
@@ -229,27 +232,31 @@ export async function runReviewCommand<Snapshot, Settings>(
  * and delegates to `runPublish()`. Its exit code is the
  * severity-threshold decision — see the `review-cli` spec's "Publish's exit
  * code reflects the severity-threshold decision" requirement. */
-export async function runPublishCommand<Snapshot, Settings>(
+export async function runPublishCommand<Snapshot, Source, ReviewSettings, PublishSettings>(
   argv: string[],
-  host: CodeHost<Snapshot, Settings>,
+  host: CodeHost<Snapshot, Source, ReviewSettings, PublishSettings>,
 ): Promise<number> {
-  const cliOptions = parsePublishCliOptions(argv, host.flags);
+  const cliOptions = parsePublishCliOptions(argv, host.publishFlags);
   const fromPath = cliOptions.from ?? DEFAULT_FINDINGS_PATH;
   const logger = buildLogger(resolveDebug(cliOptions.debug));
 
-  let settings: Settings | undefined;
+  let settings: PublishSettings | undefined;
   const config = loadPublishConfig(cliOptions, () => {
-    settings = host.readSettings(cliOptions.host);
+    settings = host.readPublishSettings(cliOptions.host);
   });
   // Read and validate the findings file before connecting to the host, so a
   // bad file can never reach the host's API (see the `review-cli` spec's
   // "Publish reads findings from a file" requirement).
-  const findingsFile = await readFindingsFile(fromPath, (value) => host.parseSnapshot(value));
-  const connection = await host.connect(settings as Settings, logger);
+  const findingsFile = await readFindingsFile(
+    fromPath,
+    (value) => host.parseSnapshot(value),
+    (value) => host.parseSource(value),
+  );
+  const gateway = await host.restore(settings as PublishSettings, findingsFile.source, findingsFile.diffRefs, logger);
 
   const passed = await runPublish({
     config,
-    gateway: connection.restore(findingsFile.diffRefs),
+    gateway,
     findingsFile,
     logger,
   });

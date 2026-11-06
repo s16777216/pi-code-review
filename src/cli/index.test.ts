@@ -12,6 +12,8 @@ import { main, runPublish, runReview } from './index.ts';
 
 type Position = { file: string; line: number };
 
+const SOURCE = { host: 'gitlab', projectId: '1', mergeRequestIid: '2' };
+
 /** A change request for the CLI tests: the read side (`load`) and the
  * discussion side, like a host's real class, with no host behind it. */
 class FakeMergeRequest implements ChangeRequest<unknown>, DiscussionGateway {
@@ -102,10 +104,12 @@ test('runReview returns findings and the snapshot, and never posts anything', as
   const findingsFile = await runReview({
     config: fixtureReviewConfig(),
     changeRequest: client,
+    source: SOURCE,
     provider: faux.provider,
   });
 
   assert.deepEqual(findingsFile.diffRefs, { baseSha: 'base', startSha: 'start', headSha: 'head' });
+  assert.deepEqual(findingsFile.source, SOURCE);
   assert.deepEqual(findingsFile.findings, [
     { file: 'a.ts', line: 1, severity: 'high', summary: 'Off-by-one.', anchor: computeAnchor('a.ts', 'new') },
   ]);
@@ -125,6 +129,7 @@ test('runReview returns an empty findings list when the review finds nothing', a
   const findingsFile = await runReview({
     config: fixtureReviewConfig(),
     changeRequest: client,
+    source: SOURCE,
     provider: faux.provider,
   });
 
@@ -171,7 +176,7 @@ test('runReview never logs the OpenAI API key', async () => {
     debugStream as unknown as NodeJS.WritableStream,
   );
 
-  await runReview({ config, changeRequest: client, provider: faux.provider, logger: debugLogger });
+  await runReview({ config, changeRequest: client, source: SOURCE, provider: faux.provider, logger: debugLogger });
 
   const output = debugLines.join('\n');
   assert.doesNotMatch(output, /sk-super-secret-api-key/);
@@ -182,10 +187,11 @@ test('runPublish publishes every finding', async () => {
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<unknown> = {
+  const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
     findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor nit.' }],
   };
 
@@ -205,10 +211,11 @@ test('runPublish publishes a high finding before failing on it (severity never b
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<unknown> = {
+  const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
     findings: [{ file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug.' }],
   };
 
@@ -228,10 +235,11 @@ test('runPublish passes when no finding meets the threshold', async () => {
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<unknown> = {
+  const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
     findings: [],
   };
 
@@ -261,10 +269,11 @@ test('runPublish still fails on a high finding that relates to an open discussio
       notes: [{ id: 1, author: 'bot', body: '<!-- pi-code-review -->\n**[high]** Off-by-one.' }],
     },
   ];
-  const findingsFile: FindingsFile<unknown> = {
+  const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
     findings: [{ file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug.', relatesTo: 'd1' }],
   };
 
@@ -279,10 +288,11 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [],
   );
-  const findingsFile: FindingsFile<unknown> = {
+  const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
     findings: [],
   };
 
@@ -303,6 +313,7 @@ test('runReview writes the omitted files, and runPublish posts the comment on th
   const findingsFile = await runReview({
     config: fixtureReviewConfig(),
     changeRequest: client,
+    source: SOURCE,
     provider: faux.provider,
   });
   assert.deepEqual(findingsFile.unreviewedFiles, [{ path: 'big.js', reason: 'too_large' }]);

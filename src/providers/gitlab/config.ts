@@ -1,14 +1,20 @@
 import { requireSetting } from '../../settings.ts';
 
-/** The GitLab connection fields both `review` and `publish` need. */
-export interface GitlabConnectionConfig {
+/** The GitLab fields that `publish` needs. It takes the project and the merge
+ * request from the findings file (`publish-target-from-findings` design). */
+export interface GitlabPublishConfig {
   apiUrl: string;
-  projectId: string;
-  mergeRequestIid: string;
   /** A GitLab personal or project access token (not a GitLab CI job token —
    * see `design.md`'s "Auth: always a personal/project access token"
    * decision), sent under the `PRIVATE-TOKEN` header. */
   token: string;
+}
+
+/** The GitLab fields that `review` needs: the publish fields, plus the merge
+ * request to read. */
+export interface GitlabConnectionConfig extends GitlabPublishConfig {
+  projectId: string;
+  mergeRequestIid: string;
 }
 
 /** CLI-argument values for the GitLab connection fields, each taking
@@ -36,7 +42,16 @@ export function isMergeRequestPipeline(overrides: { mergeRequestIid?: string } =
   return Boolean(overrides.mergeRequestIid ?? process.env.CI_MERGE_REQUEST_IID);
 }
 
-/** Reads the GitLab connection settings, in this order: `CI_API_V4_URL`,
+/** Reads the GitLab settings for `publish`, in this order: `CI_API_V4_URL`,
+ * `GITLAB_TOKEN`. It never reads the project or the merge request. */
+export function loadGitlabPublishConfig(overrides: GitlabConnectionOverrides): GitlabPublishConfig {
+  return {
+    apiUrl: requireSetting('CI_API_V4_URL', overrides.apiUrl),
+    token: requireSetting('GITLAB_TOKEN', overrides.token),
+  };
+}
+
+/** Reads the GitLab connection settings for `review`, in this order: `CI_API_V4_URL`,
  * `CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID`, `GITLAB_TOKEN`. The first one
  * that is missing is named in the `ConfigError`. */
 export function loadGitlabConnectionConfig(overrides: GitlabConnectionOverrides): GitlabConnectionConfig {

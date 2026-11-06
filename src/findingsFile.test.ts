@@ -6,23 +6,28 @@ import { join } from 'node:path';
 import { FindingsFileError, readFindingsFile, writeFindingsFile, type FindingsFile } from './findingsFile.ts';
 import { gitlabHost } from './providers/index.ts';
 
-/** The findings file stores the host's snapshot; these tests use GitLab's. */
+/** The findings file stores the host's snapshot and source; these tests use GitLab's. */
 const parseGitLabDiffRefs = (value: unknown) => gitlabHost.parseSnapshot(value);
+const parseGitLabSource = (value: unknown) => gitlabHost.parseSource(value);
 type GitLabDiffRefs = ReturnType<typeof parseGitLabDiffRefs>;
+type GitLabSource = ReturnType<typeof parseGitLabSource>;
+
+const validSource = { host: 'gitlab', projectId: '12', mergeRequestIid: '7' } as const;
 
 test('writeFindingsFile then readFindingsFile round-trips the same data', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
-  const data: FindingsFile<GitLabDiffRefs> = {
+  const data: FindingsFile<GitLabDiffRefs, GitLabSource> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: validSource,
     findings: [{ file: 'a.ts', line: 3, severity: 'high', summary: 'Off-by-one.' }],
   };
 
   try {
     await writeFindingsFile(path, data);
-    const result = await readFindingsFile(path, parseGitLabDiffRefs);
+    const result = await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
     assert.deepEqual(result, data);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -32,16 +37,17 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
 test('writeFindingsFile round-trips an empty findings list', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
-  const data: FindingsFile<GitLabDiffRefs> = {
+  const data: FindingsFile<GitLabDiffRefs, GitLabSource> = {
     unreviewedFiles: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: validSource,
     findings: [],
   };
 
   try {
     await writeFindingsFile(path, data);
-    const result = await readFindingsFile(path, parseGitLabDiffRefs);
+    const result = await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
     assert.deepEqual(result, data);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -49,7 +55,7 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
 });
 
 test('readFindingsFile throws a clear FindingsFileError for a missing file', async () => {
-  await assert.rejects(() => readFindingsFile('/does/not/exist/findings.json', parseGitLabDiffRefs), FindingsFileError);
+  await assert.rejects(() => readFindingsFile('/does/not/exist/findings.json', parseGitLabDiffRefs, parseGitLabSource), FindingsFileError);
 });
 
 test('readFindingsFile throws a clear FindingsFileError for unparsable JSON', async () => {
@@ -59,19 +65,21 @@ test('readFindingsFile throws a clear FindingsFileError for unparsable JSON', as
 
   try {
     await writeFile(path, 'not json', 'utf8');
-    await assert.rejects(() => readFindingsFile(path, parseGitLabDiffRefs), FindingsFileError);
+    await assert.rejects(() => readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource), FindingsFileError);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });
 
-async function readRaw(content: unknown): Promise<FindingsFile<GitLabDiffRefs>> {
+async function readRaw(content: unknown): Promise<FindingsFile<GitLabDiffRefs, GitLabSource>> {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');
   const { writeFile } = await import('node:fs/promises');
   try {
-    await writeFile(path, JSON.stringify(content), 'utf8');
-    return await readFindingsFile(path, parseGitLabDiffRefs);
+    const withSource =
+      typeof content === 'object' && content !== null && !Array.isArray(content) ? { source: validSource, ...content } : content;
+    await writeFile(path, JSON.stringify(withSource), 'utf8');
+    return await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -85,6 +93,31 @@ test('readFindingsFile rejects a file with no diffRefs, naming the file and the 
     () => readRaw({ findings: [] }),
     (error: unknown) =>
       error instanceof FindingsFileError && /findings\.json/.test(error.message) && /"diffRefs"/.test(error.message),
+  );
+});
+
+test('readFindingsFile rejects a file with no source, naming the file and the field', async () => {
+  await assert.rejects(
+    () => readRaw({ diffRefs: validRefs, source: undefined, findings: [] }),
+    (error: unknown) =>
+      error instanceof FindingsFileError && /findings.json/.test(error.message) && /"source"/.test(error.message),
+  );
+});
+
+test('readFindingsFile rejects an empty projectId and an empty mergeRequestIid', async () => {
+  for (const field of ['projectId', 'mergeRequestIid']) {
+    await assert.rejects(
+      () => readRaw({ diffRefs: validRefs, source: { ...validSource, [field]: '' }, findings: [] }),
+      (error: unknown) => error instanceof FindingsFileError && error.message.includes(`source.${field}`),
+    );
+  }
+});
+
+test('readFindingsFile rejects a source from another host', async () => {
+  await assert.rejects(
+    () => readRaw({ diffRefs: validRefs, source: { ...validSource, host: 'github' }, findings: [] }),
+    (error: unknown) =>
+      error instanceof FindingsFileError && /findings.json/.test(error.message) && /"github"/.test(error.message),
   );
 });
 
@@ -132,10 +165,17 @@ test('readFindingsFile ignores unknown extra fields', async () => {
   const result = await readRaw({
     version: 2,
     diffRefs: { ...validRefs, extra: 'x' },
+    source: { ...validSource, extra: 'x' },
     findings: [{ ...validFinding, note: 'extra' }],
   });
 
-  assert.deepEqual(result, { diffRefs: validRefs, findings: [validFinding], resolved: [], unreviewedFiles: [] });
+  assert.deepEqual(result, {
+    diffRefs: validRefs,
+    source: validSource,
+    findings: [validFinding],
+    resolved: [],
+    unreviewedFiles: [],
+  });
 });
 
 test("readFindingsFile keeps a finding's relatesTo", async () => {
