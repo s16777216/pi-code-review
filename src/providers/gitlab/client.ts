@@ -82,6 +82,10 @@ export interface DiscussionPosition {
   newPath: string | null;
   /** Only new-file lines are supported (see the diff line-mapping design decision). */
   newLine: number;
+  /** The old-file line, when `newLine` is unchanged context rather than an
+   * added line. GitLab needs both to position a comment on a context line;
+   * omitting it can make GitLab reject the position with a 400. */
+  oldLine?: number | null;
 }
 
 /** The write side of the GitLab API, kept separate from `MergeRequestProvider`
@@ -288,6 +292,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
           old_path: position.oldPath,
           new_path: position.newPath,
           new_line: position.newLine,
+          old_line: position.oldLine ?? null,
         },
       }),
     });

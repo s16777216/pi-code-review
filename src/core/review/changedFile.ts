@@ -52,6 +52,16 @@ export class ChangedFile {
     return match ? match.content : null;
   }
 
+  /** The old-file line number of the new-file line `line`, when that line is
+   * unchanged context (present in both versions); `null` for an added line,
+   * or when `line` is not in this file's diff. A host's discussion API may
+   * need the old-file line too when positioning a comment on a context
+   * line. */
+  oldLineFor(line: number): number | null {
+    const match = this.lines.find((diffLine) => diffLine.newLine === line && diffLine.type !== 'removed');
+    return match?.oldLine ?? null;
+  }
+
   /** The diff text with the new-file line number in front of every added and
    * context line, for the prompt (`numberDiffHunks`). */
   numbered(): string {
@@ -134,6 +144,12 @@ export class ChangeSet {
   /** The text of the added or context line, or `null`. */
   lineText(path: string, line: number): string | null {
     return this.file(path)?.newLineText(line) ?? null;
+  }
+
+  /** The old-file line number of `path`'s new-file line `line`, or `null`
+   * (an added line, an unknown file, or a line not in the diff). */
+  oldLineFor(path: string, line: number): number | null {
+    return this.file(path)?.oldLineFor(line) ?? null;
   }
 
   /** True when `path` is a changed file whose diff is omitted. */

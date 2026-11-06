@@ -195,7 +195,7 @@ test('getFileContent returns an error object instead of throwing on a 404', asyn
   }
 });
 
-test('createDiscussion sends a position with base/start/head SHA and the new-file line', async () => {
+test('createDiscussion sends a position with base/start/head SHA and the new-file line, and no old_line by default', async () => {
   const { calls, restore } = mockFetch(() => new Response(null, { status: 201 }));
   try {
     const client = await GitLabClient.create({
@@ -225,7 +225,34 @@ test('createDiscussion sends a position with base/start/head SHA and the new-fil
       old_path: 'a.ts',
       new_path: 'a.ts',
       new_line: 7,
+      old_line: null,
     });
+  } finally {
+    restore();
+  }
+});
+
+test('createDiscussion sends old_line when the position is a context line', async () => {
+  const { calls, restore } = mockFetch(() => new Response(null, { status: 201 }));
+  try {
+    const client = await GitLabClient.create({
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '1',
+      token: 'tok',
+    });
+    await client.createDiscussion('5', 'Context-line comment.', {
+      baseSha: 'base123',
+      startSha: 'start123',
+      headSha: 'head123',
+      oldPath: 'a.ts',
+      newPath: 'a.ts',
+      newLine: 7,
+      oldLine: 4,
+    });
+
+    const payload = JSON.parse(calls[0]!.body!);
+    assert.equal(payload.position.old_line, 4);
+    assert.equal(payload.position.new_line, 7);
   } finally {
     restore();
   }

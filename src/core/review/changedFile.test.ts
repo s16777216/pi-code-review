@@ -90,6 +90,19 @@ test('lineText returns the text of an added or context line, and null otherwise'
   assert.equal(changes.lineText('b.ts', 1), null);
 });
 
+test('oldLineFor returns the old-file line for a context line, and null for an added line', () => {
+  const changes = set({
+    oldPath: 'a.ts',
+    newPath: 'a.ts',
+    hunks: ['@@ -10,2 +20,3 @@', ' keep();', '-gone();', '+added();'].join('\n'),
+  });
+
+  assert.equal(changes.oldLineFor('a.ts', 20), 10); // keep(); is unchanged context
+  assert.equal(changes.oldLineFor('a.ts', 21), null); // added(); has no old-file line
+  assert.equal(changes.oldLineFor('a.ts', 99), null); // not in the diff
+  assert.equal(changes.oldLineFor('b.ts', 20), null); // unknown file
+});
+
 test('a deleted file has no new-file line, not even line 0', () => {
   const hunks = '@@ -1,3 +0,0 @@\n-export function oldHelper(x) {\n-  return x * 2;\n-}\n';
   const changes = set({ oldPath: 'old.js', newPath: 'old.js', hunks, deleted: true });
