@@ -155,7 +155,13 @@ const SubmitReviewParams = Type.Object({
     Type.Object({
       file: Type.String(),
       line: Type.Integer(),
-      severity: Type.Union([Type.Literal('important'), Type.Literal('nit'), Type.Literal('pre_existing')]),
+      severity: Type.Union([
+        Type.Literal('critical'),
+        Type.Literal('high'),
+        Type.Literal('medium'),
+        Type.Literal('low'),
+        Type.Literal('pre_existing'),
+      ]),
       summary: Type.String(),
       relatesTo: Type.Optional(Type.String()),
     }),

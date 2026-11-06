@@ -1,4 +1,4 @@
-export type Severity = 'important' | 'nit' | 'pre_existing';
+export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'pre_existing';
 
 /** The severity threshold for pass or fail; `none` always passes. */
 export type FailOnSeverity = Severity | 'none';

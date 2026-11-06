@@ -4,14 +4,14 @@
   {
    "file": "src/a.ts",
    "line": 2,
-   "severity": "important",
+   "severity": "high",
    "summary": "ok line",
    "anchor": "7245d82fa6677b40"
   },
   {
    "file": "src/a.ts",
    "line": 22,
-   "severity": "nit",
+   "severity": "low",
    "summary": "ok line in part 2",
    "relatesTo": "own-open",
    "anchor": "f33ac683e7cf24b2"
@@ -19,35 +19,35 @@
   {
    "file": "src/a.ts",
    "line": 3,
-   "severity": "nit",
+   "severity": "low",
    "summary": "unknown relatesTo",
    "anchor": "03d02f5ba60712e4"
   },
   {
    "file": "src/b.ts",
    "line": 1,
-   "severity": "nit",
+   "severity": "low",
    "summary": "in b first hunk",
    "anchor": "5ffbec37d2ff7e9d"
   },
   {
    "file": "src/b.ts",
    "line": 41,
-   "severity": "nit",
+   "severity": "low",
    "summary": "in b second hunk",
    "anchor": "ed754a6a73cfe51e"
   },
   {
    "file": "src/new-name.ts",
    "line": 3,
-   "severity": "important",
+   "severity": "high",
    "summary": "renamed file",
    "anchor": "031dd4ccc2dad25e"
   },
   {
    "file": "src/a.ts",
    "line": 1,
-   "severity": "nit",
+   "severity": "low",
    "summary": "context line",
    "anchor": "02c16c1b214c6428"
   }
@@ -100,7 +100,7 @@ WARNS [
  }
 ]
 INFOS []
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":2778}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3084}]
 DEBUG OTHER KEYS ["contentBlockTypes,stopReason,usage"]
 --- logged prompt batch=- ---
 # Change: Characterization change
@@ -200,14 +200,14 @@ Pins the prompts.
   {
    "file": "src/a.ts",
    "line": 2,
-   "severity": "important",
+   "severity": "high",
    "summary": "ok line",
    "anchor": "7245d82fa6677b40"
   },
   {
    "file": "src/a.ts",
    "line": 22,
-   "severity": "nit",
+   "severity": "low",
    "summary": "ok line in part 2",
    "relatesTo": "own-open",
    "anchor": "f33ac683e7cf24b2"
@@ -215,35 +215,35 @@ Pins the prompts.
   {
    "file": "src/a.ts",
    "line": 3,
-   "severity": "nit",
+   "severity": "low",
    "summary": "unknown relatesTo",
    "anchor": "03d02f5ba60712e4"
   },
   {
    "file": "src/a.ts",
    "line": 1,
-   "severity": "nit",
+   "severity": "low",
    "summary": "context line",
    "anchor": "02c16c1b214c6428"
   },
   {
    "file": "src/b.ts",
    "line": 1,
-   "severity": "nit",
+   "severity": "low",
    "summary": "in b first hunk",
    "anchor": "5ffbec37d2ff7e9d"
   },
   {
    "file": "src/b.ts",
    "line": 41,
-   "severity": "nit",
+   "severity": "low",
    "summary": "in b second hunk",
    "anchor": "ed754a6a73cfe51e"
   },
   {
    "file": "src/new-name.ts",
    "line": 3,
-   "severity": "important",
+   "severity": "high",
    "summary": "renamed file",
    "anchor": "031dd4ccc2dad25e"
   }
@@ -467,7 +467,7 @@ WARNS [
  }
 ]
 INFOS [{"batches":4}]
-DEBUG PROMPT FIELDS [{"batch":1,"promptChars":756,"systemChars":3082},{"batch":2,"promptChars":1562,"systemChars":3082},{"batch":3,"promptChars":1564,"systemChars":3082},{"batch":4,"promptChars":1759,"systemChars":3082}]
+DEBUG PROMPT FIELDS [{"batch":1,"promptChars":756,"systemChars":3388},{"batch":2,"promptChars":1562,"systemChars":3388},{"batch":3,"promptChars":1564,"systemChars":3388},{"batch":4,"promptChars":1759,"systemChars":3388}]
 DEBUG OTHER KEYS ["batch,contentBlockTypes,stopReason,usage","batch,contentBlockTypes,stopReason,usage","batch,contentBlockTypes,stopReason,usage","batch,contentBlockTypes,stopReason,usage"]
 --- logged prompt batch=1 ---
 # Change: Characterization change

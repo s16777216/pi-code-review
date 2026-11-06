@@ -90,13 +90,13 @@ test('loadPublishConfig returns a config object when all required variables are 
   clearEnv();
   withFullEnv();
   const config = loadPublishConfig();
-  assert.equal(config.failOnSeverity, 'important');
+  assert.equal(config.failOnSeverity, 'high');
   clearEnv();
 });
 
 test('loadPublishConfig rejects an invalid FAIL_ON_SEVERITY value', () => {
   clearEnv();
-  withFullEnv({ FAIL_ON_SEVERITY: 'critical' });
+  withFullEnv({ FAIL_ON_SEVERITY: 'bogus' });
   assert.throws(() => loadPublishConfig(), ConfigError);
   clearEnv();
 });
@@ -122,9 +122,9 @@ test('loadReviewConfig uses CLI values for model/openaiBaseUrl when those env va
 
 test('loadPublishConfig prefers a CLI value for failOnSeverity over its env var when both are set', () => {
   clearEnv();
-  withFullEnv({ FAIL_ON_SEVERITY: 'important' });
-  const config = loadPublishConfig({ failOnSeverity: 'nit' });
-  assert.equal(config.failOnSeverity, 'nit');
+  withFullEnv({ FAIL_ON_SEVERITY: 'medium' });
+  const config = loadPublishConfig({ failOnSeverity: 'low' });
+  assert.equal(config.failOnSeverity, 'low');
   clearEnv();
 });
 
@@ -245,7 +245,7 @@ test('loadReviewConfig reads the host settings after --max-tokens and --language
 test('loadPublishConfig reads the host settings after the threshold is checked', () => {
   clearEnv();
   const calls: string[] = [];
-  assert.throws(() => loadPublishConfig({ failOnSeverity: 'critical' }, () => calls.push('host')), ConfigError);
+  assert.throws(() => loadPublishConfig({ failOnSeverity: 'bogus' }, () => calls.push('host')), ConfigError);
   assert.equal(calls.length, 0);
   loadPublishConfig({}, () => calls.push('host'));
   assert.deepEqual(calls, ['host']);

@@ -54,7 +54,7 @@ The `publish` command SHALL read findings and diff refs from a JSON file given b
 - **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, and reports an error that names the file and the missing field
 
 #### Scenario: Findings file has an invalid finding
-- **WHEN** the findings file contains a finding with a missing field, a non-integer line, or a severity that is not `important`, `nit`, or `pre_existing`
+- **WHEN** the findings file contains a finding with a missing field, a non-integer line, or a severity that is not `critical`, `high`, `medium`, `low`, or `pre_existing`
 - **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, posts no discussion, and reports an error that names the finding's index and field
 
 #### Scenario: Findings file is not an object
@@ -77,7 +77,7 @@ The `publish` command SHALL read findings and diff refs from a JSON file given b
 The `review` command's exit code MUST NOT depend on the severity of any finding. It SHALL be 0 when the review completes, and 2 when the review process itself fails (for example, a GitLab or OpenAI API error). The `review` command MUST NOT exit with code 1.
 
 #### Scenario: Review finds a severe bug
-- **WHEN** the `review` command completes and writes a findings file containing a finding with severity `important`
+- **WHEN** the `review` command completes and writes a findings file containing a finding with severity `critical`
 - **THEN** the `review` command exits with code 0
 
 #### Scenario: Review's own process fails

@@ -40,7 +40,7 @@ function logger(): { logger: Logger; warnings: Record<string, unknown>[] } {
 }
 
 function finding(file: string, line: number): Finding {
-  return { file, line, severity: 'nit', summary: `${file}:${line}` };
+  return { file, line, severity: 'low', summary: `${file}:${line}` };
 }
 
 /** A batch with the first hunk of a.ts (lines 1-3), as the planner gives it. */

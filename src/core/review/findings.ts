@@ -2,7 +2,7 @@ import type { Finding, ResolvedDiscussion, Severity } from '../types.ts';
 
 export class ReviewFailureError extends Error {}
 
-const VALID_SEVERITIES: readonly Severity[] = ['important', 'nit', 'pre_existing'];
+const VALID_SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'pre_existing'];
 
 /** Checks one finding's shape and returns it with only the known fields. Shared by
  * the engine (agent output) and `findingsFile.ts` (the file `publish` reads), so the

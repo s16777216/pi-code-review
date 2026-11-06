@@ -198,14 +198,14 @@ test('submit_review accepts a valid call and reports terminate: true', async () 
   const tool = createSubmitReviewTool(onSubmit);
 
   const result = await tool.execute('call-1', {
-    findings: [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }],
+    findings: [{ file: 'a.ts', line: 1, severity: 'high', summary: 'Real bug.' }],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
   });
 
   assert.equal(result.isError, undefined);
   assert.equal(result.terminate, true);
   assert.deepEqual(calls, [
-    { findings: [{ file: 'a.ts', line: 1, severity: 'important', summary: 'Real bug.' }], resolved: [{ discussionId: 'd1', reason: 'Fixed.' }] },
+    { findings: [{ file: 'a.ts', line: 1, severity: 'high', summary: 'Real bug.' }], resolved: [{ discussionId: 'd1', reason: 'Fixed.' }] },
   ]);
 });
 
@@ -215,8 +215,8 @@ test('submit_review rejects a call with one invalid finding and keeps none of it
 
   const result = await tool.execute('call-1', {
     findings: [
-      { file: 'a.ts', line: 1, severity: 'important', summary: 'Good.' },
-      { file: 'a.ts', line: 2, severity: 'critical' as never, summary: 'Bad severity.' },
+      { file: 'a.ts', line: 1, severity: 'high', summary: 'Good.' },
+      { file: 'a.ts', line: 2, severity: 'severe' as never, summary: 'Bad severity.' },
     ],
     resolved: [],
   });
@@ -231,7 +231,7 @@ test('submit_review rejects a call with one invalid declaration and keeps none o
   const tool = createSubmitReviewTool(onSubmit);
 
   const result = await tool.execute('call-1', {
-    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Minor.' }],
+    findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }],
     resolved: [{ discussionId: 'd1', reason: '' }],
   });
 
@@ -245,24 +245,24 @@ test('submit_review accepts a corrected second call after a rejected first call'
   const tool = createSubmitReviewTool(onSubmit);
 
   const first = await tool.execute('call-1', {
-    findings: [{ file: 'a.ts', line: 1, severity: 'critical' as never, summary: 'Bad.' }],
+    findings: [{ file: 'a.ts', line: 1, severity: 'severe' as never, summary: 'Bad.' }],
     resolved: [],
   });
   const second = await tool.execute('call-2', {
-    findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Fixed call.' }],
+    findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Fixed call.' }],
     resolved: [],
   });
 
   assert.equal(first.isError, true);
   assert.equal(second.isError, undefined);
   assert.equal(second.terminate, true);
-  assert.deepEqual(calls, [{ findings: [{ file: 'a.ts', line: 1, severity: 'nit', summary: 'Fixed call.' }], resolved: [] }]);
+  assert.deepEqual(calls, [{ findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Fixed call.' }], resolved: [] }]);
 });
 
 test('submit_review ends the run on the attempt-limit-th invalid call', async () => {
   const { onSubmit, calls } = submissions();
   const tool = createSubmitReviewTool(onSubmit);
-  const badCall = { findings: [{ file: 'a.ts', line: 1, severity: 'critical' as never, summary: 'Bad.' }], resolved: [] };
+  const badCall = { findings: [{ file: 'a.ts', line: 1, severity: 'severe' as never, summary: 'Bad.' }], resolved: [] };
 
   let last: Awaited<ReturnType<typeof tool.execute>> | undefined;
   for (let i = 1; i <= MAX_SUBMIT_ATTEMPTS; i += 1) {

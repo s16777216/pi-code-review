@@ -1,7 +1,7 @@
 import type { FailOnSeverity } from './core/types.ts';
 import { ConfigError, requireSetting } from './settings.ts';
 
-const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ['important', 'nit', 'none'];
+const VALID_FAIL_ON_SEVERITY: FailOnSeverity[] = ['critical', 'high', 'medium', 'low', 'none'];
 const DEFAULT_MAX_TOKENS = 32_000;
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 
@@ -137,7 +137,7 @@ export function loadPublishConfig(
   overrides: PublishConfigOverrides = {},
   readHostSettings?: () => void,
 ): PublishConfig {
-  const failOnSeverity = (overrides.failOnSeverity ?? process.env.FAIL_ON_SEVERITY ?? 'important') as FailOnSeverity;
+  const failOnSeverity = (overrides.failOnSeverity ?? process.env.FAIL_ON_SEVERITY ?? 'high') as FailOnSeverity;
   if (!VALID_FAIL_ON_SEVERITY.includes(failOnSeverity)) {
     throw new ConfigError(
       `Invalid FAIL_ON_SEVERITY value: "${failOnSeverity}". Must be one of ${VALID_FAIL_ON_SEVERITY.join(', ')}.`,

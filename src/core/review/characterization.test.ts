@@ -22,16 +22,16 @@ import { fixtureContext } from './characterization.fixtures.ts';
 /** Every case the checks handle, in one agent output. */
 const AGENT_OUTPUT = {
   findings: [
-    { file: 'src/a.ts', line: 2, severity: 'important', summary: 'ok line' },
-    { file: 'src/a.ts', line: 22, severity: 'nit', summary: 'ok line in part 2', relatesTo: 'own-open' },
-    { file: 'src/a.ts', line: 3, severity: 'nit', summary: 'unknown relatesTo', relatesTo: 'nope' },
-    { file: 'src/a.ts', line: 99, severity: 'nit', summary: 'line not in diff' },
-    { file: 'src/zzz.ts', line: 1, severity: 'nit', summary: 'file not changed' },
-    { file: 'yarn.lock', line: 1, severity: 'nit', summary: 'omitted file' },
-    { file: 'src/b.ts', line: 1, severity: 'nit', summary: 'in b first hunk' },
-    { file: 'src/b.ts', line: 41, severity: 'nit', summary: 'in b second hunk' },
-    { file: 'src/new-name.ts', line: 3, severity: 'important', summary: 'renamed file' },
-    { file: 'src/a.ts', line: 1, severity: 'nit', summary: 'context line' },
+    { file: 'src/a.ts', line: 2, severity: 'high', summary: 'ok line' },
+    { file: 'src/a.ts', line: 22, severity: 'low', summary: 'ok line in part 2', relatesTo: 'own-open' },
+    { file: 'src/a.ts', line: 3, severity: 'low', summary: 'unknown relatesTo', relatesTo: 'nope' },
+    { file: 'src/a.ts', line: 99, severity: 'low', summary: 'line not in diff' },
+    { file: 'src/zzz.ts', line: 1, severity: 'low', summary: 'file not changed' },
+    { file: 'yarn.lock', line: 1, severity: 'low', summary: 'omitted file' },
+    { file: 'src/b.ts', line: 1, severity: 'low', summary: 'in b first hunk' },
+    { file: 'src/b.ts', line: 41, severity: 'low', summary: 'in b second hunk' },
+    { file: 'src/new-name.ts', line: 3, severity: 'high', summary: 'renamed file' },
+    { file: 'src/a.ts', line: 1, severity: 'low', summary: 'context line' },
   ],
   resolved: [
     { discussionId: 'own-open', reason: 'declared' },
@@ -92,7 +92,7 @@ async function render(window: number, label: string): Promise<string> {
 }
 
 async function renderAll(): Promise<string> {
-  const parts = [await render(128000, 'SINGLE RUN'), await render(3700, 'BATCHES')];
+  const parts = [await render(128000, 'SINGLE RUN'), await render(4000, 'BATCHES')];
   parts.push('=== SYSTEM PROMPT TAILS ===');
   parts.push(buildSystemPrompt().slice(-60));
   parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4)).slice(-420));

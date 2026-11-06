@@ -57,8 +57,8 @@ class FakeGateway implements DiscussionGateway {
 
 function findings(): Finding[] {
   return [
-    { file: 'a.ts', line: 3, severity: 'important', summary: 'Bug A.' },
-    { file: 'b.ts', line: 5, severity: 'nit', summary: 'Bug B.' },
+    { file: 'a.ts', line: 3, severity: 'high', summary: 'Bug A.' },
+    { file: 'b.ts', line: 5, severity: 'low', summary: 'Bug B.' },
   ];
 }
 
@@ -113,7 +113,7 @@ function existingDiscussion(
     id,
     position: { file: 'a.ts', line: options.newLine ?? 3, commit: 'old-head' },
     resolved: options.resolved,
-    notes: [{ id: 1, author: options.own ? 'bot' : 'alice', body: `${marker}**[important]** Bug A.` }],
+    notes: [{ id: 1, author: options.own ? 'bot' : 'alice', body: `${marker}**[high]** Bug A.` }],
   };
 }
 
@@ -132,13 +132,13 @@ function recordingLogger(): {
   return { logger, warnings, infos };
 }
 
-const bugA: Finding = { file: 'a.ts', line: 3, severity: 'important', summary: 'Bug A.', anchor: ANCHOR };
+const bugA: Finding = { file: 'a.ts', line: 3, severity: 'high', summary: 'Bug A.', anchor: ANCHOR };
 
 test('publish writes the anchor into the marker', async () => {
   const writer = new FakeGateway();
   await new Publisher(writer).publish([bugA]);
 
-  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.`);
+  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.`);
 });
 
 test('publish posts nothing for a finding that relates to an open discussion, and logs the skip count', async () => {
@@ -161,7 +161,7 @@ test('publish replies to and reopens a resolved discussion that a finding relate
 
   assert.equal(writer.calls.length, 0);
   assert.deepEqual(writer.replies, [
-    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.` },
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.` },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
 });
@@ -205,7 +205,7 @@ test('publish replies to and reopens a resolved discussion from this tool that h
 
   assert.equal(writer.calls.length, 0);
   assert.deepEqual(writer.replies, [
-    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.` },
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.` },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
 });
@@ -268,14 +268,14 @@ test('publish creates a discussion for every finding and logs a warning when the
 
   await new Publisher(writer, { logger }).publish([
     { ...bugA, relatesTo: 'd1' },
-    { file: 'b.ts', line: 5, severity: 'nit', summary: 'Bug B.' },
+    { file: 'b.ts', line: 5, severity: 'low', summary: 'Bug B.' },
   ]);
 
   assert.equal(writer.calls.length, 2);
   assert.deepEqual(warnings, [{ error: '500 Internal Server Error' }]);
 });
 
-const bugA2: Finding = { file: 'a.ts', line: 3, severity: 'nit', summary: 'Also a naming problem.', anchor: ANCHOR };
+const bugA2: Finding = { file: 'a.ts', line: 3, severity: 'low', summary: 'Also a naming problem.', anchor: ANCHOR };
 
 test('publish merges two findings on the same line into one discussion and logs the merge', async () => {
   const writer = new FakeGateway();
@@ -287,7 +287,7 @@ test('publish merges two findings on the same line into one discussion and logs 
   assert.equal(writer.calls[0]!.position.line, 3);
   assert.equal(
     writer.calls[0]!.body,
-    `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.\n\n**[nit]** Also a naming problem.`,
+    `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.\n\n**[low]** Also a naming problem.`,
   );
   assert.deepEqual(infos, [{ merged: 1 }]);
 });
@@ -299,7 +299,7 @@ test('publish keeps findings file order inside a merged comment', async () => {
 
   assert.match(
     writer.calls[0]!.body,
-    /^<!-- [^\n]+ -->\n\*\*\[nit\]\*\* Also a naming problem\.\n\n\*\*\[important\]\*\* Bug A\.$/,
+    /^<!-- [^\n]+ -->\n\*\*\[low\]\*\* Also a naming problem\.\n\n\*\*\[high\]\*\* Bug A\.$/,
   );
 });
 
@@ -320,8 +320,8 @@ test('publish does not merge findings on the same line number in different files
   const writer = new FakeGateway();
 
   await new Publisher(writer).publish([
-    { file: 'a.ts', line: 3, severity: 'nit', summary: 'A.' },
-    { file: 'b.ts', line: 3, severity: 'nit', summary: 'B.' },
+    { file: 'a.ts', line: 3, severity: 'low', summary: 'A.' },
+    { file: 'b.ts', line: 3, severity: 'low', summary: 'B.' },
   ]);
 
   assert.equal(writer.calls.length, 2);
@@ -334,14 +334,14 @@ test('publish sends one reply and one reopen for two findings that reply to the 
   await new Publisher(writer).publish([
     { ...bugA, relatesTo: 'd1' },
     // No relatesTo, but the same anchor: the same target.
-    { file: 'a.ts', line: 7, severity: 'nit', summary: 'Second.', anchor: ANCHOR },
+    { file: 'a.ts', line: 7, severity: 'low', summary: 'Second.', anchor: ANCHOR },
   ]);
 
   assert.equal(writer.calls.length, 0);
   assert.deepEqual(writer.replies, [
     {
       discussionId: 'd1',
-      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[important]** Bug A.\n\n**[nit]** Second.`,
+      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.\n\n**[low]** Second.`,
     },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
