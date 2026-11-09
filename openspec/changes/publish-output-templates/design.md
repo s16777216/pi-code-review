@@ -84,7 +84,7 @@ Capability to module map:
 
 ## Pending sync notes
 
-`openspec-sync-specs` must refresh these local `SPEC.md` files from the implemented code:
+Resolved by `openspec-sync-specs`:
 
-- `src/core/publish/SPEC.md` (capability `review-output`): add the entry point `template.ts` (`fillTemplate`, `loadTemplates`, `DEFAULT_TEMPLATES`, `TemplateError`). Change the line about comment bodies: the marker, then one paragraph for each finding from the finding template, joined by a blank line. `Publisher` takes an optional `templates` option.
-- `src/cli/SPEC.md` (capability `review-cli`): add the `publish` flag `--template-dir` and the variable `PUBLISH_TEMPLATE_DIR` (`config.ts`: `PublishConfig.templateDir`). `runPublishCommand` loads the templates after it reads the findings file and before `host.restore`. `review` rejects the flag.
+- `src/core/publish/SPEC.md` (capability `review-output`): updated, because `template.ts` is a new file in that directory.
+- `src/cli/SPEC.md` (capability `review-cli`): no update. This change added, removed, and renamed no file there, so the folder guide is still current.
