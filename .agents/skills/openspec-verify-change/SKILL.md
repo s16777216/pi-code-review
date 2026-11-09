@@ -112,7 +112,7 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
      - Recommendation: "Consider following project pattern: <example>"
 
    **Local Implementation Specs**:
-   - For each affected repo/module, read its `SPEC.md` at the chosen ownership root. Check that it names the full capability ID, links to the matching central spec (or gives a stable path when that spec is in another repo), and accurately describes responsibility, entry points, and interfaces.
+   - For each directory whose files this change touched, read its `SPEC.md` if one exists. Check that: every listed file/subfolder exists; new or renamed files are covered by Contents or by the parent's one-line entry; if a Capabilities section exists, it is short, lists only capabilities this directory is primarily responsible for, and each has the full capability ID with a valid link (or stable path when the spec is in another repo) - a missing Capabilities section is fine; the file stays short (about 30 lines) and contains no flows, numeric limits, versions, test inventories, or copied requirement text (report as WARNING or SUGGESTION).
    - Read the change's pending local sync notes. Before sync, report expected local documentation updates as pending integration, not failed implementation. Recommend `openspec-sync-specs` for these paths. If a path claimed as synced is missing, broken, or stale, report a WARNING. Check unresolved pending entries before recommending archive.
    - Use central specs and delta specs for requirement/scenario checks; local `SPEC.md` describes actual code and must not claim unimplemented behavior.
 
@@ -259,9 +259,10 @@ Verify that an implementation matches the change artifacts (specs, tasks, design
 
    **Final Assessment**:
    - If local documentation is pending integration: state that separately from implementation findings and recommend `openspec-sync-specs` (after completing any unimplemented portions) before archive. Do not report ready for archive while these entries remain unresolved.
-   - If CRITICAL issues: "X critical issue(s) found. Fix before archiving."
-   - If only warnings: "No critical issues. Y warning(s) to consider. Ready for archive (with noted improvements)."
-   - If all clear: "All checks passed. Ready for archive."
+   - If CRITICAL issues: "X critical issue(s) found. Fix before archiving. Next step: continue implementation with `openspec-apply-change`, then re-run `openspec-verify-change`."
+   - If only warnings: "No critical issues. Y warning(s) to consider. Ready for archive (with noted improvements). Next step: `openspec-archive-change`."
+   - If all clear: "All checks passed. Ready for archive. Next step: `openspec-archive-change`."
+   - Refer to next steps only by these skill names. Never use `/opsx-*` or `/opsx:*` command names.
 
 **Verification Heuristics**
 

@@ -46,7 +46,7 @@ Implement tasks from an OpenSpec change.
 
    **Handle states:**
    - If `state: "blocked"` (missing artifacts): show message, suggest using `openspec-continue-change`
-   - If `state: "all_done"`: report implementation complete, review pending sync notes, and suggest `openspec-sync-specs` before archive
+   - If `state: "all_done"`: report implementation complete, review pending sync notes, and suggest `openspec-verify-change`, then `openspec-sync-specs` (if there are pending sync notes), then `openspec-archive-change`
    - Otherwise: proceed to implementation
 
 4. **Read context files**
@@ -60,7 +60,7 @@ Implement tasks from an OpenSpec change.
    - `openspec/GLOSSARY.md` (project-level terms, if exists)
    - `openspec/changes/<name>/GLOSSARY.md` (change-level terms, if exists)
 
-   Read existing `SPEC.md` files at the affected repo or module roots. They describe the current implementation and link to central capability specs. Use them as implementation context; the central `openspec/specs/<capability-id>/spec.md` remains the source for behavioral requirements.
+   Read the `SPEC.md` folder guide of each directory you will work in, plus its parent `SPEC.md` files up to the module root; do not load unrelated ones. They summarize what each directory contains and link to central capability specs. Use them as implementation context; the central `openspec/specs/<capability-id>/spec.md` remains the source for behavioral requirements.
 
 5. **Show current progress**
 
@@ -76,7 +76,7 @@ Implement tasks from an OpenSpec change.
    - Show which task is being worked on
    - Make the code changes required
    - Keep changes minimal and focused
-   - Record affected local `SPEC.md` paths and capability IDs as pending sync notes in the change's design artifact (or a separate notes section in the tasks artifact if no design exists). Include implementation locations useful for the refresh. Local `SPEC.md` creation and updates belong to `openspec-sync-specs`.
+   - Record affected local `SPEC.md` paths (directories whose files changed) and capability IDs as pending sync notes in the change's design artifact (or a separate notes section in the tasks artifact if no design exists). Local `SPEC.md` creation and updates belong to `openspec-sync-specs`, which asks the user for approval first; do not write them here.
    - Mark task complete in the tasks file: `- [ ]` → `- [x]`
    - Continue to next task
 
@@ -93,7 +93,7 @@ Implement tasks from an OpenSpec change.
    Display:
    - Tasks completed this session
    - Overall progress: "N/M tasks complete"
-   - If all done: suggest `openspec-sync-specs` to integrate main specs and local documentation before archive
+   - If all done: suggest `openspec-verify-change` first, then `openspec-sync-specs` to integrate main specs and local documentation, then `openspec-archive-change`
    - If paused: explain why and wait for guidance
 
 **Output During Implementation**
@@ -124,7 +124,7 @@ Working on task 4/7: <task description>
 - [x] Task 2
 ...
 
-All implementation tasks complete! Run `openspec-sync-specs` to integrate main specs and local documentation, then use `openspec-archive-change`.
+All implementation tasks complete! Next steps: run `openspec-verify-change`, then `openspec-sync-specs` to integrate main specs and local documentation, then `openspec-archive-change`.
 ```
 
 **Output On Pause (Issue Encountered)**
