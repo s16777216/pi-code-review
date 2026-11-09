@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -193,4 +193,81 @@ test('review exits 2 and writes no findings file when GitLab is unreachable', as
   } finally {
     rmSync(scratchDir, { recursive: true, force: true });
   }
+});
+
+/** `publish` must check its templates before it touches the host
+ * (`publish-output-templates` design, Decision 3). As above, the URL points at
+ * a closed local port, so a call to the host would show up as a connection
+ * failure instead of the template message. */
+async function runPublishWithTemplates(
+  templateDirFor: (scratchDir: string) => string,
+  prepare: (templateDir: string) => void,
+): Promise<{ code: number; stderr: string }> {
+  const entrypoint = fileURLToPath(new URL('./index.ts', import.meta.url));
+  const scratchDir = mkdtempSync(join(tmpdir(), 'picr-publish-templates-'));
+  const findingsPath = join(scratchDir, 'findings.json');
+  writeFileSync(
+    findingsPath,
+    JSON.stringify({
+      diffRefs: { baseSha: 'b', startSha: 's', headSha: 'h' },
+      source: { host: 'gitlab', projectId: '12', mergeRequestIid: '7' },
+      findings: [{ file: 'a.ts', line: 3, severity: 'high', summary: 'Bug A.' }],
+    }),
+    'utf8',
+  );
+  const templateDir = templateDirFor(scratchDir);
+  prepare(templateDir);
+
+  try {
+    await execFileAsync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        entrypoint,
+        'publish',
+        '--gitlab-url',
+        'http://127.0.0.1:9/api/v4',
+        '--token',
+        'test-token',
+        '--from',
+        findingsPath,
+        '--template-dir',
+        templateDir,
+      ],
+      { env: envWithoutSettings() },
+    );
+    assert.fail('publish was expected to stop with an error');
+  } catch (error: unknown) {
+    const { code, stderr } = error as { code: number; stderr: string };
+    return { code, stderr };
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true });
+  }
+}
+
+test('publish with a template that has no ${summary} exits 2 and names the file, before any host call', async () => {
+  const { code, stderr } = await runPublishWithTemplates(
+    (scratchDir) => join(scratchDir, 'templates'),
+    (templateDir) => {
+      mkdirSync(templateDir);
+      writeFileSync(join(templateDir, 'finding.md'), '${severity} only', 'utf8');
+    },
+  );
+
+  assert.equal(code, 2);
+  assert.match(stderr, /finding\.md/);
+  assert.match(stderr, /\$\{summary\}/);
+  assert.doesNotMatch(stderr, /ECONNREFUSED|fetch failed/);
+});
+
+test('publish with a template directory that does not exist exits 2 and names it, before any host call', async () => {
+  const { code, stderr } = await runPublishWithTemplates(
+    (scratchDir) => join(scratchDir, 'no-such-templates'),
+    () => {},
+  );
+
+  assert.equal(code, 2);
+  assert.match(stderr, /no-such-templates/);
+  assert.doesNotMatch(stderr, /ECONNREFUSED|fetch failed/);
 });

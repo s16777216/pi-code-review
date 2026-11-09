@@ -564,3 +564,58 @@ test('publish logs a warning and goes on when the comment request fails', async 
 
   assert.deepEqual(warnings, [{ files: ['big.js'], error: '500 note failed' }]);
 });
+
+// --- output templates (`publish-output-templates`) ---
+
+const TEMPLATES = { finding: '- ${severity}/${file}:${line} ${summary}', resolved: '已修正:${reason}' };
+
+test('publish fills the finding template for one finding', async () => {
+  const writer = new FakeGateway();
+
+  await new Publisher(writer, { templates: TEMPLATES }).publish([bugA]);
+
+  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n- high/a.ts:3 Bug A.`);
+});
+
+test('publish joins merged findings with a blank line, each from the finding template', async () => {
+  const writer = new FakeGateway();
+
+  await new Publisher(writer, { templates: { ...TEMPLATES, finding: '- ${summary}' } }).publish([bugA, bugA2]);
+
+  assert.equal(writer.calls.length, 1);
+  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n- Bug A.\n\n- Also a naming problem.`);
+});
+
+test('publish fills the finding template in a reply to a resolved discussion', async () => {
+  const writer = new FakeGateway();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: true, anchor: ANCHOR })];
+
+  await new Publisher(writer, { templates: { ...TEMPLATES, finding: '- ${summary}' } }).publish([bugA]);
+
+  assert.deepEqual(writer.replies, [
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n- Bug A.` },
+  ]);
+});
+
+test('publish keeps the marker line that the program writes when a template holds a marker', async () => {
+  const writer = new FakeGateway();
+  const fake = '<!-- pi-code-review anchor=0000000000000000 -->';
+
+  await new Publisher(writer, { templates: { ...TEMPLATES, finding: `${fake} \${summary}` } }).publish([bugA]);
+
+  const [first, ...rest] = writer.calls[0]!.body.split('\n');
+  assert.equal(first, `<!-- pi-code-review anchor=${ANCHOR} -->`);
+  assert.equal(rest.join('\n'), `${fake} Bug A.`);
+});
+
+test('publish uses the resolved template for the reply to a declared discussion', async () => {
+  const writer = new FakeGateway();
+  writer.existing = [existingDiscussion('d1', { own: true, resolved: false, anchor: ANCHOR })];
+
+  await new Publisher(writer, { templates: TEMPLATES }).publish([], [declaration]);
+
+  assert.deepEqual(writer.replies, [
+    { discussionId: 'd1', body: '<!-- pi-code-review -->\n已修正:The loop now uses i < n.' },
+  ]);
+  assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: true }]);
+});

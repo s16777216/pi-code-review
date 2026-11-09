@@ -26,6 +26,9 @@ export interface ReviewConfig {
 /** The settings of `publish` that do not depend on the host. */
 export interface PublishConfig {
   failOnSeverity: FailOnSeverity;
+  /** The directory with the comment templates, or undefined for the built-in
+   * templates (`publish-output-templates` design, Decision 1). */
+  templateDir?: string;
 }
 
 export interface ReviewConfigOverrides {
@@ -44,6 +47,7 @@ export interface ReviewConfigOverrides {
 
 export interface PublishConfigOverrides {
   failOnSeverity?: string;
+  templateDir?: string;
 }
 
 /** `--max-tokens`/`OPENAI_MAX_TOKENS` is optional with a default, unlike
@@ -107,6 +111,20 @@ function resolveLanguage(override: string | undefined): string | undefined {
   return value;
 }
 
+/** `--template-dir`/`PUBLISH_TEMPLATE_DIR` is optional with no default. The
+ * flag wins over the variable. An empty value is an error, not "no
+ * directory": a person who sets it means to use templates, and a variable
+ * that expands to nothing in a CI job would otherwise turn them off without a
+ * trace. */
+function resolveTemplateDir(override: string | undefined): string | undefined {
+  const raw = override ?? process.env.PUBLISH_TEMPLATE_DIR;
+  if (raw === undefined) return undefined;
+  if (raw.trim().length === 0) {
+    throw new ConfigError('Invalid PUBLISH_TEMPLATE_DIR value: it is empty. Unset it, or give a directory.');
+  }
+  return raw;
+}
+
 /** Resolves config for the `review` command: OpenAI and the language.
  * Never requires `FAIL_ON_SEVERITY` — `review` has no pass/fail concept.
  *
@@ -145,5 +163,6 @@ export function loadPublishConfig(
   }
 
   readHostSettings?.();
-  return { failOnSeverity };
+  const templateDir = resolveTemplateDir(overrides.templateDir);
+  return { failOnSeverity, ...(templateDir === undefined ? {} : { templateDir }) };
 }

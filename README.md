@@ -85,10 +85,11 @@ Used by both commands:
 
 `publish`-only:
 
-| Environment variable | CLI flag    | Required                     | Notes                                                                                                                                                                                            |
-| -------------------- | ----------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `FAIL_ON_SEVERITY`   | `--fail-on` | No (default `high`)          | `critical`, `high`, `medium`, `low`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
-| (n/a)                | `--from`    | No (default `findings.json`) | Which findings file `publish` reads.                                                                                                                                                             |
+| Environment variable   | CLI flag         | Required                     | Notes                                                                                                                                                                                            |
+| ---------------------- | ---------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `FAIL_ON_SEVERITY`     | `--fail-on`      | No (default `high`)          | `critical`, `high`, `medium`, `low`, or `none`. `publish` exits with `1` when any published finding meets or exceeds this threshold; `none` never exits with `1`. See [Exit codes](#exit-codes). |
+| (n/a)                  | `--from`         | No (default `findings.json`) | Which findings file `publish` reads.                                                                                                                                                             |
+| `PUBLISH_TEMPLATE_DIR` | `--template-dir` | No                           | A directory with the templates for the text of the comments. See [Comment templates](#comment-templates). The flag wins over the variable, and an empty value is an error.                       |
 
 ### Auth
 
@@ -214,6 +215,39 @@ The agent can also declare that one of this tool's own open comments is fixed, w
 
 **Risk:** anyone who can comment on the merge request writes text that the agent reads. The agent is told to treat that text as information, not instructions, but a crafted comment can still influence the review, for example to leave out a finding. Keep this in mind when `publish`'s exit code gates a merge.
 
+## Comment templates
+
+`publish` writes the text of its comments from two optional template files. Put them in a directory, and give the directory to `publish` with `--template-dir` or `PUBLISH_TEMPLATE_DIR`:
+
+| File          | Text                                                                              | Placeholders                                      |
+| ------------- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `finding.md`  | One finding. It must contain `${summary}`.                                        | `${severity}`, `${summary}`, `${file}`, `${line}` |
+| `resolved.md` | The reply that explains a discussion declared fixed. It must contain `${reason}`. | `${reason}`                                       |
+
+A file that is not in the directory keeps its built-in text: `**[${severity}]** ${summary}` and `Resolved: ${reason}`. Without a directory, the comments are the same as before.
+
+The rules:
+
+- Only the placeholders in the table are filled. All other text stays as it is, including `{`, `}`, `$5`, `$HOME`, and `${HOME}`. A template never reads an environment variable.
+- To write a literal `${summary}`, put a backslash before it: `\${summary}`. A backslash in any other place is plain text.
+- `publish` writes a warning, and goes on, when a template has a `${name}` that it does not fill. This finds a typo such as `${severty}`. Write `\${name}` to keep the text without the warning.
+- `publish` stops with exit code `2`, before it calls GitLab, when the directory does not exist, when a file cannot be read as UTF-8 text, or when `finding.md` or `resolved.md` does not contain its required placeholder.
+- The hidden marker line at the start of each comment, and the blank line between findings in one comment, are always written by `publish`. A template cannot change them.
+
+Example, with the text in Traditional Chinese. This is the whole of `finding.md`:
+
+```text
+🔴 **${severity}**:${summary}(`${file}:${line}`)
+```
+
+And this is the whole of `resolved.md`:
+
+```text
+✅ 已修正:${reason}
+```
+
+A template gives the text of one finding. Two findings on one line still become one comment with two paragraphs, one for each finding.
+
 ## Output
 
 `review` writes:
@@ -229,7 +263,7 @@ The review input shows these files with the reason and no diff, and a finding on
 
 `publish` writes/does:
 
-- One inline GitLab merge request comment per finding, with the finding's severity and summary, except:
+- One inline GitLab merge request comment per finding, with the finding's severity and summary (or the text from your [templates](#comment-templates)), except:
   - a finding whose `relatesTo` names an **open** discussion posts nothing (it is already being discussed);
   - a finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened;
   - a finding without `relatesTo` is matched to a discussion from this tool on the same code (same file and same line text, so a reworded finding or a moved line still matches): it posts nothing when that discussion is **open**, and is posted as a reply that reopens it when that discussion is **resolved** (the newest one, if there are several).
