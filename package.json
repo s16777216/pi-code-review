@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-templates.mjs",
     "prepublishOnly": "npm run build",
     "release": "commit-and-tag-version",
     "start": "node dist/cli/index.js",

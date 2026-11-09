@@ -10,7 +10,7 @@ import {
   type UnreviewedNote,
 } from './discussion.ts';
 import { MARKER, UNREVIEWED_MARKER } from './marker.ts';
-import { DEFAULT_TEMPLATES, fillTemplate, type CommentTemplates } from './template.ts';
+import { builtinTemplates, fillTemplate, type CommentTemplates } from './template.ts';
 
 export interface PublisherOptions {
   /** The text of a finding and of a resolved reply. Defaults to the built-in
@@ -55,7 +55,7 @@ export class Publisher {
     private readonly options: PublisherOptions = {},
   ) {
     this.logger = options.logger ?? silentLogger();
-    this.templates = options.templates ?? DEFAULT_TEMPLATES;
+    this.templates = options.templates ?? builtinTemplates();
   }
 
   /** Decides each finding's target by these rules (`publish-into-existing-

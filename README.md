@@ -221,26 +221,53 @@ The agent can also declare that one of this tool's own open comments is fixed, w
 
 | File          | Text                                                                              | Placeholders                                      |
 | ------------- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `finding.md`  | One finding. It must contain `${summary}`.                                        | `${severity}`, `${summary}`, `${file}`, `${line}` |
-| `resolved.md` | The reply that explains a discussion declared fixed. It must contain `${reason}`. | `${reason}`                                       |
+| `FINDING.md`  | One finding. It must contain `${summary}`.                                        | `${severity}`, `${summary}`, `${file}`, `${line}` |
+| `RESOLVED.md` | The reply that explains a discussion declared fixed. It must contain `${reason}`. | `${reason}`                                       |
 
-A file that is not in the directory keeps its built-in text: `**[${severity}]** ${summary}` and `Resolved: ${reason}`. Without a directory, the comments are the same as before.
+The file names use upper case. A case-sensitive file system, such as the one on Linux, finds only these names.
+
+The package ships a default for each file (`src/template/FINDING.md` and `src/template/RESOLVED.md`). A file with the same name in your directory replaces the default. A file that is not in your directory keeps the default. Without a directory, `publish` uses both defaults:
+
+```text
+**Severity**: ${severity}
+
+**Reason**: ${summary}
+```
+
+and, for the reply to a discussion declared fixed:
+
+```text
+**Resolved**: ${reason}
+```
+
+> **Breaking change:** Before templates, a finding comment was `**[severity]** summary`, and the reply to a fixed discussion was `Resolved: reason`. The defaults above replace that text. To keep the old text, put this in `FINDING.md`:
+>
+> ```text
+> **[${severity}]** ${summary}
+> ```
+>
+> and this in `RESOLVED.md`:
+>
+> ```text
+> Resolved: ${reason}
+> ```
 
 The rules:
 
 - Only the placeholders in the table are filled. All other text stays as it is, including `{`, `}`, `$5`, `$HOME`, and `${HOME}`. A template never reads an environment variable.
 - To write a literal `${summary}`, put a backslash before it: `\${summary}`. A backslash in any other place is plain text.
 - `publish` writes a warning, and goes on, when a template has a `${name}` that it does not fill. This finds a typo such as `${severty}`. Write `\${name}` to keep the text without the warning.
-- `publish` stops with exit code `2`, before it calls GitLab, when the directory does not exist, when a file cannot be read as UTF-8 text, or when `finding.md` or `resolved.md` does not contain its required placeholder.
+- `publish` stops with exit code `2`, before it calls GitLab, when the directory does not exist, when a file cannot be read as UTF-8 text, or when `FINDING.md` or `RESOLVED.md` does not contain its required placeholder.
+- `publish` reads a template as UTF-8 text, changes each CRLF line break to LF, and removes the line breaks at the end. A template from a Windows checkout and one from a Linux checkout give the same comment.
 - The hidden marker line at the start of each comment, and the blank line between findings in one comment, are always written by `publish`. A template cannot change them.
 
-Example, with the text in Traditional Chinese. This is the whole of `finding.md`:
+Example, with the text in Traditional Chinese. This is the whole of `FINDING.md`:
 
 ```text
 🔴 **${severity}**:${summary}(`${file}:${line}`)
 ```
 
-And this is the whole of `resolved.md`:
+And this is the whole of `RESOLVED.md`:
 
 ```text
 ✅ 已修正:${reason}

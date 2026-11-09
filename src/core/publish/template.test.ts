@@ -1,10 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pino from 'pino';
-import { DEFAULT_TEMPLATES, fillTemplate, loadTemplates, TemplateError } from './template.ts';
+import { builtinTemplates, fillTemplate, loadTemplates, readBuiltinTemplates, TemplateError } from './template.ts';
+
+/** The built-in template files that the package ships. */
+const BUILTIN_DIR = fileURLToPath(new URL('../../template/', import.meta.url));
 
 const FINDING = { severity: 'high', summary: 'Null check missing', file: 'src/a.ts', line: '12' };
 
@@ -77,32 +82,41 @@ test('fillTemplate treats a name like toString as an unknown name', () => {
   assert.equal(fillTemplate('${toString} ${constructor}', FINDING), '${toString} ${constructor}');
 });
 
-test('the built-in templates give the text from before templates', () => {
-  assert.equal(fillTemplate(DEFAULT_TEMPLATES.finding, FINDING), '**[high]** Null check missing');
+test('the built-in templates give the default comment text', () => {
   assert.equal(
-    fillTemplate(DEFAULT_TEMPLATES.resolved, { reason: 'The check was added' }),
-    'Resolved: The check was added',
+    fillTemplate(builtinTemplates().finding, FINDING),
+    '**Severity**: high\n\n**Reason**: Null check missing',
   );
+  assert.equal(
+    fillTemplate(builtinTemplates().resolved, { reason: 'The check was added' }),
+    '**Resolved**: The check was added',
+  );
+});
+
+test('the built-in templates are the text of the files in src/template', () => {
+  const fileText = (name: string) =>
+    readFileSync(join(BUILTIN_DIR, name), 'utf8').replace(/\r\n/g, '\n').replace(/\n+$/, '');
+  assert.deepEqual(builtinTemplates(), { finding: fileText('FINDING.md'), resolved: fileText('RESOLVED.md') });
 });
 
 // --- the check (task 1.2) ---
 
-test('loadTemplates rejects finding.md without ${summary}', async () => {
-  await withDir({ 'finding.md': '${severity} only' }, async (dir) => {
+test('loadTemplates rejects FINDING.md without ${summary}', async () => {
+  await withDir({ 'FINDING.md': '${severity} only' }, async (dir) => {
     await assert.rejects(loadTemplates(dir), (error) => {
       assert.ok(error instanceof TemplateError);
-      assert.match(error.message, /finding\.md/);
+      assert.match(error.message, /FINDING\.md/);
       assert.match(error.message, /\$\{summary\}/);
       return true;
     });
   });
 });
 
-test('loadTemplates rejects resolved.md without ${reason}', async () => {
-  await withDir({ 'resolved.md': 'Done ${summary}' }, async (dir) => {
+test('loadTemplates rejects RESOLVED.md without ${reason}', async () => {
+  await withDir({ 'RESOLVED.md': 'Done ${summary}' }, async (dir) => {
     await assert.rejects(loadTemplates(dir), (error) => {
       assert.ok(error instanceof TemplateError);
-      assert.match(error.message, /resolved\.md/);
+      assert.match(error.message, /RESOLVED\.md/);
       assert.match(error.message, /\$\{reason\}/);
       return true;
     });
@@ -110,26 +124,26 @@ test('loadTemplates rejects resolved.md without ${reason}', async () => {
 });
 
 test('loadTemplates does not count an escaped main placeholder', async () => {
-  await withDir({ 'finding.md': '\\${summary}' }, async (dir) => {
-    await assert.rejects(loadTemplates(dir), /finding\.md.*\$\{summary\}/);
+  await withDir({ 'FINDING.md': '\\${summary}' }, async (dir) => {
+    await assert.rejects(loadTemplates(dir), /FINDING\.md.*\$\{summary\}/);
   });
 });
 
 test('loadTemplates writes one warn line for an unknown ${name} and goes on', async () => {
   const { logger, lines } = capturingLogger();
-  await withDir({ 'finding.md': '${summary} ${severty} ${severty} ${HOME}' }, async (dir) => {
+  await withDir({ 'FINDING.md': '${summary} ${severty} ${severty} ${HOME}' }, async (dir) => {
     const templates = await loadTemplates(dir, logger);
     assert.equal(templates.finding, '${summary} ${severty} ${severty} ${HOME}');
   });
   const warnings = lines.filter((line) => line.level === 40);
   assert.equal(warnings.length, 1);
-  assert.equal(warnings[0]!.file, 'finding.md');
+  assert.equal(warnings[0]!.file, 'FINDING.md');
   assert.deepEqual(warnings[0]!.placeholders, ['${severty}', '${HOME}']);
 });
 
 test('loadTemplates writes no warn line for an escaped ${name}', async () => {
   const { logger, lines } = capturingLogger();
-  await withDir({ 'finding.md': '${summary} \\${HOME}' }, async (dir) => {
+  await withDir({ 'FINDING.md': '${summary} \\${HOME}' }, async (dir) => {
     await loadTemplates(dir, logger);
   });
   assert.equal(lines.length, 0);
@@ -137,7 +151,7 @@ test('loadTemplates writes no warn line for an escaped ${name}', async () => {
 
 test('loadTemplates writes a warn line for the other file placeholder', async () => {
   const { logger, lines } = capturingLogger();
-  await withDir({ 'resolved.md': '${reason} ${summary}' }, async (dir) => {
+  await withDir({ 'RESOLVED.md': '${reason} ${summary}' }, async (dir) => {
     await loadTemplates(dir, logger);
   });
   assert.equal(lines.length, 1);
@@ -147,21 +161,21 @@ test('loadTemplates writes a warn line for the other file placeholder', async ()
 // --- loadTemplates (task 1.3) ---
 
 test('loadTemplates with no directory gives the built-in templates', async () => {
-  assert.deepEqual(await loadTemplates(undefined), DEFAULT_TEMPLATES);
+  assert.deepEqual(await loadTemplates(undefined), builtinTemplates());
 });
 
 test('loadTemplates reads both files and removes the line breaks at the end', async () => {
-  await withDir({ 'finding.md': '- ${summary}\r\n\r\n', 'resolved.md': '已修正:${reason}\n' }, async (dir) => {
+  await withDir({ 'FINDING.md': '- ${summary}\r\n\r\n', 'RESOLVED.md': '已修正:${reason}\n' }, async (dir) => {
     assert.deepEqual(await loadTemplates(dir), { finding: '- ${summary}', resolved: '已修正:${reason}' });
   });
 });
 
 test('loadTemplates keeps the built-in template for a missing file', async () => {
-  await withDir({ 'finding.md': '- ${summary}' }, async (dir) => {
-    assert.deepEqual(await loadTemplates(dir), { finding: '- ${summary}', resolved: DEFAULT_TEMPLATES.resolved });
+  await withDir({ 'FINDING.md': '- ${summary}' }, async (dir) => {
+    assert.deepEqual(await loadTemplates(dir), { finding: '- ${summary}', resolved: builtinTemplates().resolved });
   });
   await withDir({}, async (dir) => {
-    assert.deepEqual(await loadTemplates(dir), DEFAULT_TEMPLATES);
+    assert.deepEqual(await loadTemplates(dir), builtinTemplates());
   });
 });
 
@@ -181,18 +195,64 @@ test('loadTemplates rejects a path that is a file and not a directory', async ()
 });
 
 test('loadTemplates rejects a file that is not valid UTF-8', async () => {
-  await withDir({ 'finding.md': Buffer.from([0xff, 0xfe, 0x24, 0x7b]) }, async (dir) => {
-    await assert.rejects(loadTemplates(dir), /finding\.md.*UTF-8/);
+  await withDir({ 'FINDING.md': Buffer.from([0xff, 0xfe, 0x24, 0x7b]) }, async (dir) => {
+    await assert.rejects(loadTemplates(dir), /FINDING\.md.*UTF-8/);
   });
 });
 
 test('loadTemplates rejects a template file that cannot be read, and names it', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'templates-'));
   try {
-    // A directory named finding.md cannot be read as a file on any platform.
-    await mkdir(join(dir, 'finding.md'));
-    await assert.rejects(loadTemplates(dir), /finding\.md/);
+    // A directory named FINDING.md cannot be read as a file on any platform.
+    await mkdir(join(dir, 'FINDING.md'));
+    await assert.rejects(loadTemplates(dir), /FINDING\.md/);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('loadTemplates converts CRLF to LF inside a template and at its end', async () => {
+  await withDir({ 'FINDING.md': '**Severity**: ${severity}\r\n\r\n**Reason**: ${summary}\r\n' }, async (dir) => {
+    const { finding } = await loadTemplates(dir);
+    assert.equal(finding, '**Severity**: ${severity}\n\n**Reason**: ${summary}');
+    assert.equal(finding.includes('\r'), false);
+  });
+});
+
+// --- the built-in files (task 5.4) ---
+
+test('a file in the directory replaces only the built-in file with the same name', async () => {
+  await withDir({ 'RESOLVED.md': 'Done: ${reason}' }, async (dir) => {
+    const templates = await loadTemplates(dir);
+    assert.equal(templates.resolved, 'Done: ${reason}');
+    assert.equal(templates.finding, builtinTemplates().finding);
+  });
+});
+
+test('a missing built-in file stops with an error that names it, and uses no other text', async () => {
+  await withDir({ 'FINDING.md': '${summary}' }, async (builtinDir) => {
+    for (const userDir of [undefined, builtinDir]) {
+      await assert.rejects(loadTemplates(userDir, undefined, builtinDir), (error) => {
+        assert.ok(error instanceof TemplateError);
+        assert.match(error.message, /built-in template RESOLVED\.md is missing/);
+        return true;
+      });
+    }
+    assert.throws(() => readBuiltinTemplates(builtinDir), TemplateError);
+  });
+});
+
+test('a built-in file without its main placeholder stops with an error that names it', async () => {
+  await withDir({ 'FINDING.md': 'no placeholder', 'RESOLVED.md': '${reason}' }, async (builtinDir) => {
+    await assert.rejects(
+      loadTemplates(undefined, undefined, builtinDir),
+      /built-in template FINDING\.md must contain \$\{summary\}/,
+    );
+  });
+});
+
+test('a built-in file that is not valid UTF-8 stops with an error that names it', async () => {
+  await withDir({ 'FINDING.md': Buffer.from([0xff, 0xfe]), 'RESOLVED.md': '${reason}' }, async (builtinDir) => {
+    await assert.rejects(loadTemplates(undefined, undefined, builtinDir), /FINDING\.md.*UTF-8/);
+  });
 });

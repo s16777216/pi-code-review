@@ -251,12 +251,12 @@ test('publish with a template that has no ${summary} exits 2 and names the file,
     (scratchDir) => join(scratchDir, 'templates'),
     (templateDir) => {
       mkdirSync(templateDir);
-      writeFileSync(join(templateDir, 'finding.md'), '${severity} only', 'utf8');
+      writeFileSync(join(templateDir, 'FINDING.md'), '${severity} only', 'utf8');
     },
   );
 
   assert.equal(code, 2);
-  assert.match(stderr, /finding\.md/);
+  assert.match(stderr, /FINDING.md/);
   assert.match(stderr, /\$\{summary\}/);
   assert.doesNotMatch(stderr, /ECONNREFUSED|fetch failed/);
 });

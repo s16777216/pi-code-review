@@ -1,5 +1,6 @@
-import { readFile, stat } from 'node:fs/promises';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../errorMessage.ts';
 
@@ -17,18 +18,20 @@ export interface CommentTemplates {
  * be read. The message names the file or the directory and the cause. */
 export class TemplateError extends Error {}
 
-/** The templates that give the comments the text they had before templates. */
-export const DEFAULT_TEMPLATES: CommentTemplates = {
-  finding: '**[${severity}]** ${summary}',
-  resolved: 'Resolved: ${reason}',
-};
+/** Where the built-in template files are: `src/template` when the code runs
+ * from source (`tsx`), and `dist/template` in the package, where the build
+ * copies them (Decision 6). */
+const BUILTIN_DIR = fileURLToPath(new URL('../../template/', import.meta.url));
 
 /** What each template file may fill, and the one placeholder it MUST hold
  * (Decision 3: a comment without it loses the content). */
 const TEMPLATE_FILES = {
-  finding: { file: 'finding.md', names: ['severity', 'summary', 'file', 'line'], main: 'summary' },
-  resolved: { file: 'resolved.md', names: ['reason'], main: 'reason' },
+  finding: { file: 'FINDING.md', names: ['severity', 'summary', 'file', 'line'], main: 'summary' },
+  resolved: { file: 'RESOLVED.md', names: ['reason'], main: 'reason' },
 } as const;
+
+type TemplateKind = keyof typeof TEMPLATE_FILES;
+const KINDS = Object.keys(TEMPLATE_FILES) as TemplateKind[];
 
 /** Either the escape `\${`, or `${name}`. The escape comes first in the
  * pattern, so `\${summary}` is never read as a placeholder. */
@@ -53,15 +56,13 @@ function placeholderNames(template: string): string[] {
 
 /** Checks one template (Decision 3). Throws `TemplateError` when the main
  * placeholder is missing. Writes one `warn` line, and goes on, when the
- * template has a `${name}` that the file does not fill. */
-function checkTemplate(
-  template: string,
-  rule: (typeof TEMPLATE_FILES)[keyof typeof TEMPLATE_FILES],
-  logger: Logger,
-): void {
+ * template has a `${name}` that the file does not fill. `subject` names the
+ * template in the messages, for example `The template FINDING.md`. */
+function checkTemplate(template: string, kind: TemplateKind, subject: string, logger: Logger): void {
+  const rule = TEMPLATE_FILES[kind];
   const found = placeholderNames(template);
   if (!found.includes(rule.main)) {
-    throw new TemplateError(`The template ${rule.file} must contain \${${rule.main}}.`);
+    throw new TemplateError(`${subject} must contain \${${rule.main}}.`);
   }
   const allowed: readonly string[] = rule.names;
   const unknown = [...new Set(found.filter((name) => !allowed.includes(name)))].map((name) => `\${${name}}`);
@@ -73,48 +74,80 @@ function checkTemplate(
   }
 }
 
-/** Reads one template file, or `undefined` when the directory does not have it. */
-async function readTemplateFile(dir: string, file: string): Promise<string | undefined> {
+/** Reads one template file, or `undefined` when the directory does not have
+ * it. The text has LF line breaks and no line break at its end, so a Windows
+ * checkout and a Linux checkout give the same comment text. */
+function readTemplateFile(dir: string, file: string): string | undefined {
   const path = join(dir, file);
   let bytes: Buffer;
   try {
-    bytes = await readFile(path);
+    bytes = readFileSync(path);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw new TemplateError(`Cannot read the template ${file} (${path}): ${errorMessage(error)}`);
   }
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/(\r?\n)+$/, '');
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/\r\n/g, '\n').replace(/\n+$/, '');
   } catch {
     throw new TemplateError(`Cannot read the template ${file} (${path}): it is not valid UTF-8 text.`);
   }
 }
 
-/** Loads and checks the templates in `dir` (Decision 1 and 3). A file that
- * is not in the directory keeps its built-in template. With no directory, the
- * result is the built-in templates. Throws `TemplateError` for a directory
- * that does not exist, a file that cannot be read, or a missing main
- * placeholder. It calls no host API. */
+/** Reads the built-in templates from `builtinDir` and checks them with the
+ * same rules as a person's templates. A file that is missing or not valid is
+ * a defect of the package, not of the user, so this throws `TemplateError`
+ * that names the file, and never uses other text (Decision 3). */
+export function readBuiltinTemplates(builtinDir: string = BUILTIN_DIR): CommentTemplates {
+  const templates = {} as CommentTemplates;
+  for (const kind of KINDS) {
+    const { file } = TEMPLATE_FILES[kind];
+    const text = readTemplateFile(builtinDir, file);
+    if (text === undefined) {
+      throw new TemplateError(
+        `The built-in template ${file} is missing from the package (${join(builtinDir, file)}). This is a defect of the package.`,
+      );
+    }
+    checkTemplate(text, kind, `The built-in template ${file}`, silentLogger());
+    templates[kind] = text;
+  }
+  return templates;
+}
+
+let cachedBuiltin: CommentTemplates | undefined;
+
+/** The built-in templates, read once. This is the default of `Publisher`. */
+export function builtinTemplates(): CommentTemplates {
+  cachedBuiltin ??= readBuiltinTemplates();
+  return cachedBuiltin;
+}
+
+/** Loads and checks the templates (Decision 1 and 3). The built-in files load
+ * first. A file with the same name in `dir` then replaces the built-in file.
+ * With no directory, the result is the built-in templates. Throws
+ * `TemplateError` for a built-in file that is missing or not valid, a
+ * directory that does not exist, a file that cannot be read, or a missing main
+ * placeholder. It calls no host API. `builtinDir` is for tests. */
 export async function loadTemplates(
   dir: string | undefined,
   logger: Logger = silentLogger(),
+  builtinDir: string = BUILTIN_DIR,
 ): Promise<CommentTemplates> {
-  if (dir === undefined) return DEFAULT_TEMPLATES;
+  const templates = readBuiltinTemplates(builtinDir);
+  if (dir === undefined) return templates;
 
   let isDirectory: boolean;
   try {
-    isDirectory = (await stat(dir)).isDirectory();
+    isDirectory = statSync(dir).isDirectory();
   } catch (error) {
     throw new TemplateError(`Cannot read the template directory ${dir}: ${errorMessage(error)}`);
   }
   if (!isDirectory) throw new TemplateError(`The template directory ${dir} is not a directory.`);
 
-  const templates: CommentTemplates = { ...DEFAULT_TEMPLATES };
-  for (const kind of ['finding', 'resolved'] as const) {
-    const rule = TEMPLATE_FILES[kind];
-    const text = await readTemplateFile(dir, rule.file);
+  for (const kind of KINDS) {
+    const { file } = TEMPLATE_FILES[kind];
+    const text = readTemplateFile(dir, file);
     if (text === undefined) continue;
-    checkTemplate(text, rule, logger);
+    checkTemplate(text, kind, `The template ${file}`, logger);
     templates[kind] = text;
   }
   return templates;

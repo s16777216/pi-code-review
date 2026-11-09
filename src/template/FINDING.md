@@ -1,0 +1,3 @@
+**Severity**: ${severity}
+
+**Reason**: ${summary}

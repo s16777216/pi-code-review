@@ -71,7 +71,7 @@ test('publish posts one discussion per finding at its file and line', async () =
   assert.equal(writer.calls.length, 2);
   assert.deepEqual(writer.calls[0]!.position, { file: 'a.ts', line: 3 });
   assert.match(writer.calls[0]!.body, /Bug A\./);
-  assert.equal(writer.calls[0]!.body.startsWith('<!-- pi-code-review -->\n**['), true);
+  assert.equal(writer.calls[0]!.body.startsWith('<!-- pi-code-review -->\n**Severity**: high'), true);
 });
 
 test('publish isolates a failed discussion: the other finding still posts', async () => {
@@ -99,6 +99,11 @@ test('a failed discussion logs via the injected logger when no onDiscussionError
 });
 
 const ANCHOR = '3f9a1c0b2d4e5f60';
+
+/** The paragraph that the built-in finding template gives for `bugA` and `bugA2`
+ * (the files in `src/template`). */
+const BUG_A_PARAGRAPH = '**Severity**: high\n\n**Reason**: Bug A.';
+const NAMING_PARAGRAPH = '**Severity**: low\n\n**Reason**: Also a naming problem.';
 
 function existingDiscussion(
   id: string,
@@ -138,7 +143,7 @@ test('publish writes the anchor into the marker', async () => {
   const writer = new FakeGateway();
   await new Publisher(writer).publish([bugA]);
 
-  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.`);
+  assert.equal(writer.calls[0]!.body, `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}`);
 });
 
 test('publish posts nothing for a finding that relates to an open discussion, and logs the skip count', async () => {
@@ -161,7 +166,7 @@ test('publish replies to and reopens a resolved discussion that a finding relate
 
   assert.equal(writer.calls.length, 0);
   assert.deepEqual(writer.replies, [
-    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.` },
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}` },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
 });
@@ -205,7 +210,7 @@ test('publish replies to and reopens a resolved discussion from this tool that h
 
   assert.equal(writer.calls.length, 0);
   assert.deepEqual(writer.replies, [
-    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.` },
+    { discussionId: 'd1', body: `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}` },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
 });
@@ -287,7 +292,7 @@ test('publish merges two findings on the same line into one discussion and logs 
   assert.equal(writer.calls[0]!.position.line, 3);
   assert.equal(
     writer.calls[0]!.body,
-    `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.\n\n**[low]** Also a naming problem.`,
+    `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}\n\n${NAMING_PARAGRAPH}`,
   );
   assert.deepEqual(infos, [{ merged: 1 }]);
 });
@@ -299,7 +304,7 @@ test('publish keeps findings file order inside a merged comment', async () => {
 
   assert.match(
     writer.calls[0]!.body,
-    /^<!-- [^\n]+ -->\n\*\*\[low\]\*\* Also a naming problem\.\n\n\*\*\[high\]\*\* Bug A\.$/,
+    /^<!-- [^\n]+ -->\n\*\*Severity\*\*: low\n\n\*\*Reason\*\*: Also a naming problem\.\n\n\*\*Severity\*\*: high\n\n\*\*Reason\*\*: Bug A\.$/,
   );
 });
 
@@ -341,7 +346,7 @@ test('publish sends one reply and one reopen for two findings that reply to the 
   assert.deepEqual(writer.replies, [
     {
       discussionId: 'd1',
-      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n**[high]** Bug A.\n\n**[low]** Second.`,
+      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}\n\n**Severity**: low\n\n**Reason**: Second.`,
     },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);
@@ -381,7 +386,7 @@ test('publish replies with the reason and then resolves an open discussion from 
   await new Publisher(writer).publish([], [declaration]);
 
   assert.deepEqual(writer.replies, [
-    { discussionId: 'd1', body: '<!-- pi-code-review -->\nResolved: The loop now uses i < n.' },
+    { discussionId: 'd1', body: '<!-- pi-code-review -->\n**Resolved**: The loop now uses i < n.' },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: true }]);
 });
