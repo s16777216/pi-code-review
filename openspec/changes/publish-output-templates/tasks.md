@@ -23,10 +23,10 @@
 
 ## 5. Built-in templates as files
 
-- [ ] 5.1 Rename the files that the program reads to `FINDING.md` and `RESOLVED.md` in `template.ts`, its tests, `index.entrypoint.test.ts`, and `README.md`; verify `grep -rn "finding\.md\|resolved\.md" src README.md` finds no lower-case name
-- [ ] 5.2 Convert CRLF to LF when the program reads a template file; verify a unit test with a CRLF file gives text with LF only
-- [ ] 5.3 Add the build copy step (`scripts/copy-templates.mjs` and the `build` script) that copies only `FINDING.md` and `RESOLVED.md` to `dist/template`; verify `npm run build` creates both files and no `REVIEW_PROMPT.md`, and `npm pack --dry-run` lists both files
-- [ ] 5.4 Replace `DEFAULT_TEMPLATES` with the built-in files that `template.ts` loads from `../../template` and checks with the same rules; verify tests show the default text equals the file text, a file in the template directory replaces only the file with the same name, and a missing or not valid built-in file stops with an error that names it
-- [ ] 5.5 Update the tests that pin the old default text (`publisher.test.ts`, `index.test.ts`) to the new default text; verify `npm test` passes
-- [ ] 5.6 Update `README.md`: the new default text, the upper-case file names, the **BREAKING** note, and how to restore the old text; verify the README matches the spec
-- [ ] 5.7 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`; verify all pass for the changed files
+- [x] 5.1 Rename the files that the program reads to `FINDING.md` and `RESOLVED.md` in `template.ts`, its tests, `index.entrypoint.test.ts`, and `README.md`; verify `grep -rn "finding\.md\|resolved\.md" src README.md` finds no lower-case name
+- [x] 5.2 Convert CRLF to LF when the program reads a template file; verify a unit test with a CRLF file gives text with LF only
+- [x] 5.3 Add the build copy step (`scripts/copy-templates.mjs` and the `build` script) that copies only `FINDING.md` and `RESOLVED.md` to `dist/template`; verify `npm run build` creates both files and no `REVIEW_PROMPT.md`, and `npm pack --dry-run` lists both files
+- [x] 5.4 Replace `DEFAULT_TEMPLATES` with the built-in files that `template.ts` loads from `../../template` and checks with the same rules; verify tests show the default text equals the file text, a file in the template directory replaces only the file with the same name, and a missing or not valid built-in file stops with an error that names it
+- [x] 5.5 Update the tests that pin the old default text (`publisher.test.ts`, `index.test.ts`) to the new default text; verify `npm test` passes
+- [x] 5.6 Update `README.md`: the new default text, the upper-case file names, the **BREAKING** note, and how to restore the old text; verify the README matches the spec
+- [x] 5.7 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`; verify all pass for the changed files
