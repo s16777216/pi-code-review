@@ -81,3 +81,10 @@ Capability to module map:
 - [A misspelled placeholder other than the main field, such as `${severty}`, goes to a live merge request as plain text] → The program writes a `warn` log line for it. The main field is checked, so a comment never loses the content of the finding.
 - [A template changes how a future run reads old comments] → Detection and anchors use only the marker line, and the program always writes it. The review agent reads the text after the marker, so a new wording changes what the agent sees. This is accepted.
 - [The directory is read on every `publish` run] → The cost is two small file reads, with no cache needed.
+
+## Pending sync notes
+
+`openspec-sync-specs` must refresh these local `SPEC.md` files from the implemented code:
+
+- `src/core/publish/SPEC.md` (capability `review-output`): add the entry point `template.ts` (`fillTemplate`, `loadTemplates`, `DEFAULT_TEMPLATES`, `TemplateError`). Change the line about comment bodies: the marker, then one paragraph for each finding from the finding template, joined by a blank line. `Publisher` takes an optional `templates` option.
+- `src/cli/SPEC.md` (capability `review-cli`): add the `publish` flag `--template-dir` and the variable `PUBLISH_TEMPLATE_DIR` (`config.ts`: `PublishConfig.templateDir`). `runPublishCommand` loads the templates after it reads the findings file and before `host.restore`. `review` rejects the flag.
