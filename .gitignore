@@ -6,3 +6,4 @@ debug.log
 # Local manual test scripts tend to carry real secrets pasted in by hand.
 test_script.ps1
 .env
+.claude
