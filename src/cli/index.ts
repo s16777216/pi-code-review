@@ -18,7 +18,12 @@ import type { ChangeRequest, CodeHost, DiscussionGateway, HostFlags } from '../c
 import { Publisher } from '../core/publish/publisher.ts';
 import { loadTemplates, type CommentTemplates } from '../core/publish/template.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
-import { changesInstructionsFile, resolveInstructions, type ResolvedInstructions } from '../reviewInstructions.ts';
+import {
+  changesInstructionsFile,
+  relativeToCwd,
+  resolveInstructions,
+  type ResolvedInstructions,
+} from '../reviewInstructions.ts';
 import { decidePassFail } from '../core/passFail.ts';
 import { AgentReviewEngine } from '../core/review/engine.ts';
 import { errorMessage } from '../core/errorMessage.ts';
@@ -76,9 +81,11 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<un
   if (instructions?.filePath !== undefined) {
     const changedPaths = context.changedFiles.flatMap((file) => [file.newPath, file.oldPath]);
     if (changesInstructionsFile(instructions.filePath, changedPaths)) {
+      // A match means the file is inside the working directory.
+      const file = relativeToCwd(instructions.filePath) ?? instructions.filePath;
       logger.warn(
-        { source: instructions.source, file: instructions.filePath },
-        `the merge request changes the file of the review instructions (${instructions.source}: ${instructions.filePath})`,
+        { source: instructions.source, file },
+        `the merge request changes the file of the review instructions (${instructions.source}: ${file})`,
       );
     }
   }

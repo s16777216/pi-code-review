@@ -116,22 +116,31 @@ export function resolveInstructions(
   return undefined;
 }
 
+/** The path of a file relative to `cwd`, with the forward slash as the
+ * separator. Returns `undefined` when the file is `cwd` itself or is outside it. */
+export function relativeToCwd(filePath: string, cwd: string = process.cwd()): string | undefined {
+  const relativePath = relative(cwd, filePath).replace(/\\/g, '/');
+  if (relativePath === '' || relativePath === '..' || relativePath.startsWith('../') || isAbsolute(relativePath)) {
+    return undefined;
+  }
+  return relativePath;
+}
+
 /** True when the file of a path source is one of the files that the change
  * request changes (Decision 5). The comparison uses the path of the file
- * relative to `cwd`, with the forward slash as the separator, against the new
- * path and the old path of each changed file. A file outside `cwd` never
- * matches. If `cwd` is not the root of the project, the comparison can miss a
- * changed file, or match another file that has the same relative path. The
- * warning is only a log line, so a wrong match does no harm. */
+ * relative to `cwd` (see `relativeToCwd`) against the new path and the old
+ * path of each changed file. A file outside `cwd` never matches. If `cwd` is
+ * not the root of the project, the comparison can miss a changed file, or
+ * match another file that has the same relative path. The warning is only a
+ * log line, so a wrong match does no harm. */
 export function changesInstructionsFile(
   filePath: string,
   changedPaths: readonly (string | null)[],
   cwd: string = process.cwd(),
 ): boolean {
-  const toSlash = (path: string) => path.replace(/\\/g, '/');
-  const relativePath = toSlash(relative(cwd, filePath));
-  if (relativePath === '' || relativePath === '..' || relativePath.startsWith('../') || isAbsolute(relativePath)) {
+  const relativePath = relativeToCwd(filePath, cwd);
+  if (relativePath === undefined) {
     return false;
   }
-  return changedPaths.some((path) => path !== null && toSlash(path) === relativePath);
+  return changedPaths.some((path) => path !== null && path.replace(/\\/g, '/') === relativePath);
 }

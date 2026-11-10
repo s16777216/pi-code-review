@@ -418,6 +418,9 @@ test('runReview warns once when the merge request changes the file of the review
   assert.equal(warnings.length, 1);
   assert.match(String(warnings[0]!.msg), /merge request changes the file of the review instructions/);
   assert.equal(warnings[0]!.source, '--instructions');
+  // The path in the log is relative to the working directory.
+  assert.equal(warnings[0]!.file, 'REVIEW_INSTRUCTIONS.md');
+  assert.match(String(warnings[0]!.msg), /\(--instructions: REVIEW_INSTRUCTIONS\.md\)/);
   // The review itself is the same as without the warning.
   assert.deepEqual(findingsFile.findings, []);
 });

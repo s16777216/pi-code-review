@@ -4,7 +4,12 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pino from 'pino';
-import { changesInstructionsFile, MAX_INSTRUCTIONS_CHARS, resolveInstructions } from './reviewInstructions.ts';
+import {
+  changesInstructionsFile,
+  MAX_INSTRUCTIONS_CHARS,
+  relativeToCwd,
+  resolveInstructions,
+} from './reviewInstructions.ts';
 
 /** pino levels: info is 30, warn is 40. */
 const INFO = 30;
@@ -277,4 +282,12 @@ test('a working directory that is not the project root can miss a match, or matc
   // only has the same name. The warning is a log line, so a wrong match does no harm.
   assert.equal(changesInstructionsFile(file, ['tools/rules.md'], cwd), false);
   assert.equal(changesInstructionsFile(file, ['rules.md'], cwd), true);
+});
+
+test('relativeToCwd returns a path with forward slashes, or nothing outside the working directory', () => {
+  const cwd = join(tmpdir(), 'project');
+  assert.equal(relativeToCwd(join(cwd, 'REVIEW_INSTRUCTIONS.md'), cwd), 'REVIEW_INSTRUCTIONS.md');
+  assert.equal(relativeToCwd(join(cwd, 'docs', 'review', 'rules.md'), cwd), 'docs/review/rules.md');
+  assert.equal(relativeToCwd(join(cwd, '..', 'other.md'), cwd), undefined);
+  assert.equal(relativeToCwd(cwd, cwd), undefined);
 });
