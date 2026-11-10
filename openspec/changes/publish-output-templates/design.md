@@ -104,7 +104,7 @@ Done by the first `openspec-sync-specs` run:
 - `src/core/publish/SPEC.md` (capability `review-output`): updated, because `template.ts` is a new file in that directory.
 - `src/cli/SPEC.md` (capability `review-cli`): no update. This change added, removed, and renamed no file there, so the folder guide is still current.
 
-Open after tasks 5.1 to 5.7:
+Done by the second `openspec-sync-specs` run, after tasks 5.1 to 5.7:
 
-- `src/core/publish/SPEC.md` (capability `review-output`): refresh the template file names and the built-in files.
-- `src/template` (capability `review-output`): a new directory with the two built-in files. Ask the user whether it needs a `SPEC.md`.
+- `src/core/publish/SPEC.md` (capability `review-output`): updated. The template file names use upper case, and the built-in files are in `src/template`.
+- `src/template/SPEC.md` (capability `review-output`): created. The directory holds the built-in files that the program reads, and `src/` has no `SPEC.md` that covers it.
