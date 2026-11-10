@@ -77,7 +77,7 @@ The size limit is 8,000 characters, counted as the length of the JavaScript stri
 
 The resolver returns the text and, for a path source, the path of the file. After `changeRequest.load()`, `runReview` compares that path, relative to the working directory, with the new path and the old path of each changed file. Both sides use the forward slash. One match writes one `warn` log line. The result of the review does not change.
 
-The comparison is exact. If the working directory is not the root of the project, the paths do not match, and the program writes no warning. This is a missed warning and not a wrong one. The README states it. The two path sources are `--instructions` and `REVIEW_INSTRUCTIONS_FILE`. The two text sources, `--instructions-text` and `REVIEW_INSTRUCTIONS`, are not files in the checkout, so the program does not compare them.
+The comparison is exact. If the working directory is not the root of the project, the comparison can miss a changed file. It can also match another file that has the same relative path. A wrong warning only writes a log line. The README states it. The two path sources are `--instructions` and `REVIEW_INSTRUCTIONS_FILE`. The two text sources, `--instructions-text` and `REVIEW_INSTRUCTIONS`, are not files in the checkout, so the program does not compare them.
 
 ### Decision 6: Module and wiring
 
