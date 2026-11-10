@@ -206,6 +206,29 @@ test('runPublish publishes every finding', async () => {
   assert.deepEqual(client.discussions[0]!.position, { file: 'a.ts', line: 1 });
 });
 
+test('runPublish writes the comment text from the templates it gets', async () => {
+  const client = new FakeMergeRequest(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+  const findingsFile: FindingsFile<unknown, unknown> = {
+    unreviewedFiles: [],
+    resolved: [],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
+    findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor nit.' }],
+  };
+
+  await runPublish({
+    config: fixturePublishConfig(),
+    gateway: client,
+    findingsFile,
+    templates: { finding: '- ${severity}: ${summary}', resolved: 'Resolved: ${reason}' },
+  });
+
+  assert.equal(client.discussions[0]!.body, '<!-- pi-code-review -->\n- low: Minor nit.');
+});
+
 test('runPublish publishes a high finding before failing on it (severity never blocks publishing)', async () => {
   const client = new FakeMergeRequest(
     { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },

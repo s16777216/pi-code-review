@@ -250,3 +250,60 @@ test('loadPublishConfig reads the host settings after the threshold is checked',
   loadPublishConfig({}, () => calls.push('host'));
   assert.deepEqual(calls, ['host']);
 });
+
+// --- template directory (`publish-output-templates`) ---
+
+function withTemplateDirEnv(value: string | undefined, run: () => void): void {
+  const before = process.env.PUBLISH_TEMPLATE_DIR;
+  if (value === undefined) delete process.env.PUBLISH_TEMPLATE_DIR;
+  else process.env.PUBLISH_TEMPLATE_DIR = value;
+  try {
+    run();
+  } finally {
+    if (before === undefined) delete process.env.PUBLISH_TEMPLATE_DIR;
+    else process.env.PUBLISH_TEMPLATE_DIR = before;
+  }
+}
+
+test('loadPublishConfig has no template directory by default', () => {
+  withTemplateDirEnv(undefined, () => {
+    assert.equal(loadPublishConfig().templateDir, undefined);
+  });
+});
+
+test('loadPublishConfig reads the template directory from the flag', () => {
+  withTemplateDirEnv(undefined, () => {
+    assert.equal(loadPublishConfig({ templateDir: './tpl' }).templateDir, './tpl');
+  });
+});
+
+test('loadPublishConfig reads the template directory from PUBLISH_TEMPLATE_DIR', () => {
+  withTemplateDirEnv('./from-env', () => {
+    assert.equal(loadPublishConfig().templateDir, './from-env');
+  });
+});
+
+test('loadPublishConfig lets the flag win over PUBLISH_TEMPLATE_DIR', () => {
+  withTemplateDirEnv('./from-env', () => {
+    assert.equal(loadPublishConfig({ templateDir: './from-flag' }).templateDir, './from-flag');
+  });
+});
+
+test('loadPublishConfig rejects an empty template directory, from the flag or the variable', () => {
+  withTemplateDirEnv(undefined, () => {
+    assert.throws(() => loadPublishConfig({ templateDir: '' }), ConfigError);
+    assert.throws(() => loadPublishConfig({ templateDir: '  ' }), ConfigError);
+  });
+  withTemplateDirEnv('', () => {
+    assert.throws(() => loadPublishConfig(), ConfigError);
+  });
+});
+
+test('loadReviewConfig does not read PUBLISH_TEMPLATE_DIR', () => {
+  clearEnv();
+  withFullEnv();
+  withTemplateDirEnv('./from-env', () => {
+    assert.equal('templateDir' in loadReviewConfig(), false);
+  });
+  clearEnv();
+});

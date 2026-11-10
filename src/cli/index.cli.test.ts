@@ -64,6 +64,11 @@ test('parseReviewCliOptions rejects a publish-only flag', () => {
   assert.throws(() => parseReviewCliOptions(['--from', 'findings.json'], HOST_FLAGS));
 });
 
+test('parseReviewCliOptions rejects the template directory flag, which only publish accepts', () => {
+  assert.throws(() => parseReviewCliOptions(['--template-dir', './templates'], HOST_FLAGS));
+  assert.throws(() => parseReviewCliOptions(['--template-dir', './templates'], gitlabHost.reviewFlags));
+});
+
 test('parsePublishCliOptions maps every publish flag to the matching field', () => {
   const options = parsePublishCliOptions(
     [
@@ -73,6 +78,8 @@ test('parsePublishCliOptions maps every publish flag to the matching field', () 
       '7',
       '--fail-on',
       'low',
+      '--template-dir',
+      './templates',
       '--from',
       'my-findings.json',
       '--debug',
@@ -83,6 +90,7 @@ test('parsePublishCliOptions maps every publish flag to the matching field', () 
   assert.deepEqual(options, {
     host: { 'host-url': 'https://host.example.com', change: '7' },
     failOnSeverity: 'low',
+    templateDir: './templates',
     from: 'my-findings.json',
     debug: true,
   });
@@ -92,6 +100,7 @@ test('parsePublishCliOptions returns all-undefined fields when no flags are give
   assert.deepEqual(parsePublishCliOptions([], HOST_FLAGS), {
     host: { 'host-url': undefined, change: undefined },
     failOnSeverity: undefined,
+    templateDir: undefined,
     from: undefined,
     debug: undefined,
   });

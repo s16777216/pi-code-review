@@ -16,6 +16,7 @@ import { type FindingsFile, readFindingsFile, writeFindingsFile } from '../findi
 import { gitlabHost } from '../providers/index.ts';
 import type { ChangeRequest, CodeHost, DiscussionGateway, HostFlags } from '../core/ports.ts';
 import { Publisher } from '../core/publish/publisher.ts';
+import { loadTemplates, type CommentTemplates } from '../core/publish/template.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
 import { decidePassFail } from '../core/passFail.ts';
 import { AgentReviewEngine } from '../core/review/engine.ts';
@@ -83,6 +84,8 @@ export interface PublishOptions {
   /** The discussions of the change request. Production passes the host's; tests pass a fake. */
   gateway: DiscussionGateway;
   findingsFile: FindingsFile<unknown, unknown>;
+  /** The text of a finding and of a resolved reply. Defaults to the built-in templates. */
+  templates?: CommentTemplates;
   /** Logs progress at `info` level. Defaults to a silent logger. */
   logger?: Logger;
 }
@@ -95,7 +98,7 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
   const logger = options.logger ?? silentLogger();
 
   logger.info(`Publishing ${findingsFile.findings.length} finding(s) to GitLab...`);
-  await new Publisher(gateway, { logger }).publish(
+  await new Publisher(gateway, { logger, ...(options.templates ? { templates: options.templates } : {}) }).publish(
     findingsFile.findings,
     findingsFile.resolved,
     findingsFile.unreviewedFiles,
@@ -152,6 +155,7 @@ export function parsePublishCliOptions(
     options: {
       ...hostFlags,
       'fail-on': { type: 'string' },
+      'template-dir': { type: 'string' },
       from: { type: 'string' },
       debug: { type: 'boolean' },
     },
@@ -160,6 +164,7 @@ export function parsePublishCliOptions(
   return {
     host: pickHostFlags(values, hostFlags),
     failOnSeverity: asString(values['fail-on']),
+    templateDir: asString(values['template-dir']),
     from: asString(values.from),
     debug: values.debug === true ? true : undefined,
   };
@@ -252,12 +257,17 @@ export async function runPublishCommand<Snapshot, Source, ReviewSettings, Publis
     (value) => host.parseSnapshot(value),
     (value) => host.parseSource(value),
   );
+  // Check the templates before the first host call, so a template that is not
+  // valid can never reach the host (see the `review-output` spec's "Check
+  // templates before publishing" requirement).
+  const templates = await loadTemplates(config.templateDir, logger);
   const gateway = await host.restore(settings as PublishSettings, findingsFile.source, findingsFile.diffRefs, logger);
 
   const passed = await runPublish({
     config,
     gateway,
     findingsFile,
+    templates,
     logger,
   });
   return passed ? EXIT_PASS : EXIT_FAIL;

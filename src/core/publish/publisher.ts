@@ -10,8 +10,12 @@ import {
   type UnreviewedNote,
 } from './discussion.ts';
 import { MARKER, UNREVIEWED_MARKER } from './marker.ts';
+import { builtinTemplates, fillTemplate, type CommentTemplates } from './template.ts';
 
 export interface PublisherOptions {
+  /** The text of a finding and of a resolved reply. Defaults to the built-in
+   * templates, which give the text from before templates existed. */
+  templates?: CommentTemplates;
   /** Injectable for tests; defaults to logging via `logger.error`. */
   onDiscussionError?: (finding: Finding, error: unknown) => void;
   /** Defaults to a silent logger. */
@@ -44,12 +48,14 @@ interface ExistingDiscussions {
 
 export class Publisher {
   private readonly logger: Logger;
+  private readonly templates: CommentTemplates;
 
   constructor(
     private readonly gateway: DiscussionGateway,
     private readonly options: PublisherOptions = {},
   ) {
     this.logger = options.logger ?? silentLogger();
+    this.templates = options.templates ?? builtinTemplates();
   }
 
   /** Decides each finding's target by these rules (`publish-into-existing-
@@ -138,7 +144,10 @@ export class Publisher {
     if (discussion.resolved) return;
 
     try {
-      await this.gateway.reply(discussionId, `${MARKER}\nResolved: ${declaration.reason}`);
+      await this.gateway.reply(
+        discussionId,
+        `${MARKER}\n${fillTemplate(this.templates.resolved, { reason: declaration.reason })}`,
+      );
     } catch (error) {
       this.logger.warn(
         { discussionId, error: errorMessage(error) },
@@ -198,7 +207,10 @@ export class Publisher {
   private async createDiscussion(findings: Finding[]): Promise<void> {
     const first = findings[0]!;
     try {
-      await this.gateway.createDiscussion({ file: first.file, line: first.line }, formatDiscussionBody(findings));
+      await this.gateway.createDiscussion(
+        { file: first.file, line: first.line },
+        formatDiscussionBody(findings, this.templates.finding),
+      );
     } catch (error) {
       for (const finding of findings) this.reportFailure(finding, error, 'failed to post discussion');
     }
@@ -210,7 +222,7 @@ export class Publisher {
    * example, the token's role cannot resolve discussions), the reply stays. */
   private async replyAndReopen(findings: Finding[], discussionId: string): Promise<void> {
     try {
-      await this.gateway.reply(discussionId, formatDiscussionBody(findings));
+      await this.gateway.reply(discussionId, formatDiscussionBody(findings, this.templates.finding));
     } catch (error) {
       for (const finding of findings) this.reportFailure(finding, error, 'failed to reply to discussion');
       return;
@@ -288,12 +300,22 @@ function decideTarget(finding: Finding, existing: ExistingDiscussions | null): F
 /** The marker line comes first so a later run can recognize this comment and
  * match its anchor (see `marker.ts`). The host does not render it. It carries
  * the first finding's anchor: the findings of a new discussion are all on one
- * line, so they share it. Then one `**[severity]** summary` paragraph follows
- * for each finding (`merge-findings-on-publish` design, Decision 3). */
-function formatDiscussionBody(findings: Finding[]): string {
+ * line, so they share it. Then one paragraph follows for each finding, filled
+ * from the finding template (`merge-findings-on-publish` design, Decision 3).
+ * The marker and the blank-line join belong to the program: a template only
+ * gives the text of one paragraph (`publish-output-templates` design,
+ * Decision 4). */
+function formatDiscussionBody(findings: Finding[], findingTemplate: string): string {
   const anchor = findings[0]?.anchor;
   const marker = anchor === undefined ? MARKER : `<!-- pi-code-review anchor=${anchor} -->`;
-  const paragraphs = findings.map((finding) => `**[${finding.severity}]** ${finding.summary}`);
+  const paragraphs = findings.map((finding) =>
+    fillTemplate(findingTemplate, {
+      severity: finding.severity,
+      summary: finding.summary,
+      file: finding.file,
+      line: String(finding.line),
+    }),
+  );
   return `${marker}\n${paragraphs.join('\n\n')}`;
 }
 
