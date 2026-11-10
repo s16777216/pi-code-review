@@ -106,8 +106,8 @@ Capability to directory map:
 
 ## Pending sync notes
 
-After the implementation, `openspec-sync-specs` must check these local `SPEC.md` files:
+Done by `openspec-sync-specs`:
 
-- `src/core/review/SPEC.md` (capability `ai-diff-review`): the change adds no file to the directory. It needs no update unless the folder guide is out of date.
-- `src/cli/SPEC.md` (capability `review-cli`): the change adds no file to the directory. It needs no update unless the folder guide is out of date.
-- `src/` (capabilities `ai-diff-review`, `review-cli`): `reviewInstructions.ts` is a new file in a directory with `config.ts`, `findingsFile.ts`, `logger.ts`, and `settings.ts`. The directory has no `SPEC.md`. Ask the user whether it needs one.
+- `src/core/review/SPEC.md` (capability `ai-diff-review`): no update. The change adds no file to the directory.
+- `src/cli/SPEC.md` (capability `review-cli`): no update. The change adds no file to the directory.
+- `src/SPEC.md` (capabilities `ai-diff-review`, `review-cli`): created. `reviewInstructions.ts` is a new file in `src/`, and no `SPEC.md` covered the loose files of that directory.
