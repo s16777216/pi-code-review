@@ -25,6 +25,10 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
       '400000',
       '--language',
       'Traditional Chinese',
+      '--instructions',
+      'rules.md',
+      '--instructions-text',
+      'Skip naming problems.',
       '--out',
       'my-findings.json',
       '--debug',
@@ -40,6 +44,8 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     maxTokens: '64000',
     contextWindow: '400000',
     language: 'Traditional Chinese',
+    instructions: 'rules.md',
+    instructionsText: 'Skip naming problems.',
     out: 'my-findings.json',
     debug: true,
   });
@@ -54,6 +60,8 @@ test('parseReviewCliOptions returns all-undefined fields when no flags are given
     maxTokens: undefined,
     contextWindow: undefined,
     language: undefined,
+    instructions: undefined,
+    instructionsText: undefined,
     out: undefined,
     debug: undefined,
   });
@@ -67,6 +75,19 @@ test('parseReviewCliOptions rejects a publish-only flag', () => {
 test('parseReviewCliOptions rejects the template directory flag, which only publish accepts', () => {
   assert.throws(() => parseReviewCliOptions(['--template-dir', './templates'], HOST_FLAGS));
   assert.throws(() => parseReviewCliOptions(['--template-dir', './templates'], gitlabHost.reviewFlags));
+});
+
+test('parseReviewCliOptions accepts the instructions flags, with an empty string too', () => {
+  const options = parseReviewCliOptions(['--instructions', '', '--instructions-text', ''], HOST_FLAGS);
+  assert.equal(options.instructions, '');
+  assert.equal(options.instructionsText, '');
+  assert.equal(parseReviewCliOptions(['--instructions-text', 'Check SQL.'], HOST_FLAGS).instructionsText, 'Check SQL.');
+});
+
+test('parsePublishCliOptions rejects both instructions flags, which only review accepts', () => {
+  assert.throws(() => parsePublishCliOptions(['--instructions', 'rules.md'], HOST_FLAGS));
+  assert.throws(() => parsePublishCliOptions(['--instructions-text', 'Skip naming problems.'], HOST_FLAGS));
+  assert.throws(() => parsePublishCliOptions(['--instructions', 'rules.md'], gitlabHost.publishFlags));
 });
 
 test('parsePublishCliOptions maps every publish flag to the matching field', () => {

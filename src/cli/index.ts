@@ -18,6 +18,7 @@ import type { ChangeRequest, CodeHost, DiscussionGateway, HostFlags } from '../c
 import { Publisher } from '../core/publish/publisher.ts';
 import { loadTemplates, type CommentTemplates } from '../core/publish/template.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
+import { changesInstructionsFile, resolveInstructions, type ResolvedInstructions } from '../reviewInstructions.ts';
 import { decidePassFail } from '../core/passFail.ts';
 import { AgentReviewEngine } from '../core/review/engine.ts';
 import { errorMessage } from '../core/errorMessage.ts';
@@ -48,6 +49,9 @@ export interface ReviewOptions {
   /** The model provider to stream from. Production passes `openaiProvider()`;
    * tests pass `fauxProvider().provider` so no network call happens. */
   provider: Provider;
+  /** The review instructions, already picked by `resolveInstructions`. When
+   * there are none, the review runs as before this option. */
+  instructions?: ResolvedInstructions;
   /** Logs progress at `info` level and (under `--debug`) request/response
    * detail at `debug` level. Defaults to a silent logger. */
   logger?: Logger;
@@ -58,12 +62,26 @@ export interface ReviewOptions {
  * (a `ChangeRequest` cannot), and never decides pass/fail — see `design.md`'s
  * "Severity-threshold decision moves to publish, not review" decision. */
 export async function runReview(options: ReviewOptions): Promise<FindingsFile<unknown, unknown>> {
-  const { config, changeRequest, source, provider } = options;
+  const { config, changeRequest, source, provider, instructions } = options;
   const logger = options.logger ?? silentLogger();
 
   logger.info('Fetching merge request context from GitLab...');
   const { context, snapshot } = await changeRequest.load();
   logger.info(`Reviewing "${context.title}" (${context.changedFiles.length} changed file(s)).`);
+
+  // Warn when the merge request changes the file that holds the review
+  // instructions. The merge request author can then change the rules of their
+  // own review (`add-review-instructions` design, Decision 5). Only a log line:
+  // the review and its result do not change.
+  if (instructions?.filePath !== undefined) {
+    const changedPaths = context.changedFiles.flatMap((file) => [file.newPath, file.oldPath]);
+    if (changesInstructionsFile(instructions.filePath, changedPaths)) {
+      logger.warn(
+        { source: instructions.source, file: instructions.filePath },
+        `the merge request changes the file of the review instructions (${instructions.source}: ${instructions.filePath})`,
+      );
+    }
+  }
 
   logger.info(`Running review with model "${config.openai.model}"...`);
   const engine = new AgentReviewEngine({
@@ -71,6 +89,7 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<un
     model: buildModel(config),
     apiKey: config.openai.apiKey,
     language: config.language,
+    instructions: instructions?.text,
     logger,
   });
   const { findings, resolved, unreviewedFiles } = await engine.review(context);
@@ -115,7 +134,15 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
 export function parseReviewCliOptions(
   argv: string[],
   hostFlags: CodeHost<unknown, unknown>['reviewFlags'],
-): ReviewConfigOverrides & { out?: string; debug?: boolean; host: HostFlags } {
+): ReviewConfigOverrides & {
+  out?: string;
+  debug?: boolean;
+  host: HostFlags;
+  /** `--instructions`: the path of a file with review instructions. */
+  instructions?: string;
+  /** `--instructions-text`: the review instructions themselves. */
+  instructionsText?: string;
+} {
   const { values } = parseArgs({
     args: argv,
     options: {
@@ -126,6 +153,8 @@ export function parseReviewCliOptions(
       'max-tokens': { type: 'string' },
       'context-window': { type: 'string' },
       language: { type: 'string' },
+      instructions: { type: 'string' },
+      'instructions-text': { type: 'string' },
       out: { type: 'string' },
       debug: { type: 'boolean' },
     },
@@ -139,6 +168,8 @@ export function parseReviewCliOptions(
     maxTokens: asString(values['max-tokens']),
     contextWindow: asString(values['context-window']),
     language: asString(values.language),
+    instructions: asString(values.instructions),
+    instructionsText: asString(values['instructions-text']),
     out: asString(values.out),
     debug: values.debug === true ? true : undefined,
   };
@@ -219,6 +250,12 @@ export async function runReviewCommand<Snapshot, Source, ReviewSettings, Publish
   const config = loadReviewConfig(cliOptions, () => {
     settings = host.readReviewSettings(cliOptions.host);
   });
+  // Pick the review instructions before the first host call. A source that is
+  // not usable only writes a warning here; the review runs without it.
+  const instructions = resolveInstructions(
+    { instructions: cliOptions.instructions, instructionsText: cliOptions.instructionsText },
+    logger,
+  );
   const { changeRequest, source } = await host.openChangeRequest(settings as ReviewSettings, logger);
 
   const findingsFile = await runReview({
@@ -226,6 +263,7 @@ export async function runReviewCommand<Snapshot, Source, ReviewSettings, Publish
     changeRequest,
     source,
     provider: openaiProvider(),
+    instructions,
     logger,
   });
   await writeFindingsFile(outPath, findingsFile);

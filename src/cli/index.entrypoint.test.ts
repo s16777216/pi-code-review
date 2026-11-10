@@ -271,3 +271,52 @@ test('publish with a template directory that does not exist exits 2 and names it
   assert.match(stderr, /no-such-templates/);
   assert.doesNotMatch(stderr, /ECONNREFUSED|fetch failed/);
 });
+
+/** `publish` never picks review instructions (`add-review-instructions` design, Decision 6). The two
+ * variables below are not usable, and `review` would write a warning for each. `publish` must run as
+ * without them and write no line about them. The URL points at a closed local port, so the findings
+ * do not reach a host; `publish` still finishes and writes its own lines. */
+test('publish ignores the review instructions variables and runs as without them', async () => {
+  const entrypoint = fileURLToPath(new URL('./index.ts', import.meta.url));
+  const scratchDir = mkdtempSync(join(tmpdir(), 'picr-publish-instructions-'));
+  const findingsPath = join(scratchDir, 'findings.json');
+  writeFileSync(
+    findingsPath,
+    JSON.stringify({
+      diffRefs: { baseSha: 'b', startSha: 's', headSha: 'h' },
+      source: { host: 'gitlab', projectId: '12', mergeRequestIid: '7' },
+      findings: [{ file: 'a.ts', line: 3, severity: 'low', summary: 'Minor.' }],
+    }),
+    'utf8',
+  );
+
+  try {
+    const { stderr } = await execFileAsync(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        entrypoint,
+        'publish',
+        '--gitlab-url',
+        'http://127.0.0.1:9/api/v4',
+        '--token',
+        'test-token',
+        '--from',
+        findingsPath,
+      ],
+      {
+        env: {
+          ...envWithoutSettings(),
+          REVIEW_INSTRUCTIONS_FILE: join(scratchDir, 'missing.md'),
+          REVIEW_INSTRUCTIONS: '   ',
+        },
+      },
+    );
+
+    assert.match(stderr, /Publishing 1 finding/);
+    assert.doesNotMatch(stderr, /review instructions|REVIEW_INSTRUCTIONS|missing\.md/i);
+  } finally {
+    rmSync(scratchDir, { recursive: true, force: true });
+  }
+});
