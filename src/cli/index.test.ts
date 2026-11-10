@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import pino from 'pino';
 import type { PublishConfig, ReviewConfig } from '../config.ts';
@@ -344,4 +345,97 @@ test('runReview writes the omitted files, and runPublish posts the comment on th
   await runPublish({ config: fixturePublishConfig(), gateway: client, findingsFile });
   assert.equal(client.notes.length, 1);
   assert.match(client.notes[0]!.body, /^<!-- pi-code-review unreviewed -->\n[\s\S]*`big\.js`/);
+});
+
+// --- review instructions (`add-review-instructions`) ---
+
+const REVIEW_METADATA = {
+  title: 'Fix bug',
+  description: '',
+  diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+};
+
+/** A logger that keeps what it writes, so a test can read the `warn` lines. */
+function capturingLogger(): { logger: pino.Logger; lines: Record<string, unknown>[] } {
+  const lines: Record<string, unknown>[] = [];
+  const logger = pino({ level: 'info' }, { write: (chunk: string) => void lines.push(JSON.parse(chunk)) });
+  return { logger, lines };
+}
+
+/** Runs `runReview` over a merge request that changes `paths`, and returns what the model got and what the log says. */
+async function reviewWithInstructions(instructions: Parameters<typeof runReview>[0]['instructions'], paths: string[]) {
+  const prompts: string[] = [];
+  const faux = fauxProvider();
+  faux.setResponses([
+    (context) => {
+      prompts.push(JSON.stringify(context));
+      return submitReview();
+    },
+  ]);
+  const client = new FakeMergeRequest(
+    REVIEW_METADATA,
+    paths.map((path) => ({ oldPath: path, newPath: path, hunks: '@@ -1,1 +1,1 @@\n-old\n+new' })),
+  );
+  const { logger, lines } = capturingLogger();
+
+  const findingsFile = await runReview({
+    config: fixtureReviewConfig(),
+    changeRequest: client,
+    source: SOURCE,
+    provider: faux.provider,
+    instructions,
+    logger,
+  });
+  return { prompts, lines, findingsFile };
+}
+
+const warnLines = (lines: Record<string, unknown>[]) => lines.filter((line) => line.level === 40);
+
+test('runReview puts the review instructions in the system prompt', async () => {
+  const { prompts } = await reviewWithInstructions({ text: 'Skip naming problems.', source: '--instructions-text' }, [
+    'a.ts',
+  ]);
+
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0]!, /The project owner wrote the review instructions below/);
+  assert.match(prompts[0]!, /Skip naming problems\./);
+});
+
+test('runReview gives the same system prompt as before when there are no review instructions', async () => {
+  const { prompts } = await reviewWithInstructions(undefined, ['a.ts']);
+
+  assert.doesNotMatch(prompts[0]!, /review instructions below/);
+});
+
+test('runReview warns once when the merge request changes the file of the review instructions', async () => {
+  const filePath = join(process.cwd(), 'REVIEW_INSTRUCTIONS.md');
+  const { lines, findingsFile } = await reviewWithInstructions(
+    { text: 'Skip naming problems.', source: '--instructions', filePath },
+    ['a.ts', 'REVIEW_INSTRUCTIONS.md'],
+  );
+
+  const warnings = warnLines(lines);
+  assert.equal(warnings.length, 1);
+  assert.match(String(warnings[0]!.msg), /merge request changes the file of the review instructions/);
+  assert.equal(warnings[0]!.source, '--instructions');
+  // The path in the log is relative to the working directory.
+  assert.equal(warnings[0]!.file, 'REVIEW_INSTRUCTIONS.md');
+  assert.match(String(warnings[0]!.msg), /\(--instructions: REVIEW_INSTRUCTIONS\.md\)/);
+  // The review itself is the same as without the warning.
+  assert.deepEqual(findingsFile.findings, []);
+});
+
+test('runReview does not warn when the merge request does not change the file of the review instructions', async () => {
+  const filePath = join(process.cwd(), 'REVIEW_INSTRUCTIONS.md');
+  const { lines } = await reviewWithInstructions({ text: 'x', source: 'REVIEW_INSTRUCTIONS_FILE', filePath }, ['a.ts']);
+
+  assert.equal(warnLines(lines).length, 0);
+});
+
+test('runReview does not compare a text source with the changed files', async () => {
+  const { lines } = await reviewWithInstructions({ text: 'x', source: '--instructions-text' }, [
+    'REVIEW_INSTRUCTIONS.md',
+  ]);
+
+  assert.equal(warnLines(lines).length, 0);
 });
