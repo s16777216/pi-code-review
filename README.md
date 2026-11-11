@@ -191,15 +191,34 @@ picr publish `
 
 Running from source instead of the npm package: replace `picr` with `node dist/cli/index.js` everywhere above.
 
+## Review focuses and deduplication
+
+`review` runs three agents on the change, not one. Each agent has a **review focus**, its main area:
+
+1. logic correctness
+2. security
+3. resources and concurrency
+
+A review focus is not a limit. An agent still reports any other genuine bug that it sees, and the rule to report only genuine bugs applies to all three. The three agents get the same input and the same [review instructions](#review-instructions). The review focuses are built in. You cannot change them or turn them off.
+
+The findings of the three agents are merged. Then the **deduplication step** removes findings that report the same problem:
+
+- It runs after the checks on linked discussions and diff lines. It makes one more model call, and only when at least one file has two or more findings. It sends only the findings of those files. For each finding the model sees the file, the line, the severity, and the summary, and it answers only with groups of finding numbers. A group can hold findings of one file only.
+- The program keeps one finding of each group: the one with the highest severity (`critical`, `high`, `medium`, `low`, `pre_existing`), and the first one when the severities are equal. It does not change the text of the finding. If the kept finding has no linked discussion and another finding of its group has one, the kept finding takes that link.
+- When this call fails after its tries, or its groups are not valid, `review` fails.
+- The findings file does not record which review focus found a finding. The `info` log shows how many findings each review focus found and how many the deduplication step kept. With `--debug`, the log shows the prompt of each agent.
+
+> **Breaking change:** a review makes about three times more model calls than before, plus at most one for the deduplication step. It costs more and, for a change in many batches, takes more time. For a change that fits one request, the three agents run at the same time, so the time is close to one agent plus the deduplication step.
+
 ## Large merge requests
 
-`review` estimates the size of its first model request before it sends it. When that request needs more than half of the context window (`--context-window`), `review` splits the change into batches and runs one agent for each batch. The other half of the window stays free for file reads and the answer.
+`review` estimates the size of its first model request before it sends it. When that request needs more than half of the context window (`--context-window`), `review` splits the change into batches and runs three agents (one for each [review focus](#review-focuses-and-deduplication)) for each batch. The other half of the window stays free for file reads and the answer.
 
 - Files are sorted by path and packed into batches, so files in the same directory usually share a batch. A file too large for one batch is split at its hunks, shown as `<path> (part k of n)`, with the file's real line numbers.
 - Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file with `get_file_content`.
-- A finding from a batch counts only on a line of that batch's own diffs. The outputs of all batches are merged, and the usual checks (linked discussions, diff lines, anchors, fixed declarations) run once on the merged output.
-- At most 20 batches, and at most 3 run at the same time. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
-- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a batch still fails, the other batches are stopped, and `review` exits with code `2` without writing a findings file.
+- A finding from a batch counts only on a line of that batch's own diffs. The outputs of all agents are merged, and the usual checks (linked discussions, diff lines, anchors, the deduplication step, fixed declarations) run once on the merged output. The estimate uses the review focus with the largest first request, so the three agents of a batch share one plan.
+- At most 20 batches, and at most 3 agent runs at the same time, for all batches and review focuses together. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
+- A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a run still fails, the other runs are stopped, and `review` exits with code `2` without writing a findings file.
 
 Files whose diff is not reviewed (too large, or generated; see [Output](#output)) are not counted in the estimate and are never part of a batch.
 

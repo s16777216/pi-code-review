@@ -24,14 +24,18 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
 }
 
 /** The fixed checks, in their existing order, on one merged output:
- * `relatesTo`, the diff line check, the anchor, and the fixed declarations. */
+ * `relatesTo`, the diff line check, the anchor, and the fixed declarations.
+ * `betweenSteps` is an optional step on the checked findings, before the check
+ * on the fixed declarations: the deduplication step runs there
+ * (`add-multi-agent-review` design, Decision 4). */
 export async function runChecks(
   output: ParsedReviewOutput,
   context: ReviewContext,
   changes: ChangeSet,
   logger: Logger,
+  betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles'>> {
-  const findings = (await checkRelatesTo(output.findings, context, logger))
+  const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
       // The review did not show this file's diff, so it does not report on it
       // (`handle-omitted-diffs` design, Decision 3).
@@ -49,6 +53,7 @@ export async function runChecks(
       const lineText = changes.lineText(finding.file, finding.line) ?? '';
       return { ...finding, anchor: computeAnchor(finding.file, lineText) };
     });
+  const findings = await betweenSteps(checked);
   const resolved = await checkResolved(output.resolved, findings, context, changes, logger);
   return { findings, resolved };
 }

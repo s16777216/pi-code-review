@@ -1,11 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import { AgentReviewEngine, buildSystemPrompt } from './engine.ts';
 import { Batch } from './scope.ts';
 import { fixtureContext } from './characterization.fixtures.ts';
+import { logicOnly } from './fauxFocus.ts';
+import { REVIEW_FOCUSES } from './focus.ts';
 
 /**
  * Pins the exact output of the review core for a fixed change
@@ -41,7 +43,8 @@ const AGENT_OUTPUT = {
 
 async function render(window: number, label: string): Promise<string> {
   const faux = fauxProvider();
-  faux.setResponses(
+  logicOnly(
+    faux,
     Array.from({ length: 12 }, () =>
       fauxAssistantMessage([fauxToolCall('submit_review', AGENT_OUTPUT as never)], { stopReason: 'toolUse' }),
     ),
@@ -70,7 +73,14 @@ async function render(window: number, label: string): Promise<string> {
   out.push(JSON.stringify({ findings: r.findings, resolved: r.resolved, unreviewedFiles: r.unreviewedFiles }, null, 1));
   out.push('WARNS ' + JSON.stringify(warns, null, 1));
   out.push('INFOS ' + JSON.stringify(infos));
-  const logged = debugs.filter((d) => 'prompt' in d) as { batch?: number; prompt: string; systemPrompt: string }[];
+  // Three agents for each scope: sort by batch and then by system prompt, so the record does not depend on timing.
+  const logged = (
+    debugs.filter((d) => 'prompt' in d) as { batch?: number; prompt: string; systemPrompt: string }[]
+  ).sort(
+    (a, b) =>
+      (a.batch ?? 0) - (b.batch ?? 0) ||
+      (a.systemPrompt < b.systemPrompt ? -1 : a.systemPrompt > b.systemPrompt ? 1 : 0),
+  );
   out.push(
     'DEBUG PROMPT FIELDS ' +
       JSON.stringify(
@@ -85,23 +95,28 @@ async function render(window: number, label: string): Promise<string> {
     'DEBUG OTHER KEYS ' +
       JSON.stringify(debugs.filter((d) => !('prompt' in d)).map((d) => Object.keys(d).sort().join(','))),
   );
-  logged
-    .sort((a, b) => (a.batch ?? 0) - (b.batch ?? 0))
-    .forEach((d) => out.push(`--- logged prompt batch=${d.batch ?? '-'} ---\n${d.prompt}`));
+  logged.forEach((d) => out.push(`--- logged prompt batch=${d.batch ?? '-'} ---\n${d.prompt}`));
   return out.join('\n');
 }
 
 async function renderAll(): Promise<string> {
-  const parts = [await render(128000, 'SINGLE RUN'), await render(4000, 'BATCHES')];
+  const parts = [await render(128000, 'SINGLE RUN'), await render(4200, 'BATCHES')];
   parts.push('=== SYSTEM PROMPT TAILS ===');
   parts.push(buildSystemPrompt().slice(-60));
-  parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4)).slice(-420));
+  parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4), undefined, REVIEW_FOCUSES[1]).slice(-800));
+  parts.push('=== REVIEW FOCUSES ===');
+  for (const focus of REVIEW_FOCUSES) parts.push(`${focus.name}: ${focus.paragraph}`);
   return parts.join('\n');
 }
 
 test('the review output is byte-identical to the recorded output', async () => {
   const expected = readFileSync(fileURLToPath(new URL('./__golden__/review-output.txt', import.meta.url)), 'utf8');
   const actual = await renderAll();
+  // Set UPDATE_GOLDEN=1 to record the output again after a change on purpose.
+  if (process.env.UPDATE_GOLDEN === '1') {
+    writeFileSync(fileURLToPath(new URL('./__golden__/review-output.txt', import.meta.url)), `${actual}\n`);
+    return;
+  }
   // Compare line by line, so a failure names the first line that differs.
   const a = actual.split('\n');
   const e = expected.replace(/\n$/, '').split('\n');
@@ -111,7 +126,9 @@ test('the review output is byte-identical to the recorded output', async () => {
 
 test('the single run asks for the whole change, and the batches split it in four parts', async () => {
   const text = await renderAll();
-  assert.match(text, /=== SINGLE RUN \(calls=1\) ===/);
-  assert.match(text, /=== BATCHES \(calls=4\) ===/);
-  assert.match(text, /INFOS \[\{"batches":4\}\]/);
+  // Three agents for each scope, one for each review focus, and one call for
+  // the deduplication step: the fixed output has more than one finding in a file.
+  assert.match(text, /=== SINGLE RUN \(calls=4\) ===/);
+  assert.match(text, /=== BATCHES \(calls=13\) ===/);
+  assert.match(text, /INFOS \[\{"batches":4\},/);
 });
