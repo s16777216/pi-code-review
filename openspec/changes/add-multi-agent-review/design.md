@@ -57,7 +57,7 @@ The order is: filter the findings of each run by its scope, merge, check `relate
 
 The step runs after the checks on `relatesTo` and the diff line because of two reasons. First, the model sees only findings that survive. A finding that the diff line check drops cannot win a group and then disappear with the finding that it replaced. Second, the model gets fewer findings. A kept finding takes the `relatesTo` of its group, so the check on the fixed declarations sees the same links as before.
 
-`runChecks` gets a small change so that the engine can run the step between the two parts. The preferred shape is two exported functions with `runChecks` as their composition, so the existing tests keep their meaning.
+`runChecks` gets an optional step argument. The engine passes the deduplication step, and `runChecks` calls it on the checked findings, before the check on the fixed declarations. A call with no step argument works as before, so the existing tests keep their meaning.
 
 ### Decision 5: The deduplication step is a short agent run with one tool
 
@@ -89,7 +89,7 @@ Each review focus writes one `info` log line with the number of findings of its 
 - `ai-diff-review`: `src/core/review`.
   - `engine.ts`: the review focuses, the runs, `buildSystemPrompt`, and the call of the step.
   - `dedup.ts` (new): the prompt, the tool, the check of the groups, and the pick of the finding to keep.
-  - `checks.ts`: `runChecks` is split in two so that the step can run between the parts.
+  - `checks.ts`: `runChecks` takes an optional step that runs between the checks on the findings and the check on the fixed declarations.
   - `findings.ts`: no change is planned. The check of the groups is in `dedup.ts`, because only that module uses it.
 - `README.md`: the cost and the breaking change.
 - The golden file `src/core/review/__golden__/review-output.txt` changes, because the system prompt now holds the paragraph of a review focus.
@@ -110,6 +110,6 @@ This is a breaking change for cost and time, with no change in the configuration
 
 ## Pending sync notes
 
-Set by `openspec-apply-change` and cleared by `openspec-sync-specs`:
+Done by `openspec-sync-specs`:
 
-- `src/core/review/SPEC.md` (capability `ai-diff-review`): add `dedup.ts` to the entry points, and update the line about the runs and the merge.
+- `src/core/review/SPEC.md` (capability `ai-diff-review`): updated. It lists `dedup.ts` and `focus.ts`, and the runs and the merge.

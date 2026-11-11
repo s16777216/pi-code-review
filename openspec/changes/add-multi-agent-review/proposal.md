@@ -35,7 +35,7 @@ None.
 
 - `src/core/review/engine.ts`: a list of review focuses, a change to `buildSystemPrompt`, runs for each batch and focus, the merge, and the call of the deduplication step.
 - `src/core/review/dedup.ts` (new): builds the prompt for the deduplication step, checks the groups, and picks the finding to keep.
-- `src/core/review/checks.ts`: `runChecks` is split in two parts, so that the deduplication step runs between them.
+- `src/core/review/checks.ts`: `runChecks` takes an optional step, so that the deduplication step runs between the two parts of the checks.
 - `src/core/review/SPEC.md`: lists the new file.
 - `src/core/review/__golden__/review-output.txt` and `characterization.test.ts`: the golden file changes, because the system prompt now holds a review focus.
 - `README.md`: the cost of the review and the breaking change.
