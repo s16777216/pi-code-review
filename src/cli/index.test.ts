@@ -10,6 +10,7 @@ import type { ChangedFileDiff, ReviewContext, ReviewDiscussion } from '../core/t
 import type { FindingsFile } from '../findingsFile.ts';
 import { computeAnchor } from '../core/review/anchor.ts';
 import { main, runPublish, runReview } from './index.ts';
+import { logicOnly } from '../core/review/fauxFocus.ts';
 
 type Position = { file: string; line: number };
 
@@ -91,7 +92,7 @@ function submitReview(findings: Record<string, unknown>[] = [], resolved: Record
 
 test('runReview returns findings and the snapshot, and never posts anything', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'Off-by-one.' }])]);
+  logicOnly(faux, [submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'Off-by-one.' }])]);
 
   const client = new FakeMergeRequest(
     {
@@ -120,7 +121,7 @@ test('runReview returns findings and the snapshot, and never posts anything', as
 
 test('runReview returns an empty findings list when the review finds nothing', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview()]);
+  logicOnly(faux, [submitReview()]);
 
   const client = new FakeMergeRequest(
     { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
@@ -139,7 +140,7 @@ test('runReview returns an empty findings list when the review finds nothing', a
 
 test('runReview never logs the OpenAI API key', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview()]);
+  logicOnly(faux, [submitReview()]);
 
   const client = new FakeMergeRequest(
     { title: 'Docs tweak', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
@@ -325,7 +326,7 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
 
 test('runReview writes the omitted files, and runPublish posts the comment on them', async () => {
   const faux = fauxProvider();
-  faux.setResponses([submitReview()]);
+  logicOnly(faux, [submitReview()]);
   const client = new FakeMergeRequest(
     { title: 'Big', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
     [
@@ -366,7 +367,7 @@ function capturingLogger(): { logger: pino.Logger; lines: Record<string, unknown
 async function reviewWithInstructions(instructions: Parameters<typeof runReview>[0]['instructions'], paths: string[]) {
   const prompts: string[] = [];
   const faux = fauxProvider();
-  faux.setResponses([
+  logicOnly(faux, [
     (context) => {
       prompts.push(JSON.stringify(context));
       return submitReview();
