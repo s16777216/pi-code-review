@@ -1,5 +1,5 @@
 - [x] review 支援設定輸出語言
-- [ ] review 參考 docs/solving-code-review-at-anthropic.md 設計多 agent 架構
-- [ ] publish 可自定義輸出模板
+- [x] review 參考 docs/solving-code-review-at-anthropic.md 設計多 agent 架構
+- [x] publish 可自定義輸出模板
 - [ ] review/publish 支援 github、gitea
 - [x] important、nit 改成 critical、high、medium、low
