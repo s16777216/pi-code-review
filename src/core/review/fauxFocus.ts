@@ -34,6 +34,34 @@ function singletonGroups(context: unknown) {
   });
 }
 
+/** True when the call is a verifier run of the verification step. */
+export function isVerifyCall(context: unknown): boolean {
+  return JSON.stringify(context).includes('submit_verdicts');
+}
+
+/** A `submit_verdicts` call that confirms every finding with the severity it
+ * has, so a test that does not care about the verification step keeps its
+ * findings as they are. It reads the findings from the last user message. */
+export function confirmAll(context: unknown) {
+  const messages = (context as { messages?: { role: string; content: unknown }[] }).messages ?? [];
+  const user = [...messages].reverse().find((message) => message.role === 'user');
+  const content = user?.content;
+  const text =
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map((part: { text?: string }) => part.text ?? '').join(' ')
+        : '';
+  const items = [...text.matchAll(/"number": (\d+),\s*"line": \d+,\s*"severity": "(\w+)"/g)];
+  const verdicts = items.map((match) => ({
+    number: Number(match[1]),
+    verdict: 'confirmed',
+    severity: match[2],
+    reason: 'The code shows the problem.',
+  }));
+  return fauxAssistantMessage([fauxToolCall('submit_verdicts', { verdicts } as never)], { stopReason: 'toolUse' });
+}
+
 function emptyReview() {
   return fauxAssistantMessage([fauxToolCall('submit_review', { findings: [], resolved: [] } as never)], {
     stopReason: 'toolUse',
@@ -49,6 +77,7 @@ export function logicOnly(faux: FauxProviderHandle, steps: FauxResponseStep[]): 
   const queue = [...steps];
   const dispatch: FauxResponseFactory = (context, options, state, model) => {
     if (isDedupCall(context)) return singletonGroups(context);
+    if (isVerifyCall(context)) return confirmAll(context);
     if (focusOfCall(context) > 0) return emptyReview();
     const step = queue.shift();
     if (step === undefined) throw new Error('The test script has no more responses for the first review focus.');
@@ -64,12 +93,20 @@ export function perFocus(
   faux: FauxProviderHandle,
   scripts: { [focus: number]: FauxResponseStep[] },
   dedup?: FauxResponseStep[],
+  verify?: FauxResponseStep[],
 ): void {
   const queues = new Map<number, FauxResponseStep[]>(
     REVIEW_FOCUSES.map((_, index) => [index, [...(scripts[index] ?? [])]]),
   );
   const dedupQueue = [...(dedup ?? [])];
+  const verifyQueue = verify === undefined ? undefined : [...verify];
   const dispatch: FauxResponseFactory = (context, options, state, model) => {
+    if (isVerifyCall(context)) {
+      const next = verifyQueue?.shift();
+      if (verifyQueue === undefined) return confirmAll(context);
+      if (next === undefined) throw new Error('The test script has no response for the verification step.');
+      return typeof next === 'function' ? next(context, options, state, model) : next;
+    }
     const focus = focusOfCall(context);
     const queue = focus === -1 ? dedupQueue : queues.get(focus)!;
     const step = queue.shift();

@@ -71,7 +71,7 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
     { file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug introduced by the diff.' },
   ]);
   assert.equal(fileContentRequested, 'a.ts');
-  assert.equal(faux.state.callCount, 4);
+  assert.equal(faux.state.callCount, 5);
   assert.equal(decidePassFail(findings, 'high'), false);
 });
 
@@ -102,13 +102,12 @@ test('AgentReviewEngine logs the prompt and the final assistant message, and nev
   });
 
   await engine.review(context);
-
-  // Three agents (one for each review focus), and each writes a prompt line and a final message line.
-  assert.equal(debugCalls.length, 6);
+  // Three review agents and one verifier run, and each writes a prompt line and a final message line.
+  assert.equal(debugCalls.length, 8);
   const promptCalls = (debugCalls as Record<string, unknown>[]).filter((call) => 'prompt' in call);
   const finalMessageCalls = (debugCalls as Record<string, unknown>[]).filter((call) => 'stopReason' in call);
-  assert.equal(promptCalls.length, 3);
-  assert.equal(finalMessageCalls.length, 3);
+  assert.equal(promptCalls.length, 4);
+  assert.equal(finalMessageCalls.length, 4);
   for (const call of promptCalls) assert.match(String(call.prompt), /Small change/);
   for (const call of finalMessageCalls) assert.deepEqual(call.contentBlockTypes, ['toolCall']);
   const serialized = JSON.stringify(debugCalls);
@@ -328,7 +327,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
   assert.deepEqual(withoutAnchors(findings), [
     { file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', relatesTo: 'd1' },
   ]);
-  assert.equal(faux.state.callCount, 4);
+  assert.equal(faux.state.callCount, 5);
   assert.equal(reads >= 1, true);
 });
 
@@ -623,7 +622,7 @@ test('AgentReviewEngine reviews a large change in batches and merges their findi
 
   const { findings } = await engine.review(bigContext(3));
 
-  assert.equal(faux.state.callCount, 9);
+  assert.equal(faux.state.callCount, 12);
   assert.deepEqual(
     infos.filter((info) => 'batches' in info),
     [{ batches: 3 }],
@@ -636,7 +635,8 @@ test('AgentReviewEngine reviews a large change in batches and merges their findi
       ['f3.ts', 3],
     ],
   );
-  const prompts = debugs.filter((d) => 'prompt' in d) as { batch: number; prompt: string }[];
+  // The verifier runs have a prompt but no batch number.
+  const prompts = debugs.filter((d) => 'prompt' in d && 'batch' in d) as { batch: number; prompt: string }[];
   // Each batch has three agents, one for each review focus.
   assert.deepEqual(prompts.map((d) => d.batch).sort(), [1, 1, 1, 2, 2, 2, 3, 3, 3]);
   for (const { batch, prompt } of prompts) {
@@ -763,7 +763,7 @@ test('AgentReviewEngine retries a run that ends with an error and uses the next 
   const { findings } = await engine.review(smallContext());
 
   assert.equal(findings.length, 1);
-  assert.equal(faux.state.callCount, 4);
+  assert.equal(faux.state.callCount, 5);
   assert.deepEqual(waits, [2000]);
   assert.equal(warnings.length, 1);
   assert.equal(warnings[0]!.attempt, 2);
@@ -890,7 +890,7 @@ test('AgentReviewEngine accepts a corrected submit_review call after a rejected 
     ['Fixed call.'],
   );
   // One run, two tool calls (each needs its own model turn), not two full runs.
-  assert.equal(faux.state.callCount, 4);
+  assert.equal(faux.state.callCount, 5);
   assert.deepEqual(waits, []);
 });
 
@@ -919,7 +919,7 @@ test('AgentReviewEngine retries the whole run when submit_review is invalid on e
     ['Second run succeeds.'],
   );
   // 5 tool calls for the first (exhausted) run, then a fresh run's first call.
-  assert.equal(faux.state.callCount, 8);
+  assert.equal(faux.state.callCount, 9);
 });
 
 // --- Omitted files (`handle-omitted-diffs`) ---
@@ -1216,5 +1216,5 @@ test('a finding with a severity that the review instructions ask for is still in
     findings.map((finding) => finding.severity),
     ['low'],
   );
-  assert.equal(faux.state.callCount, 8);
+  assert.equal(faux.state.callCount, 9);
 });

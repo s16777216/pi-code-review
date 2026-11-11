@@ -1,4 +1,4 @@
-=== SINGLE RUN (calls=4) ===
+=== SINGLE RUN (calls=7) ===
 {
  "findings": [
   {
@@ -99,9 +99,9 @@ WARNS [
   "reason": "discussion_not_found"
  }
 ]
-INFOS [{"focus":"logic correctness","findings":10},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3579},{"batch":null,"promptChars":3783,"systemChars":3572},{"batch":null,"promptChars":3783,"systemChars":3526},{"batch":null,"promptChars":752,"systemChars":720}]
-DEBUG OTHER KEYS ["contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage"]
+INFOS [{"focus":"logic correctness","findings":10},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3579},{"batch":null,"promptChars":3783,"systemChars":3572},{"batch":null,"promptChars":3783,"systemChars":3526},{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":1914},{"batch":null,"promptChars":3467,"systemChars":1914},{"batch":null,"promptChars":273,"systemChars":1914}]
+DEBUG OTHER KEYS ["contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage"]
 --- logged prompt batch=- ---
 # Change: Characterization change
 
@@ -425,7 +425,155 @@ Group the findings below.
     "summary": "context line"
   }
 ]
-=== BATCHES (calls=13) ===
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/a.ts
+```diff
+@@ -1,4 +1,5 @@
+   1 |  import { x } from "./x";
+     | -const n = 1;
+   2 | +const n = 2;
+   3 | +const m = 3;
+   4 |  
+   5 |  export { n };
+@@ -20,3 +21,4 @@
+  21 |  function f() {
+     | -  return 1;
+  22 | +  return 2;
+  23 | +  // changed
+  24 |  }
+```
+
+## Findings to verify
+
+[
+  {
+    "number": 1,
+    "line": 2,
+    "severity": "high",
+    "summary": "ok line"
+  },
+  {
+    "number": 2,
+    "line": 22,
+    "severity": "low",
+    "summary": "ok line in part 2"
+  },
+  {
+    "number": 3,
+    "line": 3,
+    "severity": "low",
+    "summary": "unknown relatesTo"
+  },
+  {
+    "number": 4,
+    "line": 1,
+    "severity": "low",
+    "summary": "context line"
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/b.ts
+```diff
+@@ -1,0 +1,14 @@
+   1 | +export const b0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   2 | +export const b1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   3 | +export const b2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   4 | +export const b3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   5 | +export const b4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   6 | +export const b5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   7 | +export const b6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   8 | +export const b7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   9 | +export const b8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  10 | +export const b9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  11 | +export const b10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  12 | +export const b11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  13 | +export const b12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  14 | +export const b13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+@@ -41,0 +41,14 @@
+  41 | +export const c0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  42 | +export const c1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  43 | +export const c2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  44 | +export const c3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  45 | +export const c4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  46 | +export const c5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  47 | +export const c6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  48 | +export const c7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  49 | +export const c8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  50 | +export const c9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  51 | +export const c10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  52 | +export const c11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  53 | +export const c12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  54 | +export const c13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+@@ -81,0 +81,14 @@
+  81 | +export const d0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  82 | +export const d1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  83 | +export const d2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  84 | +export const d3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  85 | +export const d4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  86 | +export const d5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  87 | +export const d6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  88 | +export const d7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  89 | +export const d8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  90 | +export const d9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  91 | +export const d10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  92 | +export const d11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  93 | +export const d12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  94 | +export const d13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+## Findings to verify
+
+[
+  {
+    "number": 1,
+    "line": 1,
+    "severity": "low",
+    "summary": "in b first hunk"
+  },
+  {
+    "number": 2,
+    "line": 41,
+    "severity": "low",
+    "summary": "in b second hunk"
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/new-name.ts
+```diff
+@@ -3,1 +3,1 @@
+     | -before
+   3 | +after
+```
+
+## Findings to verify
+
+[
+  {
+    "number": 1,
+    "line": 3,
+    "severity": "high",
+    "summary": "renamed file"
+  }
+]
+=== BATCHES (calls=16) ===
 {
  "findings": [
   {
@@ -697,9 +845,9 @@ WARNS [
   "reason": "discussion_not_found"
  }
 ]
-INFOS [{"batches":4},{"focus":"logic correctness","findings":19},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":752,"systemChars":720},{"batch":1,"promptChars":756,"systemChars":3883},{"batch":1,"promptChars":756,"systemChars":3876},{"batch":1,"promptChars":756,"systemChars":3830},{"batch":2,"promptChars":1562,"systemChars":3883},{"batch":2,"promptChars":1562,"systemChars":3876},{"batch":2,"promptChars":1562,"systemChars":3830},{"batch":3,"promptChars":1564,"systemChars":3883},{"batch":3,"promptChars":1564,"systemChars":3876},{"batch":3,"promptChars":1564,"systemChars":3830},{"batch":4,"promptChars":1759,"systemChars":3883},{"batch":4,"promptChars":1759,"systemChars":3876},{"batch":4,"promptChars":1759,"systemChars":3830}]
-DEBUG OTHER KEYS ["batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage"]
+INFOS [{"batches":4},{"focus":"logic correctness","findings":19},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":1914},{"batch":null,"promptChars":3467,"systemChars":1914},{"batch":null,"promptChars":273,"systemChars":1914},{"batch":1,"promptChars":756,"systemChars":3883},{"batch":1,"promptChars":756,"systemChars":3876},{"batch":1,"promptChars":756,"systemChars":3830},{"batch":2,"promptChars":1562,"systemChars":3883},{"batch":2,"promptChars":1562,"systemChars":3876},{"batch":2,"promptChars":1562,"systemChars":3830},{"batch":3,"promptChars":1564,"systemChars":3883},{"batch":3,"promptChars":1564,"systemChars":3876},{"batch":3,"promptChars":1564,"systemChars":3830},{"batch":4,"promptChars":1759,"systemChars":3883},{"batch":4,"promptChars":1759,"systemChars":3876},{"batch":4,"promptChars":1759,"systemChars":3830}]
+DEBUG OTHER KEYS ["batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage"]
 --- logged prompt batch=- ---
 Group the findings below.
 
@@ -745,6 +893,154 @@ Group the findings below.
     "line": 41,
     "severity": "low",
     "summary": "in b second hunk"
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/a.ts
+```diff
+@@ -1,4 +1,5 @@
+   1 |  import { x } from "./x";
+     | -const n = 1;
+   2 | +const n = 2;
+   3 | +const m = 3;
+   4 |  
+   5 |  export { n };
+@@ -20,3 +21,4 @@
+  21 |  function f() {
+     | -  return 1;
+  22 | +  return 2;
+  23 | +  // changed
+  24 |  }
+```
+
+## Findings to verify
+
+[
+  {
+    "number": 1,
+    "line": 2,
+    "severity": "high",
+    "summary": "ok line"
+  },
+  {
+    "number": 2,
+    "line": 22,
+    "severity": "low",
+    "summary": "ok line in part 2"
+  },
+  {
+    "number": 3,
+    "line": 3,
+    "severity": "low",
+    "summary": "unknown relatesTo"
+  },
+  {
+    "number": 4,
+    "line": 1,
+    "severity": "low",
+    "summary": "context line"
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/b.ts
+```diff
+@@ -1,0 +1,14 @@
+   1 | +export const b0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   2 | +export const b1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   3 | +export const b2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   4 | +export const b3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   5 | +export const b4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   6 | +export const b5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   7 | +export const b6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   8 | +export const b7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   9 | +export const b8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  10 | +export const b9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  11 | +export const b10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  12 | +export const b11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  13 | +export const b12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  14 | +export const b13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+@@ -41,0 +41,14 @@
+  41 | +export const c0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  42 | +export const c1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  43 | +export const c2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  44 | +export const c3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  45 | +export const c4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  46 | +export const c5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  47 | +export const c6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  48 | +export const c7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  49 | +export const c8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  50 | +export const c9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  51 | +export const c10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  52 | +export const c11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  53 | +export const c12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  54 | +export const c13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+@@ -81,0 +81,14 @@
+  81 | +export const d0 = 0; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  82 | +export const d1 = 1; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  83 | +export const d2 = 2; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  84 | +export const d3 = 3; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  85 | +export const d4 = 4; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  86 | +export const d5 = 5; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  87 | +export const d6 = 6; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  88 | +export const d7 = 7; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  89 | +export const d8 = 8; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  90 | +export const d9 = 9; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  91 | +export const d10 = 10; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  92 | +export const d11 = 11; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  93 | +export const d12 = 12; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  94 | +export const d13 = 13; // xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+## Findings to verify
+
+[
+  {
+    "number": 1,
+    "line": 1,
+    "severity": "low",
+    "summary": "in b first hunk"
+  },
+  {
+    "number": 2,
+    "line": 41,
+    "severity": "low",
+    "summary": "in b second hunk"
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/new-name.ts
+```diff
+@@ -3,1 +3,1 @@
+     | -before
+   3 | +after
+```
+
+## Findings to verify
+
+[
+  {
+    "number": 1,
+    "line": 3,
+    "severity": "high",
+    "summary": "renamed file"
   }
 ]
 --- logged prompt batch=1 ---

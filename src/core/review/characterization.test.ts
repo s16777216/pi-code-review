@@ -128,7 +128,7 @@ test('the single run asks for the whole change, and the batches split it in four
   const text = await renderAll();
   // Three agents for each scope, one for each review focus, and one call for
   // the deduplication step: the fixed output has more than one finding in a file.
-  assert.match(text, /=== SINGLE RUN \(calls=4\) ===/);
-  assert.match(text, /=== BATCHES \(calls=13\) ===/);
+  assert.match(text, /=== SINGLE RUN \(calls=7\) ===/);
+  assert.match(text, /=== BATCHES \(calls=16\) ===/);
   assert.match(text, /INFOS \[\{"batches":4\},/);
 });

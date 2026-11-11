@@ -210,19 +210,32 @@ The findings of the three agents are merged. Then the **deduplication step** rem
 
 > **Breaking change:** a review makes about three times more model calls than before, plus at most one for the deduplication step. It costs more and, for a change in many batches, takes more time. For a change that fits one request, the three agents run at the same time, so the time is close to one agent plus the deduplication step.
 
+## Verification step
+
+After the deduplication step, the **verification step** checks the findings a second time. A **verifier** is an agent that has not seen how the first agents reached their findings. It handles the findings of one file at a time.
+
+- The verifier sees the title, the description, the diff of the file, and the findings of that file (number, line, severity, and summary). It can read any changed file with `get_file_content`. It also gets the [review instructions](#review-instructions).
+- For each finding it gives a **verdict**: `confirmed` (it found the problem), `rejected` (the code shows the finding is not a problem), or `uncertain` (it cannot decide). It also gives the severity it judges and a reason of one sentence.
+- Only `rejected` drops a finding. A finding with the verdict `uncertain` stays. Each kept finding gets the severity from the verifier, which can be higher or lower. The verifier cannot change the summary, the line, or the link to a discussion.
+- The verification step has no confidence value and no option to turn it off. It uses the same limit of 3 runs at the same time and the same tries as the other runs.
+- When the run for a file fails after its tries, or the first request is larger than half of the context window, `review` keeps the findings of that file as they are and writes a `warn` line. The review does not fail.
+- The findings file does not hold the verdicts. The `info` log has one line with the numbers before and after, the number of rejected findings, and the number of findings with a changed severity. It also has one line for each rejected finding with its reason, and one for each `uncertain` finding.
+
+> **Breaking change:** a review makes one more model call for each file that has findings. The severity of a finding can differ from the severity that the first agents gave, and so can the result of `--fail-on`.
+
 ## Large merge requests
 
 `review` estimates the size of its first model request before it sends it. When that request needs more than half of the context window (`--context-window`), `review` splits the change into batches and runs three agents (one for each [review focus](#review-focuses-and-deduplication)) for each batch. The other half of the window stays free for file reads and the answer.
 
 - Files are sorted by path and packed into batches, so files in the same directory usually share a batch. A file too large for one batch is split at its hunks, shown as `<path> (part k of n)`, with the file's real line numbers.
 - Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file with `get_file_content`.
-- A finding from a batch counts only on a line of that batch's own diffs. The outputs of all agents are merged, and the usual checks (linked discussions, diff lines, anchors, the deduplication step, fixed declarations) run once on the merged output. The estimate uses the review focus with the largest first request, so the three agents of a batch share one plan.
+- A finding from a batch counts only on a line of that batch's own diffs. The outputs of all agents are merged, and the usual checks (linked discussions, diff lines, anchors, the deduplication step, the verification step, fixed declarations) run once on the merged output. The estimate uses the review focus with the largest first request, so the three agents of a batch share one plan.
 - At most 20 batches, and at most 3 agent runs at the same time, for all batches and review focuses together. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
 - A model call that ends with an error (for example, a timeout) is tried again, at most 2 more times, after 2 and 4 seconds. This applies to a review without batches too. When a run still fails, the other runs are stopped, and `review` exits with code `2` without writing a findings file.
 
 Files whose diff is not reviewed (too large, or generated; see [Output](#output)) are not counted in the estimate and are never part of a batch.
 
-**Room for the answer:** a run can answer with at most the context window minus its input minus 4,096 tokens, which `pi-ai` keeps free. The first request of a batch can use up to half of the window, and each file read adds to the input. So set `--context-window` to the model's real window, and to at least about twice `4096 + --max-tokens`. The defaults (`128000` and `32000`) meet this. With a smaller window, a run can stop at the token limit, and `review` fails with an error that names `--max-tokens` and `--context-window`.
+**Room for the answer:** a run can answer with at most the context window minus its input minus 4,096 tokens, which `pi-ai` keeps free. The first request of a batch can use up to half of the window, and each file read adds to the input. So set `--context-window` to the model's real window, and to at least about twice `4096 + --max-tokens`. The defaults (`128000` and `32000`) meet this. With a smaller window, a run can stop at the token limit, and `review` fails with an error that names `--max-tokens` and `--context-window`. A run that reviews a large batch can also stop at the default `--max-tokens` of `32000` when it has many findings. For a merge request with about 90 changed files, `--max-tokens 48000` worked.
 
 **Limit:** a problem that needs code from two batches can be missed. A merge request that fits half of the window is reviewed in one run, as before.
 
