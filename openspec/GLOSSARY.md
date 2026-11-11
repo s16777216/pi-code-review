@@ -8,3 +8,5 @@
 
 - **review instructions** — 專案負責人寫的審查重點與規則文字,附加到 review 的系統提示詞。Aliases: 額外指示、審查指示。
 - **instructions source** — review instructions 的來源,共四種:`--instructions` 路徑、`--instructions-text` 字串、`REVIEW_INSTRUCTIONS_FILE` 路徑、`REVIEW_INSTRUCTIONS` 字串。Aliases: 指示來源。
+- **review focus** — 一次 agent 執行的審查重點,內建 3 種:邏輯正確性、安全性、資源與並行。Aliases: 審查焦點、焦點。
+- **deduplication step** — 合併各執行的 finding 後,由一次模型呼叫判斷哪些 finding 是同一個問題的步驟。Aliases: 去重步驟、去重。
