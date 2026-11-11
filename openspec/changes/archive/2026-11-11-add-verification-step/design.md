@@ -104,6 +104,6 @@ This is a breaking change for cost and for the severity of findings. The configu
 
 ## Pending sync notes
 
-To do by `openspec-sync-specs`:
+Done by `openspec-sync-specs`:
 
-- `src/core/review/SPEC.md` (capability `ai-diff-review`): list `verify.ts` and the verification step in the entry points and in the responsibility.
+- `src/core/review/SPEC.md` (capability `ai-diff-review`): updated. It lists `verify.ts` and the verification step in the entry points and in the responsibility.
