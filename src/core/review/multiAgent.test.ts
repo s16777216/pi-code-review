@@ -340,9 +340,9 @@ test('the deduplication step makes no model call when no file has two findings',
   const { findings } = await engineFor(faux, { logger }).review(context());
 
   assert.equal(findings.length, 2);
-  assert.equal(faux.state.callCount, 3);
+  assert.equal(faux.state.callCount, 5);
   assert.equal(
-    infos.some((i) => 'before' in i),
+    infos.some((i) => 'before' in i && !('rejected' in i)),
     false,
   );
 });
@@ -362,13 +362,13 @@ test('the deduplication step runs once for two findings in one file, and keeps o
 
   const { findings } = await engineFor(faux, { logger }).review(context());
 
-  assert.equal(faux.state.callCount, 4);
+  assert.equal(faux.state.callCount, 5);
   assert.deepEqual(
     findings.map((f) => f.summary),
     ['High.'],
   );
   assert.deepEqual(
-    infos.filter((i) => 'before' in i),
+    infos.filter((i) => 'before' in i && !('rejected' in i)),
     [{ before: 2, after: 1 }],
   );
   // The model gets the four fields and no other field.
@@ -425,7 +425,7 @@ test('the deduplication step runs after the diff line check, so a dropped findin
     findings.map((f: Finding) => f.summary),
     ['In the diff.'],
   );
-  assert.equal(faux.state.callCount, 3);
+  assert.equal(faux.state.callCount, 4);
 });
 
 test('a result of the deduplication step that is not valid is corrected in the same run', async () => {

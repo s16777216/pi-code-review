@@ -18,6 +18,15 @@ import {
 import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { REVIEW_FOCUSES, type ReviewFocus } from './focus.ts';
 import { Batch, WholeChange, type RunScope } from './scope.ts';
+import {
+  applyVerdicts,
+  buildVerifyPrompt,
+  buildVerifySystemPrompt,
+  createSubmitVerdictsTool,
+  groupByFile,
+  type AppliedVerdict,
+  type FindingVerdict,
+} from './verify.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
 
@@ -169,7 +178,7 @@ export class AgentReviewEngine implements ReviewEngine {
       context,
       changes,
       logger,
-      (checkedFindings) => this.deduplicate(checkedFindings, logger),
+      async (checkedFindings) => this.verify(await this.deduplicate(checkedFindings, logger), context, changes, logger),
     );
     return { ...checked, unreviewedFiles };
   }
@@ -254,12 +263,10 @@ export class AgentReviewEngine implements ReviewEngine {
     const outputs: ParsedReviewOutput[] = [];
     const active = new Set<Agent>();
     let failure: { error: unknown } | null = null;
-    let next = 0;
 
-    const worker = async () => {
-      while (failure === null && next < runs.length) {
-        const i = next;
-        next += 1;
+    await this.runPool(
+      runs.length,
+      async (i) => {
         const { scope, focus } = runs[i]!;
         const spec: RunSpec<ParsedReviewOutput> = {
           createAgent: (onSubmit) => this.createAgent(context, scope, focus, onSubmit),
@@ -270,7 +277,7 @@ export class AgentReviewEngine implements ReviewEngine {
         try {
           outputs[i] = await this.runWithRetries(spec, logger, active, () => failure !== null);
         } catch (error) {
-          if (failure !== null) continue; // aborted because another run failed
+          if (failure !== null) return; // aborted because another run failed
           // The failure names the batch (when there is one), the review focus, and the cause.
           const named =
             error instanceof ReviewFailureError
@@ -279,12 +286,147 @@ export class AgentReviewEngine implements ReviewEngine {
           failure = { error: scope.describeFailure(named) };
           for (const agent of active) agent.abort();
         }
-      }
-    };
-
-    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_RUNS, runs.length) }, worker));
+      },
+      () => failure !== null,
+    );
     if (failure !== null) throw (failure as { error: unknown }).error;
     return outputs;
+  }
+
+  /** Runs `count` jobs, at most `MAX_PARALLEL_RUNS` at a time, in order. The
+   * review runs and the verifier runs use this one limit. No new job starts
+   * when `stopped()` is true. */
+  private async runPool(count: number, job: (index: number) => Promise<void>, stopped: () => boolean = () => false) {
+    let next = 0;
+    const worker = async () => {
+      while (!stopped() && next < count) {
+        const index = next;
+        next += 1;
+        await job(index);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_RUNS, count) }, worker));
+  }
+
+  /** The verification step on the findings after the deduplication step
+   * (`add-verification-step` design). One verifier run handles the findings of
+   * one file. The code drops a finding on the verdict `rejected` and sets the
+   * reviewed severity of the others. A file whose run fails, or whose first
+   * request is too large, keeps its findings and writes a `warn` line. */
+  private async verify(
+    findings: Finding[],
+    context: ReviewContext,
+    changes: ChangeSet,
+    logger: Logger,
+  ): Promise<Finding[]> {
+    const groups = groupByFile(findings);
+    if (groups.length === 0) return findings;
+
+    const applied: (AppliedVerdict[] | null)[] = groups.map(() => null);
+    await this.runPool(groups.length, async (i) => {
+      applied[i] = await this.verifyFile(groups[i]!, context, changes, logger);
+    });
+
+    const result = new Map<Finding, Finding | null>();
+    const rejected: AppliedVerdict[] = [];
+    const uncertain: AppliedVerdict[] = [];
+    let severityChanged = 0;
+    for (const group of applied) {
+      for (const item of group ?? []) {
+        result.set(item.original, item.result);
+        if (item.verdict.verdict === 'rejected') {
+          rejected.push(item);
+          continue;
+        }
+        if (item.verdict.verdict === 'uncertain') uncertain.push(item);
+        if (item.severityChanged) severityChanged += 1;
+      }
+    }
+    for (const item of rejected) {
+      logger.info(
+        {
+          file: item.original.file,
+          line: item.original.line,
+          summary: item.original.summary,
+          reason: item.verdict.reason,
+        },
+        'verification step rejected a finding',
+      );
+    }
+    for (const item of uncertain) {
+      logger.info(
+        { file: item.original.file, line: item.original.line, reason: item.verdict.reason },
+        'verification step could not decide on a finding',
+      );
+    }
+    const kept = findings.flatMap((finding) => {
+      const value = result.has(finding) ? result.get(finding)! : finding;
+      return value === null ? [] : [value];
+    });
+    logger.info(
+      { before: findings.length, after: kept.length, rejected: rejected.length, severityChanged },
+      `Verification step: ${findings.length} finding(s) before, ${kept.length} after, ${rejected.length} rejected, ${severityChanged} with a changed severity.`,
+    );
+    return kept;
+  }
+
+  /** One verifier run for one file. Returns `null` when the findings of the
+   * file stay as they are. */
+  private async verifyFile(
+    group: { file: string; findings: Finding[] },
+    context: ReviewContext,
+    changes: ChangeSet,
+    logger: Logger,
+  ): Promise<AppliedVerdict[] | null> {
+    const { provider, model, apiKey, instructions } = this.options;
+    const file = changes.file(group.file);
+    if (file === undefined) {
+      logger.warn({ file: group.file }, 'did not verify the findings of a file: it is not in the change');
+      return null;
+    }
+    const prompt = buildVerifyPrompt(context, file, group.findings);
+    const createAgent = (onSubmit: (verdicts: FindingVerdict[]) => void) =>
+      new Agent({
+        streamFn: (streamModel, streamContext, streamOptions) =>
+          provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
+        initialState: {
+          systemPrompt: buildVerifySystemPrompt(instructions),
+          model,
+          tools: [createGetFileContentTool(context), createSubmitVerdictsTool(group.findings.length, onSubmit, logger)],
+        },
+      });
+
+    // The first request must fit in half of the context window, as for a batch.
+    if (model.contextWindow > 0) {
+      const probe = createAgent(() => {});
+      const firstRequest: Message[] = [
+        ...probe.state.messages,
+        { role: 'user', content: prompt, timestamp: Date.now() },
+      ];
+      const tokens = estimateContextTokens(firstRequest).tokens;
+      if (tokens > Math.floor(model.contextWindow / 2)) {
+        logger.warn(
+          { file: group.file, tokens },
+          'did not verify the findings of a file: the first request is larger than half of the context window',
+        );
+        return null;
+      }
+    }
+
+    const spec: RunSpec<FindingVerdict[]> = {
+      createAgent,
+      prompt,
+      toolName: 'submit_verdicts',
+      logFields: { step: 'verification', file: group.file },
+    };
+    try {
+      const verdicts = await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
+      return applyVerdicts(group.findings, verdicts);
+    } catch (error) {
+      if (!(error instanceof ReviewFailureError)) throw error;
+      logger.warn({ file: group.file, error: error.message }, 'did not verify the findings of a file: the run failed');
+      return null;
+    }
   }
 
   /** The deduplication step on the checked findings (`add-multi-agent-review`

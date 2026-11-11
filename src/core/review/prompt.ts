@@ -3,7 +3,7 @@ import type { BatchItem } from './batch.ts';
 import type { ChangedFile, ChangeSet } from './changedFile.ts';
 
 /** The title and the description, which every run's prompt starts with. */
-function header(context: ReviewContext): string[] {
+export function header(context: ReviewContext): string[] {
   return [`# Change: ${context.title}`, '', context.description.trim() || '(no description provided)', ''];
 }
 
@@ -71,7 +71,7 @@ const OMITTED_TEXT: Record<OmittedReason, string> = {
   generated: 'generated file',
 };
 
-function formatDiff(title: string, file: ChangedFile): string {
+export function formatDiff(title: string, file: ChangedFile): string {
   return `### ${title}\n\`\`\`diff\n${file.numbered()}\n\`\`\``;
 }
 
