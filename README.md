@@ -107,6 +107,7 @@ To create one: **User Settings → Access Tokens** (personal) or **Project Setti
 Under `--debug` you get:
 
 - Every GitLab API call's HTTP method, URL, and response status (never headers or request/response bodies)
+- The verdict of the verification step for every finding (file, line, verdict, severity, and reason)
 - The exact system prompt and prompt sent to the AI agent for each model run (the system prompt shows the `--language` sentence and, in [batches](#large-merge-requests), the batch paragraph), and its raw response text, before that text is parsed into findings
 
 `GITLAB_TOKEN`/`OPENAI_API_KEY`/the `PRIVATE-TOKEN` header are never printed, with or without `--debug` — this is enforced structurally (via [`pino`](https://getpino.io/)'s `redact` option), not by each log call remembering to omit them.
@@ -216,11 +217,11 @@ The findings of the three agents are merged. Then the **deduplication step** rem
 After the deduplication step, the **verification step** checks the findings a second time. A **verifier** is an agent that has not seen how the first agents reached their findings. It handles the findings of one file at a time.
 
 - The verifier sees the title, the description, the diff of the file, and the findings of that file (number, line, severity, and summary). It can read any changed file with `get_file_content`. It also gets the [review instructions](#review-instructions).
-- For each finding it gives a **verdict**: `confirmed` (it found the problem), `rejected` (the code shows the finding is not a problem), or `uncertain` (it cannot decide). It also gives the severity it judges and a reason of one sentence.
+- For each finding it gives a **verdict**: `confirmed` (it found the problem), `rejected` (the code shows the finding is not a problem), or `uncertain` (it cannot decide). It also gives the severity it judges and a reason of one sentence. The prompt asks the verifier to quote the code that shows its verdict in the reason, and to use `rejected` when the code contradicts the summary. The program does not check the quote.
 - Only `rejected` drops a finding. A finding with the verdict `uncertain` stays. Each kept finding gets the severity from the verifier, which can be higher or lower. The verifier cannot change the summary, the line, or the link to a discussion.
 - The verification step has no confidence value and no option to turn it off. It uses the same limit of 3 runs at the same time and the same tries as the other runs.
 - When the run for a file fails after its tries, or the first request is larger than half of the context window, `review` keeps the findings of that file as they are, writes a `warn` line, and records the warning `verification_failed` or `verification_skipped` with the path. The review does not fail.
-- The findings file does not hold the verdicts. The `info` log has one line with the numbers before and after, the number of rejected findings, and the number of findings with a changed severity. It also has one line for each rejected finding with its reason, and one for each `uncertain` finding.
+- The findings file does not hold the verdicts. The `info` log has one line with the numbers before and after, the number of rejected findings, and the number of findings with a changed severity. It also has one line for each rejected finding with its reason, and one for each `uncertain` finding. With `--debug`, the log has one more line for every verdict, `confirmed` too, with the file, the line, the verdict, the severity, and the reason.
 
 > **Breaking change:** a review makes one more model call for each file that has findings. The severity of a finding can differ from the severity that the first agents gave, and so can the result of `--fail-on`.
 

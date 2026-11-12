@@ -21,6 +21,8 @@ For each finding, decide a verdict:
 - "rejected": the code shows that the finding is not a problem, for example because the code is correct, the case cannot happen, or the finding describes code the diff does not contain.
 - "uncertain": you read the code and still cannot decide.
 
+In the "reason", quote the code that shows your verdict. Quote it from the line of the finding or from a line near it. When the code contradicts the summary of the finding, use "rejected". For example, the summary says that a call has no argument, and the code of the line has the argument.
+
 Also give the severity that you judge for the finding, with these rules. For a bug that predates the diff, use "pre_existing" no matter how serious it is. For a bug the diff introduces, decide by impact:
 - "critical": breaks core functionality, causes data loss or corruption, or is a security issue.
 - "high": causes clearly incorrect behavior on the common path.

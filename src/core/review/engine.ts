@@ -44,7 +44,7 @@ For each problem, first check whether the change's own diff introduces it, or wh
 
 You can also declare that an existing discussion is fixed. Declare it only for a discussion with "fromThisTool": true that is not resolved, only after you read the current code and confirmed that the problem is gone, and give a one-sentence reason. Never declare a discussion that a person started. Do not declare a discussion fixed and also link a finding to it.
 
-When you are done, call the submit_review tool once with two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with empty "findings" and "resolved" arrays when you have nothing to report.`;
+When you are done, call the submit_review tool once with two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Report in "line" the line that holds the problem. When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it. When the problem is in code that the diff does not change, report the line of that code that holds the problem. Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem. Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with empty "findings" and "resolved" arrays when you have nothing to report.`;
 
 /** At most this many agent runs are active at the same time
  * (`review-large-changes-in-batches` design, Decision 7). */
@@ -365,6 +365,16 @@ export class AgentReviewEngine implements ReviewEngine {
     for (const group of applied) {
       for (const item of group ?? []) {
         result.set(item.original, item.result);
+        logger.debug(
+          {
+            file: item.original.file,
+            line: item.original.line,
+            verdict: item.verdict.verdict,
+            severity: item.verdict.severity,
+            reason: item.verdict.reason,
+          },
+          'verification step verdict',
+        );
         if (item.verdict.verdict === 'rejected') {
           rejected.push(item);
           continue;

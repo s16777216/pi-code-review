@@ -103,7 +103,8 @@ test('AgentReviewEngine logs the prompt and the final assistant message, and nev
 
   await engine.review(context);
   // Three review agents and one verifier run, and each writes a prompt line and a final message line.
-  assert.equal(debugCalls.length, 8);
+  // The verifier run also gives one verdict line.
+  assert.equal(debugCalls.length, 9);
   const promptCalls = (debugCalls as Record<string, unknown>[]).filter((call) => 'prompt' in call);
   const finalMessageCalls = (debugCalls as Record<string, unknown>[]).filter((call) => 'stopReason' in call);
   assert.equal(promptCalls.length, 4);
