@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { realpathSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import type { Api, Model, Provider } from '@earendil-works/pi-ai';
@@ -26,6 +27,8 @@ import {
 } from '../reviewInstructions.ts';
 import { decidePassFail } from '../core/passFail.ts';
 import { AgentReviewEngine } from '../core/review/engine.ts';
+import { ReviewFailureError } from '../core/review/findings.ts';
+import type { ReviewResult } from '../core/types.ts';
 import { errorMessage } from '../core/errorMessage.ts';
 
 const DEFAULT_FINDINGS_PATH = 'findings.json';
@@ -65,7 +68,12 @@ export interface ReviewOptions {
 /** Loads the change request, runs the `ReviewEngine`, and returns the
  * findings plus the snapshot `publish` will need. Never publishes anything
  * (a `ChangeRequest` cannot), and never decides pass/fail — see `design.md`'s
- * "Severity-threshold decision moves to publish, not review" decision. */
+ * "Severity-threshold decision moves to publish, not review" decision.
+ *
+ * An error from `load()` is thrown: there is no snapshot yet. An error from
+ * the engine does not throw. The result then has `failed` with the category
+ * of the failure and no findings, and the full error goes to the log
+ * (`harden-run-failures` design, Decision 4). */
 export async function runReview(options: ReviewOptions): Promise<FindingsFile<unknown, unknown>> {
   const { config, changeRequest, source, provider, instructions } = options;
   const logger = options.logger ?? silentLogger();
@@ -96,13 +104,29 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<un
     model: buildModel(config),
     apiKey: config.openai.apiKey,
     language: config.language,
+    timeoutMs: config.openai.timeoutMs,
     instructions: instructions?.text,
     logger,
   });
-  const { findings, resolved, unreviewedFiles } = await engine.review(context);
+  let result: ReviewResult;
+  try {
+    result = await engine.review(context);
+  } catch (error) {
+    logger.error(`The review failed: ${errorMessage(error)}`);
+    return {
+      diffRefs: snapshot,
+      source,
+      findings: [],
+      resolved: [],
+      unreviewedFiles: [],
+      warnings: [],
+      failed: { category: error instanceof ReviewFailureError ? error.category : 'other' },
+    };
+  }
+  const { findings, resolved, unreviewedFiles, warnings } = result;
   logger.info(`Review produced ${findings.length} finding(s) and ${resolved.length} fixed discussion(s).`);
 
-  return { diffRefs: snapshot, source, findings, resolved, unreviewedFiles };
+  return { diffRefs: snapshot, source, findings, resolved, unreviewedFiles, warnings };
 }
 
 export interface PublishOptions {
@@ -128,8 +152,15 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
     findingsFile.findings,
     findingsFile.resolved,
     findingsFile.unreviewedFiles,
+    { failed: findingsFile.failed, warnings: findingsFile.warnings },
   );
 
+  // A review that failed is not a pass, whatever the threshold is
+  // (`harden-run-failures` design, Decision 7).
+  if (findingsFile.failed !== undefined) {
+    logger.info(`Result: fail (the review failed: ${findingsFile.failed.category}).`);
+    return false;
+  }
   const passed = decidePassFail(findingsFile.findings, config.failOnSeverity);
   logger.info(`Result: ${passed ? 'pass' : 'fail'} (threshold: ${config.failOnSeverity}).`);
   return passed;
@@ -159,6 +190,7 @@ export function parseReviewCliOptions(
       'openai-api-key': { type: 'string' },
       'max-tokens': { type: 'string' },
       'context-window': { type: 'string' },
+      timeout: { type: 'string' },
       language: { type: 'string' },
       instructions: { type: 'string' },
       'instructions-text': { type: 'string' },
@@ -174,6 +206,7 @@ export function parseReviewCliOptions(
     apiKey: asString(values['openai-api-key']),
     maxTokens: asString(values['max-tokens']),
     contextWindow: asString(values['context-window']),
+    timeout: asString(values.timeout),
     language: asString(values.language),
     instructions: asString(values.instructions),
     instructionsText: asString(values['instructions-text']),
@@ -236,7 +269,9 @@ export const EXIT_ERROR = 2;
 /** Real wiring for `review`: connects to the host and builds the real OpenAI
  * provider, then delegates to `runReview()`. Exits 0 whenever the
  * review process itself completes, regardless of what it found, and never
- * exits 1; an error exits 2 at the entrypoint — see the
+ * exits 1; an error exits 2, also a review that failed after the change
+ * request was read (it writes the findings file with `failed` first), and an
+ * error before that exits 2 at the entrypoint — see the
  * `review-cli` spec's "Review's exit code reflects only process success"
  * requirement. Exits 0 without writing a findings file when the pipeline is
  * not a merge request pipeline. */
@@ -252,6 +287,10 @@ export async function runReviewCommand<Snapshot, Source, ReviewSettings, Publish
     logger.info('Not a merge request pipeline; skipping review.');
     return EXIT_PASS;
   }
+
+  // Delete the findings file of an earlier run first. A run that fails before
+  // it writes a file then leaves no old file for `publish` to read.
+  await rm(outPath, { force: true });
 
   let settings: ReviewSettings | undefined;
   const config = loadReviewConfig(cliOptions, () => {
@@ -274,6 +313,10 @@ export async function runReviewCommand<Snapshot, Source, ReviewSettings, Publish
     logger,
   });
   await writeFindingsFile(outPath, findingsFile);
+  if (findingsFile.failed !== undefined) {
+    logger.info(`Wrote the failure (${findingsFile.failed.category}) to "${outPath}".`);
+    return EXIT_ERROR;
+  }
   logger.info(`Wrote findings to "${outPath}".`);
   return EXIT_PASS;
 }

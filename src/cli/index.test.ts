@@ -191,6 +191,7 @@ test('runPublish publishes every finding', async () => {
   );
   const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: SOURCE,
@@ -215,6 +216,7 @@ test('runPublish writes the comment text from the templates it gets', async () =
   );
   const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: SOURCE,
@@ -238,6 +240,7 @@ test('runPublish publishes a high finding before failing on it (severity never b
   );
   const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: SOURCE,
@@ -262,6 +265,7 @@ test('runPublish passes when no finding meets the threshold', async () => {
   );
   const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: SOURCE,
@@ -296,6 +300,7 @@ test('runPublish still fails on a high finding that relates to an open discussio
   ];
   const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: SOURCE,
@@ -315,6 +320,7 @@ test('runPublish decides pass or fail from the findings only, not from fixed dec
   );
   const findingsFile: FindingsFile<unknown, unknown> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [{ discussionId: 'd1', reason: 'Fixed.' }],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: SOURCE,
@@ -439,4 +445,54 @@ test('runReview does not compare a text source with the changed files', async ()
   ]);
 
   assert.equal(warnLines(lines).length, 0);
+});
+
+// --- A failed review (`harden-run-failures`) ---
+
+function failedFile(): FindingsFile<unknown, unknown> {
+  return {
+    unreviewedFiles: [],
+    warnings: [],
+    resolved: [],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: SOURCE,
+    findings: [],
+    failed: { category: 'model_failed' },
+  };
+}
+
+test('runPublish posts the status comment and no discussion for a failed review, and returns a fail', async () => {
+  const client = new FakeMergeRequest(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+
+  const passed = await runPublish({
+    config: fixturePublishConfig({ failOnSeverity: 'none' }),
+    gateway: client,
+    findingsFile: failedFile(),
+  });
+
+  assert.equal(passed, false);
+  assert.equal(client.discussions.length, 0);
+  assert.equal(client.notes.length, 1);
+  assert.match(client.notes[0]!.body, /Review failed/);
+  assert.match(client.notes[0]!.body, /A model call failed after 3 tries/);
+});
+
+test('runPublish still passes for a review that completed with only a warning', async () => {
+  const client = new FakeMergeRequest(
+    { title: 'unused', description: '', diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' } },
+    [],
+  );
+
+  const passed = await runPublish({
+    config: fixturePublishConfig(),
+    gateway: client,
+    findingsFile: { ...failedFile(), failed: undefined, warnings: [{ code: 'deduplication_failed' }] },
+  });
+
+  assert.equal(passed, true);
+  assert.equal(client.notes.length, 1);
+  assert.match(client.notes[0]!.body, /removes duplicate findings/);
 });

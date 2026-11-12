@@ -453,3 +453,155 @@ test('createNote and updateNote throw GitLabApiError on a non-ok response', asyn
     restore();
   }
 });
+
+// --- Retry of a read request (`harden-run-failures`) ---
+
+const MR_BODY = { title: 't', description: 'd', diff_refs: { base_sha: 'b', start_sha: 's', head_sha: 'h' } };
+
+function sequence(...steps: (Response | Error)[]) {
+  let index = 0;
+  return () => {
+    const step = steps[Math.min(index, steps.length - 1)]!;
+    index += 1;
+    if (step instanceof Error) throw step;
+    return step.clone();
+  };
+}
+
+async function clientWith(waits: number[], logs: Record<string, unknown>[] = []) {
+  return GitLabClient.create({
+    apiUrl: 'https://gitlab.example.com/api/v4',
+    projectId: '1',
+    token: 'secret-token',
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+    logger: {
+      debug() {},
+      info() {},
+      error() {},
+      warn: (o: Record<string, unknown>) => logs.push(o),
+    } as unknown as import('../../logger.ts').Logger,
+  });
+}
+
+test('a GET request passes on the second try after a network error', async () => {
+  const { calls, restore } = mockFetch(sequence(new TypeError('fetch failed'), jsonResponse(MR_BODY)));
+  try {
+    const waits: number[] = [];
+    const logs: Record<string, unknown>[] = [];
+    const metadata = await (await clientWith(waits, logs)).getMergeRequest('5');
+
+    assert.equal(metadata.title, 't');
+    assert.equal(calls.length, 2);
+    assert.deepEqual(waits, [2000]);
+    assert.equal(logs.length, 1);
+    assert.equal(logs[0]!.method, 'GET');
+    assert.equal(logs[0]!.path, '/merge_requests/5');
+    assert.equal(logs[0]!.attempt, 2);
+  } finally {
+    restore();
+  }
+});
+
+test('a GET request is tried again after a server error', async () => {
+  const { calls, restore } = mockFetch(sequence(new Response('bad gateway', { status: 502 }), jsonResponse(MR_BODY)));
+  try {
+    const metadata = await (await clientWith([])).getMergeRequest('5');
+    assert.equal(metadata.title, 't');
+    assert.equal(calls.length, 2);
+  } finally {
+    restore();
+  }
+});
+
+test('a GET request is tried again after the status 429, with a wait of 2 seconds', async () => {
+  const { restore } = mockFetch(sequence(new Response('slow down', { status: 429 }), jsonResponse(MR_BODY)));
+  try {
+    const waits: number[] = [];
+    await (await clientWith(waits)).getMergeRequest('5');
+    assert.deepEqual(waits, [2000]);
+  } finally {
+    restore();
+  }
+});
+
+test('a GET request is not tried again after the status 404 or 401', async () => {
+  for (const status of [404, 401]) {
+    const { calls, restore } = mockFetch(sequence(new Response('no', { status })));
+    try {
+      const waits: number[] = [];
+      await assert.rejects(
+        () => clientWithCall(waits),
+        (error: unknown) => error instanceof GitLabApiError && error.status === status,
+      );
+      assert.equal(calls.length, 1);
+      assert.deepEqual(waits, []);
+    } finally {
+      restore();
+    }
+  }
+});
+
+async function clientWithCall(waits: number[]) {
+  return (await clientWith(waits)).getMergeRequest('5');
+}
+
+test('a GET request reports the status of the third try when all tries fail, with waits of 2 and 4 seconds', async () => {
+  const { calls, restore } = mockFetch(sequence(new Response('', { status: 503 })));
+  try {
+    const waits: number[] = [];
+    await assert.rejects(
+      () => clientWithCall(waits),
+      (error: unknown) => error instanceof GitLabApiError && error.status === 503,
+    );
+    assert.equal(calls.length, 3);
+    assert.deepEqual(waits, [2000, 4000]);
+  } finally {
+    restore();
+  }
+});
+
+test('a GET request throws the network error of the third try', async () => {
+  const { calls, restore } = mockFetch(sequence(new TypeError('fetch failed')));
+  try {
+    await assert.rejects(() => clientWithCall([]), /fetch failed/);
+    assert.equal(calls.length, 3);
+  } finally {
+    restore();
+  }
+});
+
+test('a write request is not tried again, after a network error or a server error', async () => {
+  const position = { baseSha: 'b', startSha: 's', headSha: 'h', oldPath: 'a.ts', newPath: 'a.ts', newLine: 1 };
+  const failures: [string, (Response | Error)[]][] = [
+    ['network', [new TypeError('fetch failed')]],
+    ['status', [new Response('', { status: 502 })]],
+  ];
+  for (const [, steps] of failures) {
+    const { calls, restore } = mockFetch(sequence(...steps));
+    try {
+      const waits: number[] = [];
+      const client = await clientWith(waits);
+      await assert.rejects(() => client.createDiscussion('5', 'body', position));
+      await assert.rejects(() => client.createNote('5', 'body'));
+      await assert.rejects(() => client.updateNote('5', 7, 'body'));
+      assert.equal(calls.length, 3);
+      assert.deepEqual(waits, []);
+    } finally {
+      restore();
+    }
+  }
+});
+
+test('the retry log line has the path without the query, and no token', async () => {
+  const { restore } = mockFetch(sequence(new Response('', { status: 500 }), jsonResponse([])));
+  try {
+    const logs: Record<string, unknown>[] = [];
+    await (await clientWith([], logs)).getMergeRequestDiff('5');
+    assert.equal(logs.length, 1);
+    assert.doesNotMatch(JSON.stringify(logs), /secret-token|PRIVATE-TOKEN|page=/);
+  } finally {
+    restore();
+  }
+});

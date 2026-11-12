@@ -453,7 +453,7 @@ test('a result of the deduplication step that is not valid is corrected in the s
   assert.match(String(warnings[0]!.error), /no group: 2/);
 });
 
-test('the review fails when the deduplication step gives no valid result on any try', async () => {
+test('the review goes on with the findings as they were when the deduplication step gives no valid result on any try', async () => {
   const faux = fauxProvider();
   perFocus(
     faux,
@@ -470,10 +470,10 @@ test('the review fails when the deduplication step gives no valid result on any 
     Array.from({ length: MAX_RUN_TRIES * 5 }, () => submitGroups([[1]])),
   );
 
-  await assert.rejects(
-    () => engineFor(faux).review(context()),
-    (error: unknown) => error instanceof ReviewFailureError && /^The deduplication step failed: /.test(error.message),
-  );
+  const { findings, warnings } = await engineFor(faux).review(context());
+
+  assert.equal(findings.length, 2);
+  assert.deepEqual(warnings, [{ code: 'deduplication_failed' }]);
 });
 
 test('the deduplication step is tried again after an error', async () => {
@@ -501,7 +501,7 @@ test('the deduplication step is tried again after an error', async () => {
   assert.equal(warnings[0]!.step, 'deduplication');
 });
 
-test('the review fails when the deduplication step fails on its last try', async () => {
+test('the review goes on with the findings as they were when the deduplication step fails on its last try', async () => {
   const faux = fauxProvider();
   perFocus(
     faux,
@@ -520,7 +520,12 @@ test('the review fails when the deduplication step fails on its last try', async
     ),
   );
 
-  await assert.rejects(() => engineFor(faux).review(context()), /deduplication step failed: .*Server error\./);
+  const { logger, warnings: logLines } = recordingLogger();
+  const { findings, warnings } = await engineFor(faux, { logger }).review(context());
+
+  assert.equal(findings.length, 2);
+  assert.deepEqual(warnings, [{ code: 'deduplication_failed' }]);
+  assert.ok(logLines.some((line) => line.step === 'deduplication' && /Server error\./.test(String(line.error))));
 });
 
 test('the kept finding takes the relatesTo of the first finding of its group that has one', async () => {

@@ -1,5 +1,12 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import type { Finding, ResolvedDiscussion, UnreviewedFile } from './core/types.ts';
+import type {
+  FailureCategory,
+  Finding,
+  ResolvedDiscussion,
+  ReviewWarning,
+  UnreviewedFile,
+  WarningCode,
+} from './core/types.ts';
 import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
 import { errorMessage } from './core/errorMessage.ts';
 
@@ -19,6 +26,13 @@ export interface FindingsFile<DiffRefs, Source> {
   /** Changed files the review did not review. A file without this field
    * (from an older `review`) reads as an empty list. */
   unreviewedFiles: UnreviewedFile[];
+  /** The steps that ran with less checking. A file without this field (from an
+   * older `review`) reads as an empty list. */
+  warnings: ReviewWarning[];
+  /** Set when the review failed after it read the change request. The file
+   * then has no findings. It holds the category of the failure and never the
+   * text of the error (`harden-run-failures` design, Decision 5). */
+  failed?: { category: FailureCategory };
 }
 
 export class FindingsFileError extends Error {}
@@ -78,7 +92,7 @@ function validateFindingsFile<DiffRefs, Source>(
     throw new Error('the top-level value is not an object.');
   }
 
-  const { findings, resolved = [], unreviewedFiles = [] } = value;
+  const { findings, resolved = [], unreviewedFiles = [], warnings = [], failed } = value;
   const diffRefs = parseDiffRefs(value.diffRefs);
   const source = parseSource(value.source);
 
@@ -91,6 +105,9 @@ function validateFindingsFile<DiffRefs, Source>(
   if (!Array.isArray(unreviewedFiles)) {
     throw new Error('"unreviewedFiles" is not an array.');
   }
+  if (!Array.isArray(warnings)) {
+    throw new Error('"warnings" is not an array.');
+  }
 
   return {
     diffRefs,
@@ -98,7 +115,42 @@ function validateFindingsFile<DiffRefs, Source>(
     findings: findings.map((item, index) => validateFinding(item, index)),
     resolved: resolved.map((item, index) => validateResolvedDiscussion(item, index)),
     unreviewedFiles: unreviewedFiles.map((item, index) => validateUnreviewedFile(item, index)),
+    warnings: warnings.map((item, index) => validateWarning(item, index)),
+    ...(failed === undefined ? {} : { failed: validateFailed(failed) }),
   };
+}
+
+const FAILURE_CATEGORIES: readonly string[] = ['model_failed', 'output_cut', 'too_large', 'other'];
+const WARNING_CODES: readonly string[] = ['deduplication_failed', 'verification_failed', 'verification_skipped'];
+
+function validateFailed(item: unknown): { category: FailureCategory } {
+  if (!isObject(item)) {
+    throw new Error('"failed" is not an object.');
+  }
+  const { category } = item;
+  if (typeof category !== 'string' || !FAILURE_CATEGORIES.includes(category)) {
+    throw new Error(
+      `"failed" has an invalid "category": ${JSON.stringify(category)}. Must be one of ${FAILURE_CATEGORIES.join(', ')}.`,
+    );
+  }
+  return { category: category as FailureCategory };
+}
+
+function validateWarning(item: unknown, index: number): ReviewWarning {
+  if (!isObject(item)) {
+    throw new Error(`Warning at index ${index} is not an object.`);
+  }
+  const { code, file } = item;
+  if (typeof code !== 'string' || !WARNING_CODES.includes(code)) {
+    throw new Error(
+      `Warning at index ${index} has an invalid "code": ${JSON.stringify(code)}. Must be one of ${WARNING_CODES.join(', ')}.`,
+    );
+  }
+  if (code === 'deduplication_failed') return { code };
+  if (typeof file !== 'string' || file.length === 0) {
+    throw new Error(`Warning at index ${index} with the code "${code}" is missing a "file" string.`);
+  }
+  return { code: code as WarningCode, file };
 }
 
 const UNREVIEWED_REASONS: readonly string[] = ['too_large', 'generated'];

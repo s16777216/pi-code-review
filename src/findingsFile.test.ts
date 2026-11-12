@@ -19,6 +19,7 @@ test('writeFindingsFile then readFindingsFile round-trips the same data', async 
   const path = join(dir, 'findings.json');
   const data: FindingsFile<GitLabDiffRefs, GitLabSource> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: validSource,
@@ -39,6 +40,7 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
   const path = join(dir, 'findings.json');
   const data: FindingsFile<GitLabDiffRefs, GitLabSource> = {
     unreviewedFiles: [],
+    warnings: [],
     resolved: [],
     diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
     source: validSource,
@@ -55,7 +57,10 @@ test('writeFindingsFile round-trips an empty findings list', async () => {
 });
 
 test('readFindingsFile throws a clear FindingsFileError for a missing file', async () => {
-  await assert.rejects(() => readFindingsFile('/does/not/exist/findings.json', parseGitLabDiffRefs, parseGitLabSource), FindingsFileError);
+  await assert.rejects(
+    () => readFindingsFile('/does/not/exist/findings.json', parseGitLabDiffRefs, parseGitLabSource),
+    FindingsFileError,
+  );
 });
 
 test('readFindingsFile throws a clear FindingsFileError for unparsable JSON', async () => {
@@ -77,7 +82,9 @@ async function readRaw(content: unknown): Promise<FindingsFile<GitLabDiffRefs, G
   const { writeFile } = await import('node:fs/promises');
   try {
     const withSource =
-      typeof content === 'object' && content !== null && !Array.isArray(content) ? { source: validSource, ...content } : content;
+      typeof content === 'object' && content !== null && !Array.isArray(content)
+        ? { source: validSource, ...content }
+        : content;
     await writeFile(path, JSON.stringify(withSource), 'utf8');
     return await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
   } finally {
@@ -175,6 +182,7 @@ test('readFindingsFile ignores unknown extra fields', async () => {
     findings: [validFinding],
     resolved: [],
     unreviewedFiles: [],
+    warnings: [],
   });
 });
 
@@ -231,3 +239,81 @@ for (const [name, unreviewedFiles, field] of [
     );
   });
 }
+
+// --- warnings and failed (`harden-run-failures`) ---
+
+test('readFindingsFile reads a file without "warnings" and "failed" as no warnings and no failure', async () => {
+  const result = await readRaw({ diffRefs: validRefs, findings: [] });
+  assert.deepEqual(result.warnings, []);
+  assert.equal('failed' in result, false);
+});
+
+test('readFindingsFile keeps valid warnings', async () => {
+  const warnings = [
+    { code: 'deduplication_failed' },
+    { code: 'verification_failed', file: 'src/a.ts' },
+    { code: 'verification_skipped', file: 'src/b.ts' },
+  ];
+  const result = await readRaw({ diffRefs: validRefs, findings: [], warnings });
+  assert.deepEqual(result.warnings, warnings);
+});
+
+test('readFindingsFile keeps a valid failure', async () => {
+  const result = await readRaw({ diffRefs: validRefs, findings: [], failed: { category: 'output_cut' } });
+  assert.deepEqual(result.failed, { category: 'output_cut' });
+});
+
+test('readFindingsFile does not keep the text of an error in a failure', async () => {
+  const result = await readRaw({
+    diffRefs: validRefs,
+    findings: [],
+    failed: { category: 'other', message: 'http://internal-host/v1 refused' },
+  });
+  assert.deepEqual(result.failed, { category: 'other' });
+});
+
+for (const [name, extra, field] of [
+  ['an unknown category', { failed: { category: 'network' } }, /"failed" has an invalid "category"/],
+  ['a failure that is not an object', { failed: 'output_cut' }, /"failed" is not an object/],
+  ['warnings that are not an array', { warnings: 'x' }, /"warnings" is not an array/],
+  ['a warning that is not an object', { warnings: ['x'] }, /index 0 is not an object/],
+  ['an unknown warning code', { warnings: [{ code: 'x' }] }, /index 0 has an invalid "code"/],
+  [
+    'a verification warning with no file',
+    { warnings: [{ code: 'verification_failed' }] },
+    /index 0 with the code "verification_failed" is missing a "file"/,
+  ],
+  [
+    'a skipped warning with an empty file',
+    { warnings: [{ code: 'verification_skipped', file: '' }] },
+    /index 0 with the code "verification_skipped" is missing a "file"/,
+  ],
+] as const) {
+  test(`readFindingsFile rejects ${name}`, async () => {
+    await assert.rejects(
+      () => readRaw({ diffRefs: validRefs, findings: [], ...extra }),
+      (error: unknown) => error instanceof FindingsFileError && field.test(error.message),
+    );
+  });
+}
+
+test('writeFindingsFile then readFindingsFile round-trips a failed review', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
+  const path = join(dir, 'findings.json');
+  const data: FindingsFile<GitLabDiffRefs, GitLabSource> = {
+    unreviewedFiles: [],
+    warnings: [{ code: 'verification_failed', file: 'a.ts' }],
+    resolved: [],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: validSource,
+    findings: [],
+    failed: { category: 'model_failed' },
+  };
+
+  try {
+    await writeFindingsFile(path, data);
+    assert.deepEqual(await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource), data);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

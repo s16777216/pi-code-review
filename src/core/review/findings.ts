@@ -1,6 +1,15 @@
-import type { Finding, ResolvedDiscussion, Severity } from '../types.ts';
+import type { FailureCategory, Finding, ResolvedDiscussion, Severity } from '../types.ts';
 
-export class ReviewFailureError extends Error {}
+/** A review failure. The `category` is what `review` writes to the findings
+ * file, so `publish` can tell the failure without the text of the error. */
+export class ReviewFailureError extends Error {
+  readonly category: FailureCategory;
+
+  constructor(message: string, category: FailureCategory = 'other') {
+    super(message);
+    this.category = category;
+  }
+}
 
 const VALID_SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'pre_existing'];
 

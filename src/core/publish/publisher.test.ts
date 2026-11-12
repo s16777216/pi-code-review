@@ -624,3 +624,118 @@ test('publish uses the resolved template for the reply to a declared discussion'
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: true }]);
 });
+
+// --- Review status comment (`harden-run-failures`) ---
+
+async function publishStatus(
+  writer: FakeGateway,
+  status: Parameters<Publisher['publish']>[3],
+  files: { path: string; reason: 'too_large' | 'generated' }[] = [],
+) {
+  const { logger, warnings } = recordingLogger();
+  await new Publisher(writer, { logger }).publish([], [], files, status);
+  return warnings;
+}
+
+test('publish creates the status comment with the failure text when the review failed', async () => {
+  const writer = new FakeGateway();
+
+  await publishStatus(writer, { failed: { category: 'output_cut' }, warnings: [] });
+
+  assert.equal(writer.createdNotes.length, 1);
+  assert.ok(writer.createdNotes[0]!.startsWith(`${UNREVIEWED_MARKER}\n**Review failed:**`));
+  assert.match(writer.createdNotes[0]!, /cut at the token limit/);
+  assert.doesNotMatch(writer.createdNotes[0]!, /Every changed file was reviewed/);
+  assert.equal(writer.calls.length, 0);
+});
+
+test('publish creates the status comment with the warning text and the sentence that every file was reviewed', async () => {
+  const writer = new FakeGateway();
+
+  await publishStatus(writer, { warnings: [{ code: 'deduplication_failed' }] });
+
+  assert.equal(writer.createdNotes.length, 1);
+  assert.match(writer.createdNotes[0]!, /removes duplicate findings/);
+  assert.match(writer.createdNotes[0]!, /Every changed file was reviewed in the latest review\.$/);
+});
+
+test('publish lists both paths in one warning text for the verification warnings', async () => {
+  const writer = new FakeGateway();
+
+  await publishStatus(writer, {
+    warnings: [
+      { code: 'verification_failed', file: 'src/a.ts' },
+      { code: 'verification_failed', file: 'src/b.ts' },
+    ],
+  });
+
+  const body = writer.createdNotes[0]!;
+  assert.equal((body.match(/The check of the findings failed/g) ?? []).length, 1);
+  assert.match(body, /^- `src\/a\.ts`$/m);
+  assert.match(body, /^- `src\/b\.ts`$/m);
+});
+
+test('publish updates the comment of an older run with a failure and creates no second comment', async () => {
+  const writer = new FakeGateway();
+  writer.existing = [unreviewedNoteDiscussion('n1', 70, `${UNREVIEWED_MARKER}\n- \`big.js\``)];
+
+  await publishStatus(writer, { failed: { category: 'model_failed' }, warnings: [] });
+
+  assert.deepEqual(writer.createdNotes, []);
+  assert.equal(writer.updatedNotes.length, 1);
+  assert.equal(writer.updatedNotes[0]!.noteId, 70);
+  assert.match(writer.updatedNotes[0]!.body, /A model call failed after 3 tries/);
+});
+
+test('publish updates the failure comment to a clean status when the next review is clean', async () => {
+  const first = new FakeGateway();
+  await publishStatus(first, { failed: { category: 'model_failed' }, warnings: [] });
+  const writer = new FakeGateway();
+  writer.existing = [unreviewedNoteDiscussion('n1', 70, first.createdNotes[0]!)];
+
+  await publishStatus(writer, { warnings: [] });
+
+  assert.deepEqual(writer.updatedNotes, [
+    { noteId: 70, body: `${UNREVIEWED_MARKER}\nEvery changed file was reviewed in the latest review.` },
+  ]);
+});
+
+test('publish leaves the status comment alone when its body is already the one it would write', async () => {
+  const first = new FakeGateway();
+  await publishStatus(first, { failed: { category: 'other' }, warnings: [] });
+  const writer = new FakeGateway();
+  writer.existing = [unreviewedNoteDiscussion('n1', 70, first.createdNotes[0]!)];
+
+  await publishStatus(writer, { failed: { category: 'other' }, warnings: [] });
+
+  assert.deepEqual(writer.createdNotes, []);
+  assert.deepEqual(writer.updatedNotes, []);
+});
+
+test('publish posts no status comment for a clean review with no comment yet', async () => {
+  const writer = new FakeGateway();
+
+  await publishStatus(writer, { warnings: [] });
+
+  assert.deepEqual(writer.createdNotes, []);
+  assert.deepEqual(writer.updatedNotes, []);
+});
+
+test('publish writes a warning and the files too large in one comment', async () => {
+  const writer = new FakeGateway();
+
+  await publishStatus(writer, { warnings: [{ code: 'deduplication_failed' }] }, [tooLarge('big.js')]);
+
+  assert.equal(writer.createdNotes.length, 1);
+  assert.match(writer.createdNotes[0]!, /Warning/);
+  assert.match(writer.createdNotes[0]!, /Not reviewed/);
+});
+
+test('publish logs a warning and goes on when the status comment request fails', async () => {
+  const writer = new FakeGateway();
+  writer.failNote = true;
+
+  const warnings = await publishStatus(writer, { failed: { category: 'other' }, warnings: [] });
+
+  assert.equal(warnings.length, 1);
+});

@@ -95,6 +95,20 @@ export interface ResolvedDiscussion {
   reason: string;
 }
 
+/** Why a review failed (`harden-run-failures` design, Decision 4). The
+ * category never holds the text of the error. */
+export type FailureCategory = 'model_failed' | 'output_cut' | 'too_large' | 'other';
+
+/** The codes of a warning: a step ran with less checking. */
+export type WarningCode = 'deduplication_failed' | 'verification_failed' | 'verification_skipped';
+
+/** A step of the review ran with less checking than normal. `file` is set for
+ * the two verification codes. */
+export interface ReviewWarning {
+  code: WarningCode;
+  file?: string;
+}
+
 /** What one review produces. */
 export interface ReviewResult {
   findings: Finding[];
@@ -102,4 +116,6 @@ export interface ReviewResult {
   resolved: ResolvedDiscussion[];
   /** Every omitted changed file, in path order (see `handle-omitted-diffs`). */
   unreviewedFiles: UnreviewedFile[];
+  /** The steps that ran with less checking. Empty when no step was degraded. */
+  warnings: ReviewWarning[];
 }
