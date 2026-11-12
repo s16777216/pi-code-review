@@ -62,6 +62,7 @@ export function planBatches(files: readonly ChangedFile[], fits: FitsBudget, con
     if (hunks.length === 0) {
       throw new ReviewFailureError(
         `The diff of "${file.path}" is too large to review and has no hunk headers to split it at.`,
+        'too_large',
       );
     }
     const parts: BatchItem[] = [];
@@ -75,6 +76,7 @@ export function planBatches(files: readonly ChangedFile[], fits: FitsBudget, con
       if (group.length === 0 || !fits([{ file: file.withHunks([hunk]), part: PROVISIONAL_PART }])) {
         throw new ReviewFailureError(
           `The hunk at new-file line ${hunkStartLine(hunk.hunkText) ?? '?'} of "${file.path}" is too large to review: it does not fit in one batch of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
+          'too_large',
         );
       }
       parts.push({ file: file.withHunks(group) });
@@ -95,5 +97,6 @@ export function planBatches(files: readonly ChangedFile[], fits: FitsBudget, con
 function tooManyBatches(contextWindow: number): ReviewFailureError {
   return new ReviewFailureError(
     `The change is too large to review: it needs at least ${MAX_BATCHES + 1} batches (at most ${MAX_BATCHES} are allowed) of half the ${contextWindow}-token context window. Set --context-window (OPENAI_CONTEXT_WINDOW) if the model's real window is larger.`,
+    'too_large',
   );
 }

@@ -34,7 +34,7 @@ export async function runChecks(
   changes: ChangeSet,
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
-): Promise<Omit<ReviewResult, 'unreviewedFiles'>> {
+): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
       // The review did not show this file's diff, so it does not report on it

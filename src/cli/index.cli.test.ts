@@ -23,6 +23,8 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
       '64000',
       '--context-window',
       '400000',
+      '--timeout',
+      '120000',
       '--language',
       'Traditional Chinese',
       '--instructions',
@@ -43,6 +45,7 @@ test('parseReviewCliOptions maps every review flag to the matching field', () =>
     apiKey: 'sk-from-cli',
     maxTokens: '64000',
     contextWindow: '400000',
+    timeout: '120000',
     language: 'Traditional Chinese',
     instructions: 'rules.md',
     instructionsText: 'Skip naming problems.',
@@ -59,6 +62,7 @@ test('parseReviewCliOptions returns all-undefined fields when no flags are given
     apiKey: undefined,
     maxTokens: undefined,
     contextWindow: undefined,
+    timeout: undefined,
     language: undefined,
     instructions: undefined,
     instructionsText: undefined,
@@ -153,4 +157,8 @@ test('parseReviewCliOptions still accepts the GitLab merge request flags', () =>
   const options = parseReviewCliOptions(['--mr', '7', '--project-id', '12'], gitlabHost.reviewFlags);
   assert.equal(options.host.mr, '7');
   assert.equal(options.host['project-id'], '12');
+});
+
+test('parsePublishCliOptions rejects the timeout flag, which only review accepts', () => {
+  assert.throws(() => parsePublishCliOptions(['--timeout', '1000'], HOST_FLAGS));
 });

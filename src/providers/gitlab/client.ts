@@ -1,5 +1,17 @@
 import { ConfigError } from '../../settings.ts';
 import { silentLogger, type Logger } from '../../logger.ts';
+import { errorMessage } from '../../core/errorMessage.ts';
+
+/** A read request (`GET`) is sent at most this many times in total
+ * (`harden-run-failures` design, Decision 8). */
+export const MAX_GET_TRIES = 3;
+/** The wait before the second and the third try, in milliseconds. */
+export const GET_RETRY_DELAYS_MS: readonly number[] = [2_000, 4_000];
+
+/** A status that is tried again: too many requests, or a server error. */
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
 
 export interface GitLabDiffRefs {
   baseSha: string;
@@ -62,6 +74,9 @@ export interface GitLabClientOptions {
   /** Logs each GitLab API call's method/URL/status under `--debug`. Defaults
    * to a silent logger, so existing call sites and tests are unaffected. */
   logger?: Logger;
+  /** Waits before a retry of a read request. Defaults to a real timer; tests
+   * pass one that returns at once. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** The subset of the GitLab API this tool needs. Adapters depend on this
@@ -107,6 +122,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
   private readonly projectId: string;
   private readonly token: string;
   private readonly logger: Logger;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   /** Private: construction goes through `GitLabClient.create()`, so the
    * returned instance is always fully set up, even once setup needs to
@@ -118,6 +134,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     this.projectId = options.projectId;
     this.token = options.token;
     this.logger = options.logger ?? silentLogger();
+    this.sleep = options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   }
 
   static async create(options: GitLabClientOptions): Promise<GitLabClient> {
@@ -137,16 +154,33 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
       for (const [key, value] of searchParams) url.searchParams.set(key, value);
     }
     const method = init?.method ?? 'GET';
-    const response = await fetch(url, {
-      method: init?.method,
-      body: init?.body,
-      headers: {
-        'PRIVATE-TOKEN': this.token,
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-    });
-    this.logger.debug({ method, url: url.toString(), status: response.status }, 'gitlab request');
-    return response;
+    // Only a read request is tried again. A write request is not safe to send
+    // twice: it can post a comment two times.
+    const tries = method === 'GET' ? MAX_GET_TRIES : 1;
+    for (let attempt = 1; ; attempt += 1) {
+      let cause: string;
+      try {
+        const response = await fetch(url, {
+          method: init?.method,
+          body: init?.body,
+          headers: {
+            'PRIVATE-TOKEN': this.token,
+            ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+          },
+        });
+        this.logger.debug({ method, url: url.toString(), status: response.status }, 'gitlab request');
+        if (attempt >= tries || !isRetryableStatus(response.status)) return response;
+        // Free the connection. Do not wait for it: the body is not needed.
+        void response.body?.cancel().catch(() => undefined);
+        cause = `status ${response.status}`;
+      } catch (error) {
+        if (attempt >= tries) throw error;
+        cause = errorMessage(error);
+      }
+      // The log line has the path without the query, and never the headers.
+      this.logger.warn({ method, path, attempt: attempt + 1, cause }, 'retrying a GitLab request');
+      await this.sleep(GET_RETRY_DELAYS_MS[attempt - 1] ?? 0);
+    }
   }
 
   async getMergeRequest(mergeRequestIid: string): Promise<MergeRequestMetadata> {

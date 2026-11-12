@@ -220,15 +220,24 @@ test('AgentReviewEngine refuses an input that leaves too little room for the ans
   assert.equal(faux.state.callCount, 0);
 });
 
-test('AgentReviewEngine reports a final message cut at the token limit instead of parsing it', async () => {
+test('AgentReviewEngine reports a final message cut at the token limit also after the retry instead of parsing it', async () => {
   const faux = fauxProvider();
-  logicOnly(faux, [fauxAssistantMessage('[{"file":"a.ts","li', { stopReason: 'length' })]);
-  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+  logicOnly(faux, [
+    fauxAssistantMessage('[{"file":"a.ts","li', { stopReason: 'length' }),
+    fauxAssistantMessage('[{"file":"a.ts","li', { stopReason: 'length' }),
+  ]);
+  const engine = new AgentReviewEngine({
+    provider: faux.provider,
+    model: faux.getModel(),
+    apiKey: 'test-key',
+    sleep: async () => {},
+  });
 
   await assert.rejects(
     () => engine.review(smallContext()),
     (error: unknown) =>
       error instanceof ReviewFailureError &&
+      error.category === 'output_cut' &&
       /--max-tokens/.test(error.message) &&
       /--context-window/.test(error.message),
   );
@@ -793,18 +802,26 @@ test('AgentReviewEngine fails after the third try that ends with an error', asyn
   assert.deepEqual(waits, [2000, 4000]);
 });
 
-test('AgentReviewEngine does not retry a run that stops at the token limit', async () => {
+test('AgentReviewEngine retries a run that stops at the token limit one time with twice the limit', async () => {
   const faux = fauxProvider();
-  logicOnly(faux, [fauxAssistantMessage('[{"file', { stopReason: 'length' }), submitReview()]);
-  const engine = new AgentReviewEngine({
-    provider: faux.provider,
-    model: faux.getModel(),
-    apiKey: 'k',
-    sleep: noSleep,
-  });
+  const limits: number[] = [];
+  logicOnly(faux, [
+    (_context, _options, _state, model) => {
+      limits.push(model.maxTokens);
+      return fauxAssistantMessage('[{"file', { stopReason: 'length' });
+    },
+    (_context, _options, _state, model) => {
+      limits.push(model.maxTokens);
+      return submitReview();
+    },
+  ]);
+  const model = { ...faux.getModel(), maxTokens: 1000 };
+  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', sleep: noSleep });
 
-  await assert.rejects(() => engine.review(smallContext()), /--max-tokens/);
-  assert.equal(faux.state.callCount, 3);
+  await engine.review(smallContext());
+
+  assert.deepEqual(limits, [1000, 2000]);
+  assert.equal(faux.state.callCount, 4);
 });
 
 test('AgentReviewEngine aborts the active runs and starts no more when a batch fails', async () => {

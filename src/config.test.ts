@@ -18,7 +18,13 @@ function withFullEnv(overrides: Record<string, string | undefined> = {}): void {
 }
 
 function clearEnv(): void {
-  for (const key of [...OPENAI_VARS, 'FAIL_ON_SEVERITY', 'OPENAI_MAX_TOKENS', 'OPENAI_CONTEXT_WINDOW']) {
+  for (const key of [
+    ...OPENAI_VARS,
+    'FAIL_ON_SEVERITY',
+    'OPENAI_MAX_TOKENS',
+    'OPENAI_CONTEXT_WINDOW',
+    'OPENAI_TIMEOUT_MS',
+  ]) {
     delete process.env[key];
   }
 }
@@ -305,5 +311,41 @@ test('loadReviewConfig does not read PUBLISH_TEMPLATE_DIR', () => {
   withTemplateDirEnv('./from-env', () => {
     assert.equal('templateDir' in loadReviewConfig(), false);
   });
+  clearEnv();
+});
+
+test('loadReviewConfig has no timeout when neither the flag nor OPENAI_TIMEOUT_MS is set', () => {
+  clearEnv();
+  withFullEnv();
+  assert.equal('timeoutMs' in loadReviewConfig().openai, false);
+  clearEnv();
+});
+
+test('loadReviewConfig uses OPENAI_TIMEOUT_MS when set', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_TIMEOUT_MS: '90000' });
+  assert.equal(loadReviewConfig().openai.timeoutMs, 90_000);
+  clearEnv();
+});
+
+test('loadReviewConfig uses the --timeout value over OPENAI_TIMEOUT_MS', () => {
+  clearEnv();
+  withFullEnv({ OPENAI_TIMEOUT_MS: '90000' });
+  assert.equal(loadReviewConfig({ timeout: '120000' }).openai.timeoutMs, 120_000);
+  clearEnv();
+});
+
+test('loadReviewConfig rejects a timeout that is not a positive integer', () => {
+  clearEnv();
+  withFullEnv();
+  for (const value of ['0', '-5', 'abc', '1.5', '', '  ']) {
+    assert.throws(
+      () => loadReviewConfig({ timeout: value }),
+      (error: unknown) => error instanceof ConfigError && /OPENAI_TIMEOUT_MS/.test(error.message),
+      value,
+    );
+  }
+  withFullEnv({ OPENAI_TIMEOUT_MS: 'abc' });
+  assert.throws(() => loadReviewConfig(), ConfigError);
   clearEnv();
 });

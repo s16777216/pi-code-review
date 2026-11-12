@@ -20,6 +20,9 @@ export interface ReviewConfig {
      * answer at `contextWindow - estimated input - 4096`, and the engine uses
      * it to refuse an input that leaves no room for an answer. */
     contextWindow: number;
+    /** The request timeout of a model call in milliseconds. Undefined leaves
+     * the default of the model client (`harden-run-failures`). */
+    timeoutMs?: number;
   };
 }
 
@@ -42,6 +45,8 @@ export interface ReviewConfigOverrides {
   maxTokens?: string;
   /** Raw string from the CLI flag; `loadReviewConfig()` parses and validates it. */
   contextWindow?: string;
+  /** Raw string from the CLI flag; `loadReviewConfig()` parses and validates it. */
+  timeout?: string;
   language?: string;
 }
 
@@ -90,6 +95,19 @@ function resolveContextWindow(override: string | undefined, maxTokens: number): 
   return value;
 }
 
+/** `--timeout`/`OPENAI_TIMEOUT_MS` is optional with no default: without it,
+ * the model client keeps its own timeout. The value is in milliseconds. The
+ * flag wins over the variable. */
+function resolveTimeout(override: string | undefined): number | undefined {
+  const raw = override ?? process.env.OPENAI_TIMEOUT_MS;
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (raw.trim().length === 0 || !Number.isInteger(value) || value <= 0) {
+    throw new ConfigError(`Invalid OPENAI_TIMEOUT_MS value: "${raw}". Must be a positive integer (milliseconds).`);
+  }
+  return value;
+}
+
 const MAX_LANGUAGE_LENGTH = 64;
 
 /** `--language`/`REVIEW_LANGUAGE` is optional with no default. The value goes
@@ -133,6 +151,7 @@ function resolveTemplateDir(override: string | undefined): string | undefined {
  * so the first bad setting is reported in the same order for every host. */
 export function loadReviewConfig(overrides: ReviewConfigOverrides = {}, readHostSettings?: () => void): ReviewConfig {
   const maxTokens = resolveMaxTokens(overrides.maxTokens);
+  const timeoutMs = resolveTimeout(overrides.timeout);
   const language = resolveLanguage(overrides.language);
   readHostSettings?.();
   return {
@@ -143,6 +162,7 @@ export function loadReviewConfig(overrides: ReviewConfigOverrides = {}, readHost
       baseUrl: requireSetting('OPENAI_BASE_URL', overrides.openaiBaseUrl),
       maxTokens,
       contextWindow: resolveContextWindow(overrides.contextWindow, maxTokens),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
     },
   };
 }

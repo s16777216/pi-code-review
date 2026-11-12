@@ -17,6 +17,9 @@ export function stripMarker(body: string): string {
   return end === -1 ? body : body.slice(end + 3).replace(/^\r?\n/, '');
 }
 
-/** The marker of the general comment on files too large to review. It has
- * no `anchor=`, so the anchor match never uses this comment. */
+/** The marker of the review status comment: the general comment that tells a
+ * failure, the warnings, and the files too large to review. The word
+ * "unreviewed" stays from the first version of this comment, so the comment
+ * of an older run is still found and updated. It has no `anchor=`, so the
+ * anchor match never uses this comment. */
 export const UNREVIEWED_MARKER = '<!-- pi-code-review unreviewed -->';

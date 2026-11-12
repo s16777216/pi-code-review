@@ -90,6 +90,9 @@ export class Batch implements RunScope {
   }
 
   describeFailure(error: unknown): ReviewFailureError {
-    return new ReviewFailureError(`Batch ${this.index} of ${this.count} failed: ${errorMessage(error)}`);
+    return new ReviewFailureError(
+      `Batch ${this.index} of ${this.count} failed: ${errorMessage(error)}`,
+      error instanceof ReviewFailureError ? error.category : 'other',
+    );
   }
 }

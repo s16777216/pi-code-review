@@ -3,7 +3,7 @@ import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../errorMessage.ts';
-import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult } from '../types.ts';
+import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
@@ -54,6 +54,11 @@ export const MAX_PARALLEL_RUNS = 3;
 export const MAX_RUN_TRIES = 3;
 /** The wait before the second and the third try, in milliseconds. */
 export const RETRY_DELAYS_MS: readonly number[] = [2_000, 4_000];
+
+/** The failure message for a run that stays cut at the token limit also after
+ * the retry with a larger limit. */
+const CUT_MESSAGE =
+  "The model stopped at its output token limit, also after one retry with twice the limit, so its answer is cut and cannot be parsed. Raise --max-tokens (OPENAI_MAX_TOKENS), or set --context-window (OPENAI_CONTEXT_WINDOW) to the model's real context window.";
 
 /** The statement before the review instructions (`add-review-instructions`
  * design, Decision 4). The review instructions win over the general guidance
@@ -118,6 +123,10 @@ export interface AgentReviewEngineOptions {
   /** Waits before a retry. Defaults to a real timer; tests pass one that
    * returns at once. */
   sleep?: (ms: number) => Promise<void>;
+  /** The request timeout of a model call, in milliseconds. Undefined passes no
+   * timeout, so the default of the model client applies
+   * (`harden-run-failures` design, Decision 1). */
+  timeoutMs?: number;
 }
 
 /** One agent run: a run scope and a review focus
@@ -131,7 +140,9 @@ interface PlannedRun {
  * its log lines, and how to tell the failure to the person. The review runs
  * and the deduplication step use the same retry loop through this shape. */
 interface RunSpec<T> {
-  createAgent: (onSubmit: (value: T) => void) => Agent;
+  /** `model` is the model of the try: the retry for the token limit passes a
+   * model with a larger `maxTokens` (`harden-run-failures` design, Decision 2). */
+  createAgent: (onSubmit: (value: T) => void, model: Model<Api>) => Agent;
   prompt: string;
   /** The tool that gives the run's result, for the failure message. */
   toolName: string;
@@ -152,6 +163,7 @@ export class AgentReviewEngine implements ReviewEngine {
     // The host's data, parsed once for the whole review (`model-diffs-and-run-scopes`, Decision 2).
     const changes = ChangeSet.from(context.changedFiles);
     const unreviewedFiles = listUnreviewedFiles(changes, logger);
+    const warnings: ReviewWarning[] = [];
     const scopes = this.planRuns(context, changes, logger);
     // By scope, then by review focus: the order of the runs, of the pool, and of the merge.
     const runs: PlannedRun[] = scopes.flatMap((scope) => REVIEW_FOCUSES.map((focus) => ({ scope, focus })));
@@ -178,9 +190,10 @@ export class AgentReviewEngine implements ReviewEngine {
       context,
       changes,
       logger,
-      async (checkedFindings) => this.verify(await this.deduplicate(checkedFindings, logger), context, changes, logger),
+      async (checkedFindings) =>
+        this.verify(await this.deduplicate(checkedFindings, logger, warnings), context, changes, logger, warnings),
     );
-    return { ...checked, unreviewedFiles };
+    return { ...checked, unreviewedFiles, warnings };
   }
 
   /** One scope for the whole change, or one `Batch` for each run
@@ -233,12 +246,12 @@ export class AgentReviewEngine implements ReviewEngine {
     scope: RunScope,
     focus: ReviewFocus,
     onSubmit: (output: ParsedReviewOutput) => void = () => {},
+    model: Model<Api> = this.options.model,
   ): Agent {
-    const { provider, model, apiKey, language, instructions } = this.options;
+    const { language, instructions } = this.options;
     const logger = this.options.logger ?? silentLogger();
     return new Agent({
-      streamFn: (streamModel, streamContext, streamOptions) =>
-        provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
+      streamFn: this.streamFn(),
       initialState: {
         systemPrompt: buildSystemPrompt(language, scope, instructions, focus),
         model,
@@ -249,6 +262,20 @@ export class AgentReviewEngine implements ReviewEngine {
         ],
       },
     });
+  }
+
+  /** The stream function of every agent: it adds the API key and, when set,
+   * the request timeout. It never sets `maxRetries`, so the client does not
+   * retry, and the tries of `runWithRetries` are the only tries
+   * (`harden-run-failures` design, Decision 1). */
+  private streamFn() {
+    const { provider, apiKey, timeoutMs } = this.options;
+    return (...[streamModel, streamContext, streamOptions]: Parameters<Provider['streamSimple']>) =>
+      provider.streamSimple(streamModel, streamContext, {
+        ...streamOptions,
+        apiKey,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      });
   }
 
   /** Runs every run, at most `MAX_PARALLEL_RUNS` at a time, in order. When a
@@ -269,7 +296,7 @@ export class AgentReviewEngine implements ReviewEngine {
       async (i) => {
         const { scope, focus } = runs[i]!;
         const spec: RunSpec<ParsedReviewOutput> = {
-          createAgent: (onSubmit) => this.createAgent(context, scope, focus, onSubmit),
+          createAgent: (onSubmit, model) => this.createAgent(context, scope, focus, onSubmit, model),
           prompt: scope.prompt(context, changes),
           toolName: 'submit_review',
           logFields: { ...scope.logFields(), focus: focus.name },
@@ -281,7 +308,10 @@ export class AgentReviewEngine implements ReviewEngine {
           // The failure names the batch (when there is one), the review focus, and the cause.
           const named =
             error instanceof ReviewFailureError
-              ? new ReviewFailureError(`The agent for the ${focus.name} review focus failed: ${errorMessage(error)}`)
+              ? new ReviewFailureError(
+                  `The agent for the ${focus.name} review focus failed: ${errorMessage(error)}`,
+                  error.category,
+                )
               : error;
           failure = { error: scope.describeFailure(named) };
           for (const agent of active) agent.abort();
@@ -318,13 +348,14 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
+    warnings: ReviewWarning[],
   ): Promise<Finding[]> {
     const groups = groupByFile(findings);
     if (groups.length === 0) return findings;
 
     const applied: (AppliedVerdict[] | null)[] = groups.map(() => null);
     await this.runPool(groups.length, async (i) => {
-      applied[i] = await this.verifyFile(groups[i]!, context, changes, logger);
+      applied[i] = await this.verifyFile(groups[i]!, context, changes, logger, warnings);
     });
 
     const result = new Map<Finding, Finding | null>();
@@ -377,28 +408,28 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
+    warnings: ReviewWarning[],
   ): Promise<AppliedVerdict[] | null> {
-    const { provider, model, apiKey, instructions } = this.options;
+    const { model, instructions } = this.options;
     const file = changes.file(group.file);
     if (file === undefined) {
       logger.warn({ file: group.file }, 'did not verify the findings of a file: it is not in the change');
       return null;
     }
     const prompt = buildVerifyPrompt(context, file, group.findings);
-    const createAgent = (onSubmit: (verdicts: FindingVerdict[]) => void) =>
+    const createAgent = (onSubmit: (verdicts: FindingVerdict[]) => void, runModel: Model<Api>) =>
       new Agent({
-        streamFn: (streamModel, streamContext, streamOptions) =>
-          provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
+        streamFn: this.streamFn(),
         initialState: {
           systemPrompt: buildVerifySystemPrompt(instructions),
-          model,
+          model: runModel,
           tools: [createGetFileContentTool(context), createSubmitVerdictsTool(group.findings.length, onSubmit, logger)],
         },
       });
 
     // The first request must fit in half of the context window, as for a batch.
     if (model.contextWindow > 0) {
-      const probe = createAgent(() => {});
+      const probe = createAgent(() => {}, model);
       const firstRequest: Message[] = [
         ...probe.state.messages,
         { role: 'user', content: prompt, timestamp: Date.now() },
@@ -409,6 +440,7 @@ export class AgentReviewEngine implements ReviewEngine {
           { file: group.file, tokens },
           'did not verify the findings of a file: the first request is larger than half of the context window',
         );
+        warnings.push({ code: 'verification_skipped', file: group.file });
         return null;
       }
     }
@@ -425,6 +457,7 @@ export class AgentReviewEngine implements ReviewEngine {
     } catch (error) {
       if (!(error instanceof ReviewFailureError)) throw error;
       logger.warn({ file: group.file, error: error.message }, 'did not verify the findings of a file: the run failed');
+      warnings.push({ code: 'verification_failed', file: group.file });
       return null;
     }
   }
@@ -432,18 +465,17 @@ export class AgentReviewEngine implements ReviewEngine {
   /** The deduplication step on the checked findings (`add-multi-agent-review`
    * design, Decisions 4 to 6). It makes one model call, and only when a file
    * has two or more findings. The model groups the findings, and the code
-   * keeps one finding of each group. A call that fails on its last try fails
-   * the review. */
-  private async deduplicate(findings: Finding[], logger: Logger): Promise<Finding[]> {
+   * keeps one finding of each group. A call that fails on its last try keeps
+   * the findings as they were, writes a `warn` line, and records the warning
+   * `deduplication_failed` (`harden-run-failures` design, Decision 3). */
+  private async deduplicate(findings: Finding[], logger: Logger, warnings: ReviewWarning[]): Promise<Finding[]> {
     const sent = selectForDedup(findings);
     if (sent.length === 0) return findings;
 
-    const { provider, model, apiKey } = this.options;
     const spec: RunSpec<number[][]> = {
-      createAgent: (onSubmit) =>
+      createAgent: (onSubmit, model) =>
         new Agent({
-          streamFn: (streamModel, streamContext, streamOptions) =>
-            provider.streamSimple(streamModel, streamContext, { ...streamOptions, apiKey }),
+          streamFn: this.streamFn(),
           initialState: {
             systemPrompt: DEDUP_SYSTEM_PROMPT,
             model,
@@ -459,7 +491,12 @@ export class AgentReviewEngine implements ReviewEngine {
       groups = await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
     } catch (error) {
       if (!(error instanceof ReviewFailureError)) throw error;
-      throw new ReviewFailureError(`The deduplication step failed: ${error.message}`);
+      logger.warn(
+        { step: 'deduplication', error: error.message },
+        'the deduplication step failed; the findings stay as they were',
+      );
+      warnings.push({ code: 'deduplication_failed' });
+      return findings;
     }
 
     const kept = keepOnePerGroup(findings, groups);
@@ -470,8 +507,11 @@ export class AgentReviewEngine implements ReviewEngine {
     return kept;
   }
 
-  /** Tries a run until it gives output, at most `MAX_RUN_TRIES` times. Only a
-   * final message with the stop reason `error` is tried again (Decision 8). */
+  /** Tries a run until it gives output, at most `MAX_RUN_TRIES` times. A final
+   * message with the stop reason `error` is tried again (Decision 8). A run
+   * that stops at the token limit starts again one time with twice the output
+   * limit, and this does not use a try (`harden-run-failures` design,
+   * Decision 2). */
   private async runWithRetries<T>(
     spec: RunSpec<T>,
     logger: Logger,
@@ -479,17 +519,35 @@ export class AgentReviewEngine implements ReviewEngine {
     cancelled: () => boolean,
   ): Promise<T> {
     const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-    for (let attempt = 1; ; attempt += 1) {
-      const outcome = await this.runOnce(spec, logger, active);
+    let model = this.options.model;
+    let enlarged = false;
+    let attempt = 1;
+    for (;;) {
+      const outcome = await this.runOnce(spec, logger, active, model);
       if ('output' in outcome) return outcome.output;
-      if (attempt >= MAX_RUN_TRIES || cancelled()) throw new ReviewFailureError(outcome.retryableError);
 
+      if ('cut' in outcome) {
+        if (enlarged || cancelled()) throw new ReviewFailureError(CUT_MESSAGE, 'output_cut');
+        enlarged = true;
+        const larger = model.maxTokens * 2;
+        logger.warn(
+          { ...spec.logFields, maxTokens: model.maxTokens, retryMaxTokens: larger },
+          'a model run stopped at the token limit; trying again with a larger limit',
+        );
+        model = { ...model, maxTokens: larger };
+        continue;
+      }
+
+      if (attempt >= MAX_RUN_TRIES || cancelled()) {
+        throw new ReviewFailureError(outcome.retryableError, 'model_failed');
+      }
       logger.warn(
         { ...spec.logFields, attempt: attempt + 1, error: outcome.retryableError },
         'retrying a model run that ended with an error',
       );
       await sleep(RETRY_DELAYS_MS[attempt - 1] ?? 0);
-      if (cancelled()) throw new ReviewFailureError(outcome.retryableError);
+      if (cancelled()) throw new ReviewFailureError(outcome.retryableError, 'model_failed');
+      attempt += 1;
     }
   }
 
@@ -497,11 +555,12 @@ export class AgentReviewEngine implements ReviewEngine {
     spec: RunSpec<T>,
     logger: Logger,
     active: Set<Agent>,
-  ): Promise<{ output: T } | { retryableError: string }> {
+    model: Model<Api>,
+  ): Promise<{ output: T } | { retryableError: string } | { cut: true }> {
     let submission: { value: T } | undefined;
     const agent = spec.createAgent((value) => {
       submission = { value };
-    });
+    }, model);
     // The system prompt as the agent holds it, so the log shows exactly what
     // this run sends (`log-system-prompt` design, Decision 1).
     logger.debug({ ...spec.logFields, systemPrompt: agent.state.systemPrompt, prompt: spec.prompt }, 'review prompt');
@@ -527,13 +586,10 @@ export class AgentReviewEngine implements ReviewEngine {
     if (lastAssistant.stopReason === 'aborted') {
       throw new ReviewFailureError(
         `The agent run failed (stopReason: aborted): ${lastAssistant.errorMessage ?? 'no error message'}`,
+        'model_failed',
       );
     }
-    if (lastAssistant.stopReason === 'length') {
-      throw new ReviewFailureError(
-        "The model stopped at its output token limit, so its answer is cut and cannot be parsed. Raise --max-tokens (OPENAI_MAX_TOKENS), or set --context-window (OPENAI_CONTEXT_WINDOW) to the model's real context window.",
-      );
-    }
+    if (lastAssistant.stopReason === 'length') return { cut: true };
     logger.debug(
       {
         ...spec.logFields,

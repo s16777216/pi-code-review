@@ -120,6 +120,7 @@ function envWithoutSettings(): NodeJS.ProcessEnv {
     'OPENAI_BASE_URL',
     'OPENAI_MAX_TOKENS',
     'OPENAI_CONTEXT_WINDOW',
+    'OPENAI_TIMEOUT_MS',
     'REVIEW_LANGUAGE',
     'FAIL_ON_SEVERITY',
     'DEBUG',

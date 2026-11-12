@@ -9,7 +9,8 @@ import {
   type HostDiscussion,
   type UnreviewedNote,
 } from './discussion.ts';
-import { MARKER, UNREVIEWED_MARKER } from './marker.ts';
+import { MARKER } from './marker.ts';
+import { formatStatusBody, hasStatusToReport, tooLargePaths, type ReviewStatus } from './status.ts';
 import { builtinTemplates, fillTemplate, type CommentTemplates } from './template.ts';
 
 export interface PublisherOptions {
@@ -79,6 +80,7 @@ export class Publisher {
     findings: Finding[],
     resolved: ResolvedDiscussion[] = [],
     unreviewedFiles: UnreviewedFile[] = [],
+    status: ReviewStatus = { warnings: [] },
   ): Promise<void> {
     const existing = await this.loadExistingDiscussions();
 
@@ -113,7 +115,7 @@ export class Publisher {
     );
 
     await Promise.all(resolved.map((declaration) => this.resolveDiscussion(declaration, existing)));
-    await this.publishUnreviewedNote(unreviewedFiles, existing === null ? null : existing.unreviewedNote);
+    await this.publishStatusNote(status, unreviewedFiles, existing === null ? null : existing.unreviewedNote);
   }
 
   /** The engine already checked the code. Here, only the facts that can change
@@ -238,26 +240,31 @@ export class Publisher {
     }
   }
 
-  /** Keeps one general comment from this tool that lists the files too large
-   * to review (`handle-omitted-diffs` design, Decision 5):
+  /** Keeps one general comment from this tool: the review status comment
+   * (`handle-omitted-diffs` design, Decision 5, and `harden-run-failures`
+   * design, Decision 6). It tells a failure, the warnings, and the files too
+   * large to review:
    *
-   * | Files too large | Existing comment | Action       |
-   * |-----------------|------------------|--------------|
-   * | some            | none             | create it    |
-   * | some            | same body        | nothing      |
-   * | some            | other body       | update it    |
-   * | none            | none             | nothing      |
-   * | none            | lists files      | update it to say every file was reviewed |
+   * | Something to report | Existing comment | Action       |
+   * |---------------------|------------------|--------------|
+   * | yes                 | none             | create it    |
+   * | yes                 | same body        | nothing      |
+   * | yes                 | other body       | update it    |
+   * | no                  | none             | nothing      |
+   * | no                  | exists           | update it to say every file was reviewed |
    *
    * Generated files are not listed. `note` is the existing comment, or `null`
    * when there is none or the discussions could not be read; then the comment
    * is created when files are too large. A failure is logged at `warn`, and
    * the caller goes on. */
-  private async publishUnreviewedNote(unreviewedFiles: UnreviewedFile[], note: UnreviewedNote | null): Promise<void> {
-    const tooLarge = unreviewedFiles.filter((file) => file.reason === 'too_large').map((file) => file.path);
-    if (tooLarge.length === 0 && note === null) return;
+  private async publishStatusNote(
+    status: ReviewStatus,
+    unreviewedFiles: UnreviewedFile[],
+    note: UnreviewedNote | null,
+  ): Promise<void> {
+    if (!hasStatusToReport(status, unreviewedFiles) && note === null) return;
 
-    const body = formatUnreviewedBody(tooLarge);
+    const body = formatStatusBody(status, unreviewedFiles);
     if (note !== null && note.body === body) return;
 
     try {
@@ -265,8 +272,8 @@ export class Publisher {
       else await this.gateway.updateNote(note.id, body);
     } catch (error) {
       this.logger.warn(
-        { files: tooLarge, error: errorMessage(error) },
-        'could not post the comment on files too large to review',
+        { files: tooLargePaths(unreviewedFiles), error: errorMessage(error) },
+        'could not post the review status comment',
       );
     }
   }
@@ -317,15 +324,4 @@ function formatDiscussionBody(findings: Finding[], findingTemplate: string): str
     }),
   );
   return `${marker}\n${paragraphs.join('\n\n')}`;
-}
-
-/** The body of the comment on files too large to review, or, with no file,
- * the note that every changed file was reviewed. */
-function formatUnreviewedBody(paths: string[]): string {
-  if (paths.length === 0) {
-    return `${UNREVIEWED_MARKER}\nEvery changed file was reviewed in the latest review.`;
-  }
-  const list = paths.map((path) => `- \`${path}\``).join('\n');
-  const what = paths.length === 1 ? 'this file' : 'these files';
-  return `${UNREVIEWED_MARKER}\n**Not reviewed:** GitLab did not return the diff of ${what}, because it is too large. Review the change by hand.\n\n${list}`;
 }
