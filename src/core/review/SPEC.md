@@ -15,7 +15,7 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 - `agent.ts`: the agent's tools: `createGetFileContentTool`, `createListDiscussionsTool`, `createSubmitReviewTool` (the only way the agent reports findings).
 - `findings.ts`: `validateFinding`, `validateResolvedDiscussion`, `ReviewFailureError` (it has a failure `category`). Also used by `src/findingsFile.ts`. `Severity` values are `critical`, `high`, `medium`, `low`, `pre_existing`.
 - `scope.ts`: `RunScope`, `WholeChange`, `Batch` (what one agent run sees and which findings it may report).
-- `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: user prompt builders. `checks.ts`: `runChecks` (takes an optional step that runs before the check on fixed declarations), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
+- `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `checks.ts`: `runChecks` (takes an optional step that runs before the check on fixed declarations), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
 - `fauxFocus.ts`: test helpers that route faux provider responses by review focus, and answer the deduplication and verification steps.
 
 ## Interfaces and dependencies
