@@ -197,7 +197,7 @@ A template SHALL fill these placeholders: `${severity}`, `${summary}`, `${file}`
 
 #### Scenario: No template directory
 - **WHEN** no template directory is set, and a finding has severity `high` and summary `Null check missing`
-- **THEN** the paragraph for that finding is `**Severity**: high`, a blank line, and `**Reason**: Null check missing`
+- **THEN** the paragraph for that finding is `**Severity**: high`, a line break, `**Reason**: Null check missing`, a line break, and `---`
 
 #### Scenario: Default resolved reply
 - **WHEN** no template directory is set, and a fixed declaration has the reason `The check was added`

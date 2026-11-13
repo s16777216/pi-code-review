@@ -85,7 +85,7 @@ test('fillTemplate treats a name like toString as an unknown name', () => {
 test('the built-in templates give the default comment text', () => {
   assert.equal(
     fillTemplate(builtinTemplates().finding, FINDING),
-    '**Severity**: high\n\n**Reason**: Null check missing',
+    '**Severity**: high  \n**Reason**: Null check missing\n---',
   );
   assert.equal(
     fillTemplate(builtinTemplates().resolved, { reason: 'The check was added' }),
