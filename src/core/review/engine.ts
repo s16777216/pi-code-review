@@ -17,6 +17,7 @@ import {
 } from './dedup.ts';
 import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { REVIEW_FOCUSES, type ReviewFocus } from './focus.ts';
+import { promptTemplates } from './prompt.ts';
 import { Batch, WholeChange, type RunScope } from './scope.ts';
 import {
   applyVerdicts,
@@ -160,6 +161,9 @@ export class AgentReviewEngine implements ReviewEngine {
    * `add-multi-agent-review`). */
   async review(context: ReviewContext): Promise<ReviewResult> {
     const logger = this.options.logger ?? silentLogger();
+    // A missing built-in prompt template fails the review here, before any model call
+    // (`move-review-prompt-to-templates`, Decision 4).
+    promptTemplates();
     // The host's data, parsed once for the whole review (`model-diffs-and-run-scopes`, Decision 2).
     const changes = ChangeSet.from(context.changedFiles);
     const unreviewedFiles = listUnreviewedFiles(changes, logger);
