@@ -1,10 +1,54 @@
 import type { OmittedReason, ReviewContext } from '../types.ts';
 import type { BatchItem } from './batch.ts';
 import type { ChangedFile, ChangeSet } from './changedFile.ts';
+import { BUILTIN_DIR, fillTemplate, readTemplateFile, TemplateError } from '../template.ts';
 
-/** The title and the description, which every run's prompt starts with. */
+/** The built-in text of the two user prompts (`move-review-prompt-to-templates`
+ * design). A template is plain text with `${name}` placeholders. */
+export interface PromptTemplates {
+  /** The prompt of a batch run. */
+  batch: string;
+  /** The prompt of a run over the whole change. */
+  whole: string;
+}
+
+const PROMPT_FILES = { batch: 'BATCH_PROMPT.md', whole: 'WHOLE_PROMPT.md' } as const;
+
+/** Reads the two prompt templates from `dir`. A file that is missing is a
+ * defect of the package, so this throws `TemplateError` that names the file,
+ * and never uses other text (Decision 4). */
+export function readPromptTemplates(dir: string = BUILTIN_DIR): PromptTemplates {
+  const read = (file: string): string => {
+    const text = readTemplateFile(dir, file);
+    if (text === undefined) {
+      throw new TemplateError(
+        `The built-in template ${file} is missing from the package (${dir}). This is a defect of the package.`,
+      );
+    }
+    return text;
+  };
+  return { batch: read(PROMPT_FILES.batch), whole: read(PROMPT_FILES.whole) };
+}
+
+let cachedTemplates: PromptTemplates | undefined;
+
+/** The built-in prompt templates, read once. `AgentReviewEngine.review()`
+ * calls it before the first run, so a missing file fails the review before any
+ * model call. */
+export function promptTemplates(): PromptTemplates {
+  cachedTemplates ??= readPromptTemplates();
+  return cachedTemplates;
+}
+
+/** The description of the change, or the fixed text when it is empty. */
+function describeChange(context: ReviewContext): string {
+  return context.description.trim() || '(no description provided)';
+}
+
+/** The title and the description, which the prompt of the verifier starts
+ * with. The prompts of the review runs come from templates. */
 export function header(context: ReviewContext): string[] {
-  return [`# Change: ${context.title}`, '', context.description.trim() || '(no description provided)', ''];
+  return [`# Change: ${context.title}`, '', describeChange(context), ''];
 }
 
 /** Builds the agent's prompt for a run over the whole change. Each diff's
@@ -23,7 +67,11 @@ export function buildWholePrompt(context: ReviewContext, changes: ChangeSet): st
         : `### ${file.path}\n(diff not shown: ${OMITTED_TEXT[file.omitted]})`,
     )
     .join('\n\n');
-  return [...header(context), '## Changed files', '', files || '(no changed files)'].join('\n');
+  return fillTemplate(promptTemplates().whole, {
+    title: context.title,
+    description: describeChange(context),
+    files: files || '(no changed files)',
+  });
 }
 
 /** Builds the agent's prompt for one batch: a list of every changed file,
@@ -50,18 +98,14 @@ export function buildBatchPrompt(
     })
     .join('\n\n');
 
-  return [
-    ...header(context),
-    '## All changed files',
-    '',
-    `This change is reviewed in ${count} parts. This is part ${index}. Files marked [in this part] have their diff below.`,
-    '',
+  return fillTemplate(promptTemplates().batch, {
+    title: context.title,
+    description: describeChange(context),
     list,
-    '',
-    `## Diffs in part ${index} of ${count}`,
-    '',
     diffs,
-  ].join('\n');
+    index: String(index),
+    count: String(count),
+  });
 }
 
 /** How the input names each reason a diff is omitted (`handle-omitted-diffs`

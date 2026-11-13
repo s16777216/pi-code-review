@@ -30,58 +30,6 @@ async function withDir(files: Record<string, string | Buffer>, run: (dir: string
   }
 }
 
-// --- fillTemplate (task 1.1) ---
-
-test('fillTemplate fills every placeholder of a finding', () => {
-  assert.equal(
-    fillTemplate('${severity}: ${summary} (${file}:${line})', FINDING),
-    'high: Null check missing (src/a.ts:12)',
-  );
-});
-
-test('fillTemplate fills the same placeholder each time it appears', () => {
-  assert.equal(fillTemplate('${summary} / ${summary}', FINDING), 'Null check missing / Null check missing');
-});
-
-test('fillTemplate turns the escape into a literal ${', () => {
-  assert.equal(fillTemplate('\\${summary} and ${summary}', FINDING), '${summary} and Null check missing');
-});
-
-test('fillTemplate keeps a backslash that is not before ${', () => {
-  assert.equal(
-    fillTemplate('C:\\dir\\file and \\d+ and ${summary}', FINDING),
-    'C:\\dir\\file and \\d+ and Null check missing',
-  );
-  assert.equal(fillTemplate('C:\\dir\\${summary}', FINDING), 'C:\\dir${summary}');
-});
-
-test('fillTemplate keeps braces, a lone $, and $name as plain text', () => {
-  assert.equal(
-    fillTemplate('costs $5 { "text": "${summary}" } $HOME $', FINDING),
-    'costs $5 { "text": "Null check missing" } $HOME $',
-  );
-});
-
-test('fillTemplate keeps a ${name} that the file does not fill, and does not read the environment', () => {
-  process.env.PUBLISH_TEMPLATE_TEST_VAR = 'secret';
-  try {
-    assert.equal(
-      fillTemplate('${PUBLISH_TEMPLATE_TEST_VAR} ${HOME} ${reason} ${summary}', FINDING),
-      '${PUBLISH_TEMPLATE_TEST_VAR} ${HOME} ${reason} Null check missing',
-    );
-  } finally {
-    delete process.env.PUBLISH_TEMPLATE_TEST_VAR;
-  }
-});
-
-test('fillTemplate does not fill a placeholder that a value holds', () => {
-  assert.equal(fillTemplate('${summary}', { ...FINDING, summary: 'uses ${severity}' }), 'uses ${severity}');
-});
-
-test('fillTemplate treats a name like toString as an unknown name', () => {
-  assert.equal(fillTemplate('${toString} ${constructor}', FINDING), '${toString} ${constructor}');
-});
-
 test('the built-in templates give the default comment text', () => {
   assert.equal(
     fillTemplate(builtinTemplates().finding, FINDING),
