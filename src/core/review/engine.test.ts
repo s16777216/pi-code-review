@@ -369,7 +369,7 @@ test('AgentReviewEngine removes every relatesTo when the discussions cannot be r
   assert.equal(warnings[0]!.reason, 'discussions_unavailable');
 });
 
-test('AgentReviewEngine does not read discussions when no finding has relatesTo', async () => {
+test('AgentReviewEngine reads the discussions only once when no finding has relatesTo', async () => {
   const faux = fauxProvider();
   logicOnly(faux, [submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'x' }])]);
   let reads = 0;
@@ -382,7 +382,7 @@ test('AgentReviewEngine does not read discussions when no finding has relatesTo'
 
   await engine.review(context);
 
-  assert.equal(reads, 0);
+  assert.equal(reads, 1);
 });
 
 test('AgentReviewEngine anchors each finding on its file and the trimmed text of its line', async () => {

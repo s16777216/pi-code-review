@@ -34,6 +34,32 @@ function singletonGroups(context: unknown) {
   });
 }
 
+/** True when the call is a judge run of the discussion judgment step. */
+export function isJudgeCall(context: unknown): boolean {
+  return JSON.stringify(context).includes('submit_judgments');
+}
+
+/** A `submit_judgments` call that answers "uncertain" for every discussion, so
+ * a test that does not care about the judgment step resolves nothing. It reads
+ * the numbers from the last user message. */
+export function uncertainAll(context: unknown) {
+  const text = lastUserText(context);
+  const numbers = [...new Set([...text.matchAll(/"number": (d+)/g)].map((match) => Number(match[1])))];
+  const judgments = numbers.map((number) => ({
+    number,
+    judgment: 'uncertain',
+    reason: 'The code does not decide it.',
+  }));
+  return fauxAssistantMessage([fauxToolCall('submit_judgments', { judgments } as never)], { stopReason: 'toolUse' });
+}
+
+function lastUserText(context: unknown): string {
+  const messages = (context as { messages?: { role: string; content: unknown }[] }).messages ?? [];
+  const content = [...messages].reverse().find((message) => message.role === 'user')?.content;
+  if (typeof content === 'string') return content;
+  return Array.isArray(content) ? content.map((part: { text?: string }) => part.text ?? '').join(' ') : '';
+}
+
 /** True when the call is a verifier run of the verification step. */
 export function isVerifyCall(context: unknown): boolean {
   return JSON.stringify(context).includes('submit_verdicts');
@@ -76,6 +102,7 @@ function emptyReview() {
 export function logicOnly(faux: FauxProviderHandle, steps: FauxResponseStep[]): void {
   const queue = [...steps];
   const dispatch: FauxResponseFactory = (context, options, state, model) => {
+    if (isJudgeCall(context)) return uncertainAll(context);
     if (isDedupCall(context)) return singletonGroups(context);
     if (isVerifyCall(context)) return confirmAll(context);
     if (focusOfCall(context) > 0) return emptyReview();
@@ -88,19 +115,29 @@ export function logicOnly(faux: FauxProviderHandle, steps: FauxResponseStep[]): 
 
 /** Sets one script for each review focus. A script is the list of responses
  * for the calls of that focus, in order. A focus with no script reports
- * nothing. `dedup` answers the deduplication step, if the test reaches it. */
+ * nothing. `dedup` answers the deduplication step, if the test reaches it,
+ * `verify` the verification step, and `judge` the discussion judgment step
+ * (with no script, every discussion is "uncertain"). */
 export function perFocus(
   faux: FauxProviderHandle,
   scripts: { [focus: number]: FauxResponseStep[] },
   dedup?: FauxResponseStep[],
   verify?: FauxResponseStep[],
+  judge?: FauxResponseStep[],
 ): void {
   const queues = new Map<number, FauxResponseStep[]>(
     REVIEW_FOCUSES.map((_, index) => [index, [...(scripts[index] ?? [])]]),
   );
   const dedupQueue = [...(dedup ?? [])];
   const verifyQueue = verify === undefined ? undefined : [...verify];
+  const judgeQueue = judge === undefined ? undefined : [...judge];
   const dispatch: FauxResponseFactory = (context, options, state, model) => {
+    if (isJudgeCall(context)) {
+      if (judgeQueue === undefined) return uncertainAll(context);
+      const next = judgeQueue.shift();
+      if (next === undefined) throw new Error('The test script has no response for the judgment step.');
+      return typeof next === 'function' ? next(context, options, state, model) : next;
+    }
     if (isVerifyCall(context)) {
       const next = verifyQueue?.shift();
       if (verifyQueue === undefined) return confirmAll(context);

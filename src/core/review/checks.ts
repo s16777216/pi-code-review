@@ -27,13 +27,17 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
  * `relatesTo`, the diff line check, the anchor, and the fixed declarations.
  * `betweenSteps` is an optional step on the checked findings, before the check
  * on the fixed declarations: the deduplication step runs there
- * (`add-multi-agent-review` design, Decision 4). */
+ * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
+ * optional step after it: it gets the remaining findings and the IDs already
+ * declared. Its declarations go after `output.resolved`, and the first
+ * declaration of an ID wins (`judge-open-discussions` design, Decision 1). */
 export async function runChecks(
   output: ParsedReviewOutput,
   context: ReviewContext,
   changes: ChangeSet,
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
+  judgeDiscussions?: (findings: Finding[], declaredIds: ReadonlySet<string>) => Promise<ResolvedDiscussion[]>,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
@@ -54,7 +58,22 @@ export async function runChecks(
       return { ...finding, anchor: computeAnchor(finding.file, lineText) };
     });
   const findings = await betweenSteps(checked);
-  const resolved = await checkResolved(output.resolved, findings, context, changes, logger);
+  if (judgeDiscussions === undefined) {
+    return { findings, resolved: await checkResolved(output.resolved, findings, context, changes, logger) };
+  }
+  const declaredIds = new Set(output.resolved.map((declaration) => declaration.discussionId));
+  const judged = await judgeDiscussions(findings, declaredIds);
+  // The focus agents come first, so their declaration of an ID wins.
+  const seen = new Set<string>();
+  const declarations: ResolvedDiscussion[] = [];
+  const judgedOnly = new Set<string>();
+  for (const declaration of [...output.resolved, ...judged]) {
+    if (seen.has(declaration.discussionId)) continue;
+    seen.add(declaration.discussionId);
+    declarations.push(declaration);
+    if (!declaredIds.has(declaration.discussionId)) judgedOnly.add(declaration.discussionId);
+  }
+  const resolved = await checkResolved(declarations, findings, context, changes, logger, judgedOnly);
   return { findings, resolved };
 }
 
@@ -108,6 +127,7 @@ async function checkResolved(
   context: ReviewContext,
   changes: ChangeSet,
   logger: Logger,
+  judgedIds: ReadonlySet<string> = new Set(),
 ): Promise<ResolvedDiscussion[]> {
   if (declarations.length === 0) return [];
 
@@ -148,7 +168,14 @@ async function checkResolved(
     if (rejection === null) {
       accepted.push(declaration);
     } else {
-      logger.warn({ discussionId: declaration.discussionId, reason: rejection }, 'did not accept a fixed declaration');
+      logger.warn(
+        {
+          discussionId: declaration.discussionId,
+          reason: rejection,
+          ...(judgedIds.has(declaration.discussionId) ? { source: 'discussion_judgment' } : {}),
+        },
+        'did not accept a fixed declaration',
+      );
     }
   }
   return accepted;
