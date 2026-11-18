@@ -3,11 +3,11 @@ import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../errorMessage.ts';
-import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
+import type { Finding, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
-import { listUnreviewedFiles, runChecks } from './checks.ts';
+import { listUnreviewedFiles, runChecks, type JudgedDeclaration } from './checks.ts';
 import {
   buildDedupPrompt,
   createSubmitGroupsTool,
@@ -17,6 +17,15 @@ import {
 } from './dedup.ts';
 import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { REVIEW_FOCUSES, type ReviewFocus } from './focus.ts';
+import {
+  buildJudgePrompt,
+  buildJudgeSystemPrompt,
+  createSubmitJudgmentsTool,
+  groupDiscussionsByFile,
+  selectDiscussions,
+  type DiscussionGroup,
+  type DiscussionJudgment,
+} from './judge.ts';
 import { promptTemplates } from './prompt.ts';
 import { Batch, WholeChange, type RunScope } from './scope.ts';
 import {
@@ -43,9 +52,7 @@ For each problem, first check whether the change's own diff introduces it, or wh
 - "medium": a real bug, but limited to edge cases or of modest impact.
 - "low": a minor issue worth a comment but not worth blocking on (for example, style or naming).
 
-You can also declare that an existing discussion is fixed. Declare it only for a discussion with "fromThisTool": true that is not resolved, only after you read the current code and confirmed that the problem is gone, and give a one-sentence reason. Never declare a discussion that a person started. Do not declare a discussion fixed and also link a finding to it.
-
-When you are done, call the submit_review tool once with two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Report in "line" the line that holds the problem. When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it. When the problem is in code that the diff does not change, report the line of that code that holds the problem. Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem. Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with empty "findings" and "resolved" arrays when you have nothing to report.`;
+When you are done, call the submit_review tool once with one field: "findings" (an array of findings). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Report in "line" the line that holds the problem. When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it. When the problem is in code that the diff does not change, report the line of that code that holds the problem. Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem. Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with an empty "findings" array when you have nothing to report.`;
 
 /** At most this many agent runs are active at the same time
  * (`review-large-changes-in-batches` design, Decision 7). */
@@ -175,27 +182,24 @@ export class AgentReviewEngine implements ReviewEngine {
 
     const findings: Finding[] = [];
     const perFocus = new Map<string, number>(REVIEW_FOCUSES.map((focus) => [focus.name, 0]));
-    const resolvedById = new Map<string, ResolvedDiscussion>();
     outputs.forEach((output, i) => {
       const run = runs[i]!;
       const kept = run.scope.filterFindings(output.findings, changes, logger);
       findings.push(...kept);
       perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
-      for (const declaration of output.resolved) {
-        if (!resolvedById.has(declaration.discussionId)) resolvedById.set(declaration.discussionId, declaration);
-      }
     });
     for (const [focus, count] of perFocus) {
       logger.info({ focus, findings: count }, `Review focus ${focus}: ${count} finding(s).`);
     }
 
     const checked = await runChecks(
-      { findings, resolved: [...resolvedById.values()] },
+      { findings },
       context,
       changes,
       logger,
       async (checkedFindings) =>
         this.verify(await this.deduplicate(checkedFindings, logger, warnings), context, changes, logger, warnings),
+      (remaining) => this.judgeDiscussions(remaining, context, changes, logger),
     );
     return { ...checked, unreviewedFiles, warnings };
   }
@@ -424,7 +428,7 @@ export class AgentReviewEngine implements ReviewEngine {
     logger: Logger,
     warnings: ReviewWarning[],
   ): Promise<AppliedVerdict[] | null> {
-    const { model, instructions } = this.options;
+    const { instructions } = this.options;
     const file = changes.file(group.file);
     if (file === undefined) {
       logger.warn({ file: group.file }, 'did not verify the findings of a file: it is not in the change');
@@ -441,22 +445,14 @@ export class AgentReviewEngine implements ReviewEngine {
         },
       });
 
-    // The first request must fit in half of the context window, as for a batch.
-    if (model.contextWindow > 0) {
-      const probe = createAgent(() => {}, model);
-      const firstRequest: Message[] = [
-        ...probe.state.messages,
-        { role: 'user', content: prompt, timestamp: Date.now() },
-      ];
-      const tokens = estimateContextTokens(firstRequest).tokens;
-      if (tokens > Math.floor(model.contextWindow / 2)) {
-        logger.warn(
-          { file: group.file, tokens },
-          'did not verify the findings of a file: the first request is larger than half of the context window',
-        );
-        warnings.push({ code: 'verification_skipped', file: group.file });
-        return null;
-      }
+    const tokens = this.oversizedFirstRequest(createAgent, prompt);
+    if (tokens !== null) {
+      logger.warn(
+        { file: group.file, tokens },
+        'did not verify the findings of a file: the first request is larger than half of the context window',
+      );
+      warnings.push({ code: 'verification_skipped', file: group.file });
+      return null;
     }
 
     const spec: RunSpec<FindingVerdict[]> = {
@@ -472,6 +468,126 @@ export class AgentReviewEngine implements ReviewEngine {
       if (!(error instanceof ReviewFailureError)) throw error;
       logger.warn({ file: group.file, error: error.message }, 'did not verify the findings of a file: the run failed');
       warnings.push({ code: 'verification_failed', file: group.file });
+      return null;
+    }
+  }
+
+  /** The estimated tokens of the first request of a step run when it is larger
+   * than half of the context window, otherwise `null`. A model with no known
+   * window is not checked. The verification and the judgment steps share it. */
+  private oversizedFirstRequest<T>(
+    createAgent: (onSubmit: (value: T) => void, model: Model<Api>) => Agent,
+    prompt: string,
+  ): number | null {
+    const { model } = this.options;
+    if (model.contextWindow <= 0) return null;
+    const probe = createAgent(() => {}, model);
+    const firstRequest: Message[] = [...probe.state.messages, { role: 'user', content: prompt, timestamp: Date.now() }];
+    const tokens = estimateContextTokens(firstRequest).tokens;
+    return tokens > Math.floor(model.contextWindow / 2) ? tokens : null;
+  }
+
+  /** The discussion judgment step (`judge-open-discussions` design). It judges
+   * the open discussions of this tool that nothing else covers, one run for each
+   * file, and returns a declaration for each `fixed` judgment. The checks on
+   * declarations still apply. A file whose run fails, or whose first request is
+   * too large, gives no declaration and a `warn` line, and no warning is added
+   * to the result. */
+  private async judgeDiscussions(
+    findings: Finding[],
+    context: ReviewContext,
+    changes: ChangeSet,
+    logger: Logger,
+  ): Promise<JudgedDeclaration[]> {
+    const discussions = await context.listDiscussions();
+    if (!Array.isArray(discussions)) return [];
+    const selected = selectDiscussions(discussions, findings);
+    const groups = groupDiscussionsByFile(selected);
+    if (groups.length === 0) return [];
+
+    const judged: (DiscussionJudgment[] | null)[] = groups.map(() => null);
+    await this.runPool(groups.length, async (i) => {
+      judged[i] = await this.judgeFile(groups[i]!, context, changes, logger);
+    });
+
+    const resolved: JudgedDeclaration[] = [];
+    const counts = { fixed: 0, not_fixed: 0, uncertain: 0 };
+    groups.forEach((group, i) => {
+      const items = [...(judged[i] ?? [])].sort((a, b) => a.number - b.number);
+      for (const item of items) {
+        const discussion = group.discussions[item.number - 1]!;
+        counts[item.judgment] += 1;
+        logger.debug(
+          { file: group.file, line: discussion.line, judgment: item.judgment, reason: item.reason },
+          'discussion judgment',
+        );
+        if (item.judgment !== 'fixed') continue;
+        logger.info(
+          { file: group.file, line: discussion.line, discussionId: discussion.id, reason: item.reason },
+          'discussion judgment found a discussion fixed',
+        );
+        resolved.push({
+          discussionId: discussion.id,
+          reason: item.reason,
+          ...(item.evidence === undefined ? {} : { evidence: item.evidence }),
+        });
+      }
+    });
+    logger.info(
+      { selected: selected.length, fixed: counts.fixed, notFixed: counts.not_fixed, uncertain: counts.uncertain },
+      `Discussion judgment step: ${selected.length} discussion(s) selected, ${counts.fixed} fixed, ${counts.not_fixed} not fixed, ${counts.uncertain} uncertain.`,
+    );
+    return resolved;
+  }
+
+  /** One judge run for one file. Returns `null` when the file gives no
+   * judgment. */
+  private async judgeFile(
+    group: DiscussionGroup,
+    context: ReviewContext,
+    changes: ChangeSet,
+    logger: Logger,
+  ): Promise<DiscussionJudgment[] | null> {
+    const { instructions } = this.options;
+    // A deleted file has no new path, so look it up by the old path.
+    const changed = changes.file(group.file) ?? changes.files.find((f) => f.deleted && f.oldPath === group.file);
+    const prompt = buildJudgePrompt(context, group.file, changed, group.discussions);
+    const createAgent = (onSubmit: (judgments: DiscussionJudgment[]) => void, runModel: Model<Api>) =>
+      new Agent({
+        streamFn: this.streamFn(),
+        initialState: {
+          systemPrompt: buildJudgeSystemPrompt(instructions),
+          model: runModel,
+          tools: [
+            createGetFileContentTool(context),
+            createSubmitJudgmentsTool(group.discussions.length, onSubmit, logger),
+          ],
+        },
+      });
+
+    const tokens = this.oversizedFirstRequest(createAgent, prompt);
+    if (tokens !== null) {
+      logger.warn(
+        { file: group.file, tokens },
+        'did not judge the discussions of a file: the first request is larger than half of the context window',
+      );
+      return null;
+    }
+
+    const spec: RunSpec<DiscussionJudgment[]> = {
+      createAgent,
+      prompt,
+      toolName: 'submit_judgments',
+      logFields: { step: 'discussion_judgment', file: group.file },
+    };
+    try {
+      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
+    } catch (error) {
+      if (!(error instanceof ReviewFailureError)) throw error;
+      logger.warn(
+        { file: group.file, error: error.message },
+        'did not judge the discussions of a file: the run failed',
+      );
       return null;
     }
   }

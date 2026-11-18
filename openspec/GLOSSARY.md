@@ -13,3 +13,8 @@
 - **verification step** — 去重後,由獨立 verifier 逐檔複核 finding、判決並重評嚴重度的步驟。Aliases: 驗證階段、驗證。
 - **verifier** — 執行驗證步驟的 agent,每次處理一個檔案的 findings。Aliases: 驗證 agent。
 - **verdict** — verifier 對一條 finding 的判決:`confirmed`、`rejected`、`uncertain`。Aliases: 判決。
+- **evidence line** — judge 對一則 `fixed` 判斷所引用的一行現行檔案內容,用來證明修正存在。程式只驗證該行是檔案中的整行(比對前兩邊去除前後空白、合併連續空白、移除行尾的 `;` 或 `,`)、為單行、至少 8 字元,且至少有一個相符行的錨點與討論的錨點不同。Aliases: 證據行。
+- **review agent** — 三個各有一個 review focus、並行審查變更並找出新問題的 agent。Aliases: 審查 agent。
+- **discussion judgment step** — 三個 review focus 的輸出合併、驗證步驟之後,由獨立 judge 逐檔判斷本工具開的未解決討論是否已修好的步驟。Aliases: 討論判斷步驟、討論判斷。
+- **judge** — 執行討論判斷步驟的 agent,每次處理一個檔案的未解決討論。Aliases: 判斷 agent。
+- **judgment** — judge 對一則討論的判斷:`fixed`、`not_fixed`、`uncertain`。只有 `fixed` 會轉成已修正宣告。Aliases: 判斷結果。

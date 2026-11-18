@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Finding, ReviewContext, ReviewDiscussion } from '../types.ts';
-import { computeAnchor } from './anchor.ts';
 import {
   AgentReviewEngine,
   buildSystemPrompt,
@@ -232,34 +231,6 @@ test('the merge lists the findings of the review focuses in their fixed order', 
     findings.map((f) => f.summary),
     ['Logic.', 'Security.'],
   );
-});
-
-test('two review focuses that declare the same discussion fixed give one declaration, from the first focus', async () => {
-  const faux = fauxProvider();
-  const discussion: ReviewDiscussion = {
-    id: 'd1',
-    file: 'a.ts',
-    line: 1,
-    positionCommit: 'old',
-    resolved: false,
-    fromThisTool: true,
-    anchor: computeAnchor('a.ts', 'for (;;)'),
-    notes: [{ author: 'bot', body: 'Old.' }],
-  };
-  perFocus(faux, {
-    [SECURITY]: [submitReview([], [{ discussionId: 'd1', reason: 'From security.' }])],
-    [LOGIC]: [submitReview([], [{ discussionId: 'd1', reason: 'From logic.' }])],
-  });
-  const ctx = context({
-    listDiscussions: async () => [discussion],
-    async getFileContent() {
-      return 'fixed();\n';
-    },
-  });
-
-  const { resolved } = await engineFor(faux).review(ctx);
-
-  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'From logic.' }]);
 });
 
 test('each review focus writes one info line with the number of its findings', async () => {

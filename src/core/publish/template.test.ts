@@ -33,7 +33,7 @@ async function withDir(files: Record<string, string | Buffer>, run: (dir: string
 test('the built-in templates give the default comment text', () => {
   assert.equal(
     fillTemplate(builtinTemplates().finding, FINDING),
-    '**Severity**: high  \n**Reason**: Null check missing\n---',
+    '**Severity**: high\n  \n**Reason**: Null check missing\n\n---',
   );
   assert.equal(
     fillTemplate(builtinTemplates().resolved, { reason: 'The check was added' }),

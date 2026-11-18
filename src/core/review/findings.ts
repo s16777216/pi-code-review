@@ -72,5 +72,4 @@ export function validateResolvedDiscussion(item: unknown, index: number): Resolv
 /** What the agent's `submit_review` call parses into, before the engine's checks. */
 export interface ParsedReviewOutput {
   findings: Finding[];
-  resolved: ResolvedDiscussion[];
 }

@@ -27,13 +27,22 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
  * `relatesTo`, the diff line check, the anchor, and the fixed declarations.
  * `betweenSteps` is an optional step on the checked findings, before the check
  * on the fixed declarations: the deduplication step runs there
- * (`add-multi-agent-review` design, Decision 4). */
+ * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
+ * optional step after it: it gets the remaining findings and is the only
+ * source of fixed declarations (`remove-agent-resolve-declaration` design,
+ * Decision 3). */
+/** A declaration from the discussion judgment step. `evidence` is the line of
+ * the current file that the judge gave for a `fixed` judgment
+ * (`judge-evidence-line` design, Decision 5). It never reaches the result. */
+export type JudgedDeclaration = ResolvedDiscussion & { evidence?: string };
+
 export async function runChecks(
   output: ParsedReviewOutput,
   context: ReviewContext,
   changes: ChangeSet,
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
+  judgeDiscussions?: (findings: Finding[]) => Promise<JudgedDeclaration[]>,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
@@ -54,7 +63,18 @@ export async function runChecks(
       return { ...finding, anchor: computeAnchor(finding.file, lineText) };
     });
   const findings = await betweenSteps(checked);
-  const resolved = await checkResolved(output.resolved, findings, context, changes, logger);
+  if (judgeDiscussions === undefined) return { findings, resolved: [] };
+  const judged = await judgeDiscussions(findings);
+  // The evidence line of each declaration. A key with no value is a
+  // declaration with no evidence line. The first declaration of an ID wins.
+  const evidenceById = new Map<string, string | undefined>();
+  const declarations: ResolvedDiscussion[] = [];
+  for (const { evidence, ...declaration } of judged) {
+    if (evidenceById.has(declaration.discussionId)) continue;
+    evidenceById.set(declaration.discussionId, evidence);
+    declarations.push(declaration);
+  }
+  const resolved = await checkResolved(declarations, findings, context, changes, logger, evidenceById);
   return { findings, resolved };
 }
 
@@ -94,7 +114,38 @@ type ResolveRejection =
   | 'no_anchor'
   | 'linked_by_finding'
   | 'file_unreadable'
-  | 'anchor_still_present';
+  | 'anchor_still_present'
+  | 'evidence_not_valid';
+
+/** The shortest evidence line that counts, in characters of the normalized text. A
+ * line such as `}` is in almost every file and proves nothing. */
+const MIN_EVIDENCE_LENGTH = 8;
+
+/** Why an evidence line is not valid. The first failing rule is the answer. The
+ * `warn` line of a drop has it, so that a log shows which rule drops most. */
+type EvidenceProblem = 'multiple_lines' | 'too_short' | 'is_anchored_line' | 'not_in_file';
+
+/** The form in which an evidence line and a file line are compared: trimmed,
+ * one space for each run of white space, and no `;` or `,` at the end. A model
+ * often drops the last `;` or `,` of a line (`judge-evidence-line` design,
+ * Decision 3). */
+function normalizeLine(text: string): string {
+  return text
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[;,]+$/, '');
+}
+
+function evidenceProblem(file: string, evidence: string, anchor: string, lines: string[]): EvidenceProblem | null {
+  if (evidence.includes('\n')) return 'multiple_lines';
+  const wanted = normalizeLine(evidence);
+  if (wanted.length < MIN_EVIDENCE_LENGTH) return 'too_short';
+  const matches = lines.filter((line) => normalizeLine(line) === wanted);
+  if (matches.length === 0) return 'not_in_file';
+  // A match that is only the anchored line is the problem and not the fix.
+  if (matches.every((line) => computeAnchor(file, line) === anchor)) return 'is_anchored_line';
+  return null;
+}
 
 /** Accepts a fixed declaration only when every check passes
  * (`resolve-fixed-discussions` design, Decision 2). The last check is on the
@@ -108,6 +159,7 @@ async function checkResolved(
   context: ReviewContext,
   changes: ChangeSet,
   logger: Logger,
+  judged: ReadonlyMap<string, string | undefined>,
 ): Promise<ResolvedDiscussion[]> {
   if (declarations.length === 0) return [];
 
@@ -124,6 +176,7 @@ async function checkResolved(
     return content;
   };
 
+  const evidenceProblems = new Map<string, EvidenceProblem>();
   const check = async (declaration: ResolvedDiscussion): Promise<ResolveRejection | null> => {
     const discussion = byId.get(declaration.discussionId);
     if (!discussion) return 'discussion_not_found';
@@ -138,7 +191,19 @@ async function checkResolved(
     const content = await readFile(file);
     if (typeof content !== 'string') return 'file_unreadable';
     const anchor = discussion.anchor;
-    if (content.split('\n').some((line) => computeAnchor(file, line) === anchor)) return 'anchor_still_present';
+    const lines = content.split('\n');
+    if (!lines.some((line) => computeAnchor(file, line) === anchor)) return null;
+
+    // The anchored line is still there. Only a judge declaration with a valid
+    // evidence line passes (`judge-evidence-line` design, Decisions 2 and 3).
+    const evidence = judged.get(discussion.id)?.trim();
+    if (evidence === undefined || evidence === '') return 'anchor_still_present';
+    const problem = evidenceProblem(file, evidence, anchor, lines);
+    if (problem !== null) {
+      evidenceProblems.set(discussion.id, problem);
+      return 'evidence_not_valid';
+    }
+    logger.info({ discussionId: discussion.id, file, evidence }, 'accepted a fixed declaration by its evidence line');
     return null;
   };
 
@@ -148,7 +213,20 @@ async function checkResolved(
     if (rejection === null) {
       accepted.push(declaration);
     } else {
-      logger.warn({ discussionId: declaration.discussionId, reason: rejection }, 'did not accept a fixed declaration');
+      logger.warn(
+        {
+          discussionId: declaration.discussionId,
+          reason: rejection,
+          ...(rejection === 'evidence_not_valid'
+            ? {
+                evidence: judged.get(declaration.discussionId),
+                problem: evidenceProblems.get(declaration.discussionId),
+              }
+            : {}),
+          ...(judged.has(declaration.discussionId) ? { source: 'discussion_judgment' } : {}),
+        },
+        'did not accept a fixed declaration',
+      );
     }
   }
   return accepted;

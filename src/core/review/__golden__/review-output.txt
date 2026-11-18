@@ -89,18 +89,10 @@ WARNS [
   "file": "yarn.lock",
   "line": 1,
   "reason": "diff_omitted"
- },
- {
-  "discussionId": "own-open",
-  "reason": "linked_by_finding"
- },
- {
-  "discussionId": "missing",
-  "reason": "discussion_not_found"
  }
 ]
 INFOS [{"focus":"logic correctness","findings":10},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":4012},{"batch":null,"promptChars":3783,"systemChars":4005},{"batch":null,"promptChars":3783,"systemChars":3959},{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3528},{"batch":null,"promptChars":3783,"systemChars":3521},{"batch":null,"promptChars":3783,"systemChars":3475},{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206}]
 DEBUG OTHER KEYS ["contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict"]
 --- logged prompt batch=- ---
 # Change: Characterization change
@@ -835,18 +827,10 @@ WARNS [
   "file": "yarn.lock",
   "line": 1,
   "reason": "diff_omitted"
- },
- {
-  "discussionId": "own-open",
-  "reason": "linked_by_finding"
- },
- {
-  "discussionId": "missing",
-  "reason": "discussion_not_found"
  }
 ]
 INFOS [{"batches":4},{"focus":"logic correctness","findings":19},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206},{"batch":1,"promptChars":756,"systemChars":4316},{"batch":1,"promptChars":756,"systemChars":4309},{"batch":1,"promptChars":756,"systemChars":4263},{"batch":2,"promptChars":1562,"systemChars":4316},{"batch":2,"promptChars":1562,"systemChars":4309},{"batch":2,"promptChars":1562,"systemChars":4263},{"batch":3,"promptChars":1564,"systemChars":4316},{"batch":3,"promptChars":1564,"systemChars":4309},{"batch":3,"promptChars":1564,"systemChars":4263},{"batch":4,"promptChars":1759,"systemChars":4316},{"batch":4,"promptChars":1759,"systemChars":4309},{"batch":4,"promptChars":1759,"systemChars":4263}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206},{"batch":1,"promptChars":756,"systemChars":3832},{"batch":1,"promptChars":756,"systemChars":3825},{"batch":1,"promptChars":756,"systemChars":3779},{"batch":2,"promptChars":1562,"systemChars":3832},{"batch":2,"promptChars":1562,"systemChars":3825},{"batch":2,"promptChars":1562,"systemChars":3779},{"batch":3,"promptChars":1564,"systemChars":3832},{"batch":3,"promptChars":1564,"systemChars":3825},{"batch":3,"promptChars":1564,"systemChars":3779},{"batch":4,"promptChars":1759,"systemChars":3832},{"batch":4,"promptChars":1759,"systemChars":3825},{"batch":4,"promptChars":1759,"systemChars":3779}]
 DEBUG OTHER KEYS ["batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict"]
 --- logged prompt batch=- ---
 Group the findings below.
@@ -1512,7 +1496,7 @@ This change is reviewed in 4 parts. This is part 4. Files marked [in this part] 
    3 | +after
 ```
 === SYSTEM PROMPT TAILS ===
-ings" and "resolved" arrays when you have nothing to report.
+h an empty "findings" array when you have nothing to report.
 into 4 parts, and you review part 2. The prompt lists every changed file, but shows only the diffs of this part. Report only problems on the numbered lines of this part's diffs. When you need code from another part, read it with get_file_content.
 
 Your review focus is security. Look first for injection, a missing check of authentication or authorization, unsafe handling of input and of file paths, secrets in code or in logs, unsafe deserialization, and unsafe use of cryptography. This focus is your main area, not a limit: when you see another genuine bug, report it too. The rule to report only genuine bugs still applies, so this focus does not make style or naming findings valid.
