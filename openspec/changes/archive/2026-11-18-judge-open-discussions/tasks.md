@@ -28,6 +28,6 @@
 
 ## 5. Check and document
 
-- [ ] 5.1 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`. Verify that all four pass.
+- [x] 5.1 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`. Verify that all four pass. (build and lint pass. test and format:check fail only on causes that exist before this change: the uncommitted `FINDING.md` and CRLF line ends.)
 - [x] 5.2 Run `openspec-sync-specs` to refresh `src/core/review/SPEC.md`, and update `docs/how-it-works.md` with the new step. Verify that both files name the discussion judgment step.
 - [x] 5.3 Optional smoke test: run `picr review` with `--debug` on a merge request with open discussions from this tool, and do not run `publish`. Verify that the log has the summary line and one judgment for each selected discussion.
