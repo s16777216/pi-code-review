@@ -7,7 +7,7 @@ import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWa
 import { createGetFileContentTool, createListDiscussionsTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
-import { listUnreviewedFiles, runChecks } from './checks.ts';
+import { listUnreviewedFiles, runChecks, type JudgedDeclaration } from './checks.ts';
 import {
   buildDedupPrompt,
   createSubmitGroupsTool,
@@ -505,7 +505,7 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
-  ): Promise<ResolvedDiscussion[]> {
+  ): Promise<JudgedDeclaration[]> {
     const discussions = await context.listDiscussions();
     if (!Array.isArray(discussions)) return [];
     const selected = selectDiscussions(discussions, findings, declaredIds);
@@ -517,7 +517,7 @@ export class AgentReviewEngine implements ReviewEngine {
       judged[i] = await this.judgeFile(groups[i]!, context, changes, logger);
     });
 
-    const resolved: ResolvedDiscussion[] = [];
+    const resolved: JudgedDeclaration[] = [];
     const counts = { fixed: 0, not_fixed: 0, uncertain: 0 };
     groups.forEach((group, i) => {
       const items = [...(judged[i] ?? [])].sort((a, b) => a.number - b.number);
@@ -533,7 +533,11 @@ export class AgentReviewEngine implements ReviewEngine {
           { file: group.file, line: discussion.line, discussionId: discussion.id, reason: item.reason },
           'discussion judgment found a discussion fixed',
         );
-        resolved.push({ discussionId: discussion.id, reason: item.reason });
+        resolved.push({
+          discussionId: discussion.id,
+          reason: item.reason,
+          ...(item.evidence === undefined ? {} : { evidence: item.evidence }),
+        });
       }
     });
     logger.info(

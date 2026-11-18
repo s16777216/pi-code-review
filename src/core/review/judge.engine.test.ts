@@ -397,3 +397,66 @@ test('only a fixed judgment whose anchor is gone is resolved, and a fixed judgme
     false,
   );
 });
+
+// --- Evidence line (`judge-evidence-line`) ---
+
+const evidenceContent = 'one\nreturn guard(value);\ntwo';
+
+function evidenceContext(discussions: ReviewDiscussion[]) {
+  return contextFor(['a.ts'], discussions, { getFileContent: async () => evidenceContent });
+}
+
+test('a fixed judgment with a valid evidence line resolves a discussion whose anchored line is still present', async () => {
+  const faux = fauxProvider();
+  perFocus(faux, {}, undefined, undefined, [
+    submitJudgments([{ ...judgment(1, 'fixed', 'The guard is new.'), evidence: 'return guard(value);' }]),
+  ]);
+  const { logger, infos } = recordingLogger();
+
+  const result = await engineFor(faux, { logger }).review(evidenceContext([discussion('d1', 'a.ts', 'two')]));
+
+  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The guard is new.' }]);
+  assert.equal(
+    infos.some((fields) => fields.discussionId === 'd1' && fields.evidence === 'return guard(value);'),
+    true,
+  );
+});
+
+test('the findings result has no field for the evidence line', async () => {
+  const faux = fauxProvider();
+  perFocus(faux, {}, undefined, undefined, [
+    submitJudgments([{ ...judgment(1, 'fixed', 'The guard is new.'), evidence: 'return guard(value);' }]),
+  ]);
+
+  const result = await engineFor(faux).review(evidenceContext([discussion('d1', 'a.ts', 'two')]));
+
+  assert.equal(JSON.stringify(result).includes('evidence'), false);
+});
+
+test('four fixed judgments: the anchor gone and a valid evidence line resolve, the others are dropped', async () => {
+  const faux = fauxProvider();
+  perFocus(faux, {}, undefined, undefined, [
+    submitJudgments([
+      judgment(1, 'fixed', 'The line is gone.'),
+      { ...judgment(2, 'fixed', 'The guard is new.'), evidence: 'return guard(value);' },
+      { ...judgment(3, 'fixed', 'Invented.'), evidence: 'return other(value);' },
+      judgment(4, 'fixed', 'No evidence.'),
+    ]),
+  ]);
+  const { logger, warnings } = recordingLogger();
+  const discussions = [
+    discussion('d1', 'a.ts', 'removed line'),
+    discussion('d2', 'a.ts', 'two'),
+    discussion('d3', 'a.ts', 'two'),
+    discussion('d4', 'a.ts', 'two'),
+  ];
+
+  const result = await engineFor(faux, { logger }).review(evidenceContext(discussions));
+
+  assert.deepEqual(
+    result.resolved.map((item) => item.discussionId),
+    ['d1', 'd2'],
+  );
+  assert.equal(warnings.find((fields) => fields.discussionId === 'd3')?.reason, 'evidence_not_valid');
+  assert.equal(warnings.find((fields) => fields.discussionId === 'd4')?.reason, 'anchor_still_present');
+});

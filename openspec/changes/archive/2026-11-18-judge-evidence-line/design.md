@@ -45,10 +45,14 @@ Alternative: replace the anchor check with the evidence check. A model that quot
 
 The code trims the evidence text. It then checks four conditions:
 
-- **Exists.** Some line of the current file has the same text as the evidence line. The code trims both texts, so a carriage return at the end of a line of a CRLF file and a change of the indent do not matter. The code compares whole lines and does not search for a part of a line.
-- **One line.** The trimmed evidence line has no line feed. A quote of two lines is not valid. The code does not pick one line of it, because that would be a new decision about the quote.
-- **Not trivial.** The trimmed text has at least 8 characters. The code counts the string length of the trimmed text. A line such as `}` or `</div>` exists in almost every file and proves nothing.
-- **Not the problem.** `computeAnchor(file, evidence)` is not the anchor of the discussion. Quoting the anchored line would be the problem itself and not the fix.
+The code normalizes the evidence line and each line of the file before it compares them. To normalize, it trims the text, replaces each run of white space by one space, and removes `;` and `,` at the end. So a carriage return in a CRLF file, a change of the indent, a changed space inside the line, and a missing `;` or `,` at the end do not matter. The smoke test of the first version showed that a model often drops the last `;` or `,`.
+
+- **One line.** The evidence line has no line feed. A quote of two lines is not valid. The code does not pick one line of it, because that would be a new decision about the quote.
+- **Not trivial.** The string length of the normalized evidence line is at least 8. A line such as `}` or `</div>` exists in almost every file and proves nothing. Normalizing first makes `};` count as `}`.
+- **Exists.** Some line of the current file has the same normalized text as the evidence line. The code compares whole lines and does not search for a part of a line.
+- **Not the problem.** At least one matching line has another anchor than the discussion. A match that is only the anchored line would be the problem itself and not the fix. The anchored line without its `;` still matches only that line, so it is not valid.
+
+The prompt also tells the judge to copy one whole line with the characters at its end. It tells the judge to choose one line when the code has more than one line. The smoke test showed that a model joins the lines of a long tag or statement.
 
 The code reads the file once for both ways, so the check adds no file read. The checks that come before the anchor check do not change. A discussion with no anchor is dropped with `no_anchor`, and an unreadable file is dropped with `file_unreadable`, with or without an evidence line.
 
@@ -93,4 +97,4 @@ No data migration. To roll back, remove way 2 in `checkResolved`. The `findings.
 ## Open Questions
 
 - Require that the evidence line is new since `positionCommit`. The code would read the old version of the file and check that the line does not exist there. This blocks a judge that quotes old code. It needs one more file read for each discussion. Decide after the logs show how often a quoted line is old code.
-- Compare lines after collapsing inner whitespace, so that a quote with a changed indent passes. Decide after the logs show how often `evidence_not_valid` comes from whitespace.
+- Accept a quote of one physical line of a statement that the source writes on several lines, for example when the model joins them. The code cannot find such a line. Decide after the logs show how often `problem` is `not_in_file` for this reason.

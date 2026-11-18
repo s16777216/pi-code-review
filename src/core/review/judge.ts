@@ -27,7 +27,9 @@ For each discussion, decide a judgment:
 
 The current code decides each judgment. In the "reason", quote the code that shows your judgment.
 
-When you are done, call the submit_judgments tool once with one field, "judgments": an array with exactly one object for each discussion. Each object has exactly these fields: "number" (the discussion's number), "judgment" ("fixed", "not_fixed", or "uncertain"), and "reason" (one sentence).`;
+For a "fixed" judgment, also give an "evidence" line: copy one whole line of the current file that shows the fix, exactly as it appears in the file, with no line number and with the characters at its end, such as ";" or ",". If the code has more than one line, choose one of its lines and do not join them. Choose a line that is not the line of the problem. The line must come from the current file and not from a note. Give no "evidence" for the other judgments.
+
+When you are done, call the submit_judgments tool once with one field, "judgments": an array with exactly one object for each discussion. Each object has these fields: "number" (the discussion's number), "judgment" ("fixed", "not_fixed", or "uncertain"), "reason" (one sentence), and the optional "evidence" (one line of the current file, for "fixed" only).`;
 
 /** The statement before the review instructions in the system prompt of the
  * judge. The review instructions tell the judge what the project accepts, but
@@ -132,7 +134,14 @@ export interface DiscussionJudgment {
   number: number;
   judgment: JudgmentValue;
   reason: string;
+  /** One line of the current file that shows the fix (`judge-evidence-line`
+   * design). Only a `fixed` judgment keeps it. */
+  evidence?: string;
 }
+
+/** A judgment as the model sends it. `evidence` can have any type before the
+ * validation turns it into a string or removes it. */
+type JudgmentInput = Omit<DiscussionJudgment, 'evidence'> & { evidence?: unknown };
 
 const SubmitJudgmentsParams = Type.Object({
   judgments: Type.Array(
@@ -140,6 +149,7 @@ const SubmitJudgmentsParams = Type.Object({
       number: Type.Integer(),
       judgment: Type.Union([Type.Literal('fixed'), Type.Literal('not_fixed'), Type.Literal('uncertain')]),
       reason: Type.String(),
+      evidence: Type.Optional(Type.Union([Type.String(), Type.Null()])),
     }),
   ),
 });
@@ -149,8 +159,10 @@ const JUDGMENT_VALUES: readonly string[] = ['fixed', 'not_fixed', 'uncertain'];
 /** Checks the judgments of the model. Each number from 1 to `count` must have
  * exactly one judgment, no other number may have one, the judgment must have a
  * known value, and the reason must not be empty. Throws `ReviewFailureError`
- * with the first problem. */
-export function validateJudgments(judgments: readonly DiscussionJudgment[], count: number): DiscussionJudgment[] {
+ * with the first problem. The evidence is trimmed. A blank value, a value that
+ * is not a string, and the evidence of a judgment that is not `fixed` are
+ * removed, and none of them is an error. */
+export function validateJudgments(judgments: readonly JudgmentInput[], count: number): DiscussionJudgment[] {
   const seen = new Set<number>();
   for (const item of judgments) {
     if (!Number.isInteger(item.number) || item.number < 1 || item.number > count) {
@@ -173,7 +185,10 @@ export function validateJudgments(judgments: readonly DiscussionJudgment[], coun
   if (missing.length > 0) {
     throw new ReviewFailureError(`These discussions have no judgment: ${missing.join(', ')}.`);
   }
-  return judgments.map((item) => ({ ...item, reason: item.reason.trim() }));
+  return judgments.map(({ evidence, ...item }) => {
+    const line = item.judgment === 'fixed' && typeof evidence === 'string' ? evidence.trim() : '';
+    return { ...item, reason: item.reason.trim(), ...(line === '' ? {} : { evidence: line }) };
+  });
 }
 
 /** The tool of a judge run: the model's only way to give its judgments. A call
@@ -189,7 +204,7 @@ export function createSubmitJudgmentsTool(
     name: 'submit_judgments',
     label: 'Submit judgments',
     description:
-      'Submits one judgment for each discussion: the judgment and a one-sentence reason that quotes the code. Call this once, when you are done judging.',
+      'Submits one judgment for each discussion: the judgment, a one-sentence reason that quotes the code, and for a fixed judgment the evidence line from the current file. Call this once, when you are done judging.',
     parameters: SubmitJudgmentsParams,
     async execute(_toolCallId, params) {
       calls += 1;

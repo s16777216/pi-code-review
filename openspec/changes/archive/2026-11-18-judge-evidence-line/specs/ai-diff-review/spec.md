@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Ask the judge for an evidence line
-The system prompt of the judge MUST tell the judge to give an evidence line for each `fixed` judgment. The evidence line is one line of the current file that shows the fix. The prompt MUST tell the judge to copy the line as it appears in the file, with no line number. The prompt MUST tell the judge to choose a line that is not the line of the problem. The prompt MUST tell the judge to choose a line that is in the current file and not in a note. The `submit_judgments` tool SHALL accept an optional `evidence` in each judgment object, as a string or as `null`. The system SHALL accept a call that has no `evidence`. The system MUST ignore the `evidence` of a judgment that is not `fixed`. The system MUST treat an empty `evidence`, a blank `evidence`, `null`, and a value that is not a string as no evidence.
+The system prompt of the judge MUST tell the judge to give an evidence line for each `fixed` judgment. The evidence line is one line of the current file that shows the fix. The prompt MUST tell the judge to copy the line as it appears in the file, with no line number. The prompt MUST tell the judge to choose a line that is not the line of the problem. The prompt MUST tell the judge to choose a line that is in the current file and not in a note. The prompt MUST tell the judge to copy one whole line, with the characters at its end. It MUST tell the judge to choose one of the lines when the code has more than one line, and not to join them. The `submit_judgments` tool SHALL accept an optional `evidence` in each judgment object, as a string or as `null`. The system SHALL accept a call that has no `evidence`. The system MUST ignore the `evidence` of a judgment that is not `fixed`. The system MUST treat an empty `evidence`, a blank `evidence`, `null`, and a value that is not a string as no evidence.
 
 #### Scenario: The prompt asks for an evidence line
 - **WHEN** the system builds the system prompt of the judge
@@ -28,7 +28,7 @@ The system prompt of the judge MUST tell the judge to give an evidence line for 
 - **THEN** the system accepts the call and ignores the `evidence`
 
 ### Requirement: Accept a judged declaration by its evidence line
-This requirement applies to a declaration that the merge kept from a `fixed` judgment of the judge. It applies only when a line of the current file has the anchor of the discussion. The system SHALL accept such a declaration if its evidence line is valid. An evidence line is valid when all of these are true. After trimming both texts, a whole line of the current file has the same text as the evidence line. The trimmed evidence line has no line feed. The string length of the trimmed evidence line is at least 8. The anchor of the discussion is not equal to the value that `computeAnchor` gives for the file path and the trimmed evidence line. The system SHALL drop such a declaration when its evidence line is not valid. The reason is `evidence_not_valid` when the judgment has an evidence line. The reason is `anchor_still_present` when the judgment has no evidence line. The `warn` log line for `evidence_not_valid` MUST have the field `evidence` with the text. It MUST also have the field `source` with the value `discussion_judgment`. The system SHALL write one `info` log line for each declaration that this requirement accepts. The line has the discussion ID, the file, and the evidence line. The system MUST NOT record the evidence line in the findings file.
+This requirement applies to a declaration that the merge kept from a `fixed` judgment of the judge. It applies only when a line of the current file has the anchor of the discussion. The system SHALL accept such a declaration if its evidence line is valid. To normalize a text, the system trims it, replaces each run of white space by one space, and removes `;` and `,` at its end. An evidence line is valid when all of these are true. The evidence line has no line feed. The string length of the normalized evidence line is at least 8. After normalizing both texts, a whole line of the current file has the same text as the evidence line. At least one such line has another anchor than the discussion. The system SHALL drop such a declaration when its evidence line is not valid. The reason is `evidence_not_valid` when the judgment has an evidence line. The reason is `anchor_still_present` when the judgment has no evidence line. The `warn` log line for `evidence_not_valid` MUST have the field `evidence` with the text. It MUST also have the field `source` with the value `discussion_judgment`. It MUST also have the field `problem` with the first rule that failed, in this order: `multiple_lines`, `too_short`, `is_anchored_line`, or `not_in_file`. The system SHALL write one `info` log line for each declaration that this requirement accepts. The line has the discussion ID, the file, and the evidence line. The system MUST NOT record the evidence line in the findings file.
 
 #### Scenario: A valid evidence line accepts the declaration
 - **WHEN** the judge gives `fixed` for `d1` with an evidence line that has at least 8 characters, is a whole line of the current file, and has another anchor than `d1`, and a line of the file still has the anchor of `d1`
@@ -59,11 +59,23 @@ This requirement applies to a declaration that the merge kept from a `fixed` jud
 - **THEN** the check drops the declaration with the reason `evidence_not_valid`
 
 #### Scenario: The evidence line is the anchored line
-- **WHEN** the evidence line has the same anchor as `d1`, and a line of the file has that anchor
+- **WHEN** the only line of the file that matches the evidence line is the line that has the anchor of `d1`
+- **THEN** the check drops the declaration with the reason `evidence_not_valid`
+
+#### Scenario: The anchored line without its semicolon
+- **WHEN** the evidence line is the anchored line of `d1` with no `;` at its end
 - **THEN** the check drops the declaration with the reason `evidence_not_valid`
 
 #### Scenario: A change of the indent does not matter
 - **WHEN** the evidence line has different leading spaces than the line of the file, and the trimmed texts are the same
+- **THEN** the check returns the declaration
+
+#### Scenario: A missing semicolon or comma at the end does not matter
+- **WHEN** the evidence line has no `;` or `,` at its end, and the line of the file has one
+- **THEN** the check returns the declaration
+
+#### Scenario: Spaces inside the line do not matter
+- **WHEN** the evidence line has two spaces where the line of the file has one space
 - **THEN** the check returns the declaration
 
 #### Scenario: The file has CRLF line ends
