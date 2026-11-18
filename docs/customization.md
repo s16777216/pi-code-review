@@ -63,7 +63,9 @@ The package ships a default for each file (`src/template/FINDING.md` and `src/te
 
 ```text
 **Severity**: ${severity}
+  
 **Reason**: ${summary}
+
 ---
 ```
 
