@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>審查與討論自動 resolve 流程</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1f2328; --muted: #656d76; --line: #c9cdd2;
+    --old-bg: #ffffff; --old-bd: #b8bec6;
+    --new-bg: #eaf5ec; --new-bd: #2e7d4f;
+    --judge-bg: #eef2fb; --judge-bd: #3b5bbd;
+    --guard-bg: #fdf3e3; --guard-bd: #b7791f;
+    --end-bg: #f0f0ee; --end-bd: #8a9099;
+    --warn: #b42318;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --panel: #1b1e23; --text: #e6e8eb; --muted: #9aa1ab; --line: #444b55;
+      --old-bg: #1b1e23; --old-bd: #4a515c;
+      --new-bg: #16301f; --new-bd: #4fae75;
+      --judge-bg: #1a2442; --judge-bd: #6f8cf0;
+      --guard-bg: #3a2c12; --guard-bd: #e0a643;
+      --end-bg: #22262c; --end-bd: #6b727d;
+      --warn: #ff8a80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, "Segoe UI", "Microsoft JhengHei", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 40px 0 12px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 0 0 24px; font-size: 13px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 2px solid; }
+  .l-old::before { background: var(--old-bg); border-color: var(--old-bd); }
+  .l-new::before { background: var(--new-bg); border-color: var(--new-bd); }
+  .l-judge::before { background: var(--judge-bg); border-color: var(--judge-bd); }
+  .l-guard::before { background: var(--guard-bg); border-color: var(--guard-bd); }
+
+  .flow { display: flex; flex-direction: column; align-items: stretch; }
+  .step { border: 2px solid var(--old-bd); background: var(--old-bg); border-radius: 10px; padding: 12px 16px; }
+  .step h3 { margin: 0 0 4px; font-size: 15px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .step h3 .n { font-weight: 700; color: var(--muted); }
+  .step ul { margin: 4px 0 0; padding-left: 20px; }
+  .step li { margin: 2px 0; }
+  .group { border: 2px dashed var(--old-bd); border-radius: 12px; padding: 12px; }
+  .group-title { font-weight: 600; margin: 0 0 10px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .group-title .n { color: var(--muted); font-weight: 700; }
+  .trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  @media (max-width: 640px) { .trio { grid-template-columns: 1fr; } }
+  .focus { font-size: 13px; color: var(--muted); margin: 0 0 4px; }
+  .step.new { background: var(--new-bg); border-color: var(--new-bd); }
+  .step.judge { background: var(--judge-bg); border-color: var(--judge-bd); }
+  .step.guard { background: var(--guard-bg); border-color: var(--guard-bd); }
+  .step.end { background: var(--end-bg); border-color: var(--end-bd); }
+  .tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; color: var(--new-bd); }
+  .tag.same { color: var(--muted); }
+  .arrow { align-self: center; display: flex; flex-direction: column; align-items: center; color: var(--muted); font-size: 12px; min-height: 34px; justify-content: center; }
+  .arrow::before { content: ""; width: 2px; height: 10px; background: var(--line); }
+  .arrow::after { content: ""; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--line); }
+  .arrow span { padding: 1px 0; text-align: center; }
+  .side { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+  .stop { color: var(--warn); }
+
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 14px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: center; }
+  th:first-child, td:first-child { text-align: left; font-weight: 600; }
+  th { background: var(--end-bg); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  .yes { color: var(--new-bd); font-weight: 600; }
+  .no { color: var(--warn); font-weight: 600; }
+  .scroll { overflow-x: auto; }
+  .note { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
+  code { font: 13px ui-monospace, Consolas, monospace; background: var(--end-bg); padding: 1px 5px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>審查與討論自動 resolve 流程</h1>
+  <p class="sub">目前實作：由 judge agent 判斷本工具開的未解決討論是否已修好，程式端再檢查程式碼。</p>
+
+  <div class="legend">
+    <span class="l-old">現有步驟（不變）</span>
+    <span class="l-judge">judge agent</span>
+    <span class="l-guard">程式端把關</span>
+  </div>
+
+  <div class="flow">
+    <div class="step end">
+      <h3>輸入</h3>
+      變更內容（diff）與 GitLab 上現有的討論
+    </div>
+    <div class="arrow"></div>
+
+    <div class="group">
+      <div class="group-title"><span class="n">①</span> 三個 review agent 並行執行（最多 3 個同時） <span class="tag same">現有</span></div>
+      <div class="trio">
+        <div class="step">
+          <h3>review agent</h3>
+          <div class="focus">review focus：邏輯正確性</div>
+          <ul>
+            <li>找新問題，產生 finding</li>
+          </ul>
+        </div>
+        <div class="step">
+          <h3>review agent</h3>
+          <div class="focus">review focus：安全性</div>
+          <ul>
+            <li>找新問題，產生 finding</li>
+          </ul>
+        </div>
+        <div class="step">
+          <h3>review agent</h3>
+          <div class="focus">review focus：資源與並行</div>
+          <ul>
+            <li>找新問題，產生 finding</li>
+          </ul>
+        </div>
+      </div>
+      <div class="side">三者拿到相同的輸入與審查指示；review focus 只是主要偏重，不是限制。review agent 不再宣告舊討論已修好，這由 judge agent 負責。</div>
+    </div>
+    <div class="arrow"><span>合併三個輸出；檢查 relatesTo 與 diff 行；為每個 finding 算錨點</span></div>
+
+    <div class="step">
+      <h3><span class="n">②</span> 去重 <span class="tag same">現有</span></h3>
+      同一問題被多個 agent 重複報告時，只留一個（1 次模型呼叫）
+    </div>
+    <div class="arrow"></div>
+
+    <div class="step">
+      <h3><span class="n">③</span> verifier：第一次 <span class="tag same">現有</span></h3>
+      <ul>
+        <li>逐檔複核 finding：<code>confirmed</code> / <code>rejected</code> / <code>uncertain</code>，並重評嚴重度</li>
+        <li>只有 <code>rejected</code> 會被刪掉</li>
+      </ul>
+    </div>
+    <div class="arrow"><span>驗證後剩下的 finding</span></div>
+
+    <div class="step">
+      <h3><span class="n">④</span> 選出要判斷的討論 <span class="tag same">現有</span></h3>
+      本工具開的、未 resolve、有錨點、沒有剩下的 finding 連結。
+      <div class="side stop">沒選到任何討論 → 不呼叫模型，直接結束這一段</div>
+    </div>
+    <div class="arrow"></div>
+
+    <div class="step judge">
+      <h3><span class="n">⑤</span> judge agent（逐檔一次）</h3>
+      <ul>
+        <li>讀：完整筆記（含人的回覆）＋現行程式碼</li>
+        <li>輸出：<code>fixed</code> / <code>not_fixed</code> / <code>uncertain</code>，附理由；<code>fixed</code> 另附一行證據行</li>
+      </ul>
+      <div class="side stop"><code>not_fixed</code>、<code>uncertain</code> 到此為止，不 resolve</div>
+    </div>
+    <div class="arrow"><span>只有 <code>fixed</code> 繼續</span></div>
+
+    <div class="step guard">
+      <h3><span class="n">⑥</span> 程式端檢查 <span class="tag">放行條件</span></h3>
+      <ul>
+        <li>討論存在、本工具開的、未 resolve、有錨點</li>
+        <li>沒有 finding 連結；檔案可讀（已刪除的檔案可略過讀取）</li>
+        <li><strong>錨點已消失</strong>，或 <strong>證據行有效</strong>：是現行檔案的整行（比對前去除前後空白、合併連續空白、去掉行尾的 <code>;</code> <code>,</code>）、單行、至少 8 字元，且不是被指到的那一行</li>
+      </ul>
+    </div>
+    <div class="arrow"><span>通過 → resolved</span></div>
+
+    <div class="step end">
+      <h3>輸出</h3>
+      <code>findings.json</code>（finding、resolved、warnings）→ <code>publish</code> 發討論，並對 resolved 的討論回覆後呼叫 GitLab resolve
+    </div>
+  </div>
+
+  <h2>各 agent 看到什麼</h2>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>agent</th><th>finding</th><th>第一則筆記</th><th>人的回覆</th><th>judge 結論</th><th>現行程式碼</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>review agent</td><td>自己找</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
+        <tr><td>judge agent</td><td class="no">無</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
+        <tr><td>verifier 第一次</td><td class="yes">看</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>失敗時的處理</h2>
+  <div class="note">
+    <ul style="margin:0;padding-left:20px">
+      <li>⑤ 某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：該檔案不 resolve，只寫 <code>warn</code> log，不讓審查失敗，也不新增 warning 代碼。</li>
+      <li>證據行無效時，程式端丟棄該宣告並寫 <code>warn</code> log（<code>evidence_not_valid</code>，附 <code>problem</code> 欄位）；沒有證據行且錨點還在，原因是 <code>anchor_still_present</code>。</li>
+      <li>證據行只能證明該行存在，不能證明修正有效。尚未實作的想法：讓 verifier 複查 judge 判為 <code>fixed</code> 的討論。</li>
+    </ul>
+  </div>
+</main>
+</body>
+</html>
