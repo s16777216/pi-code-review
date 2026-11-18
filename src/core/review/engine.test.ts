@@ -11,7 +11,7 @@ import { ReviewFailureError } from './findings.ts';
 import { ChangeSet } from './changedFile.ts';
 import { buildWholePrompt } from './prompt.ts';
 import { Batch } from './scope.ts';
-import { logicOnly } from './fauxFocus.ts';
+import { logicOnly, perFocus } from './fauxFocus.ts';
 import { REVIEW_FOCUSES } from './focus.ts';
 
 /** The prompt of a context, with its files parsed as the engine does. */
@@ -432,7 +432,7 @@ function ownDiscussion(overrides: Partial<ReviewDiscussion> = {}): ReviewDiscuss
   };
 }
 
-/** Runs one review whose agent declares `d1` fixed, with the given discussion
+/** Runs one review whose judge says `fixed` for `d1`, with the given discussion
  * and current file content, and returns what the engine accepted. */
 async function reviewWithDeclaration(options: {
   discussion?: ReviewDiscussion;
@@ -441,7 +441,9 @@ async function reviewWithDeclaration(options: {
   deleted?: boolean;
 }): Promise<{ resolved: unknown[]; warnings: Record<string, unknown>[]; reads: number }> {
   const faux = fauxProvider();
-  logicOnly(faux, [submitReview(options.findings ?? [], [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }])]);
+  perFocus(faux, { 0: [submitReview(options.findings ?? [])] }, undefined, undefined, [
+    judgeFixed(['The loop now uses i < n.']),
+  ]);
   let reads = 0;
   const context = smallContext();
   if (options.deleted) {
@@ -459,32 +461,29 @@ async function reviewWithDeclaration(options: {
   return { resolved, warnings, reads };
 }
 
-test('SYSTEM_PROMPT asks for the findings/resolved object and limits fixed declarations', () => {
-  assert.match(SYSTEM_PROMPT, /"findings" \(an array of findings\) and "resolved"/);
-  assert.match(SYSTEM_PROMPT, /"fromThisTool": true/);
-  assert.match(SYSTEM_PROMPT, /Never declare a discussion that a person started/);
+function judgeFixed(reasons: string[]) {
+  const judgments = reasons.map((reason, index) => ({ number: index + 1, judgment: 'fixed', reason }));
+  return fauxAssistantMessage([fauxToolCall('submit_judgments', { judgments } as never)], { stopReason: 'toolUse' });
+}
+
+test('SYSTEM_PROMPT has one field for submit_review and no sentence about declaring a discussion fixed', () => {
+  assert.match(SYSTEM_PROMPT, /one field: "findings" \(an array of findings\)/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /"resolved"/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /declare/i);
 });
 
-test('AgentReviewEngine accepts a fixed declaration when every check passes', async () => {
+test('AgentReviewEngine accepts a fixed judgment when every check passes', async () => {
   const { resolved, warnings } = await reviewWithDeclaration({ discussion: ownDiscussion() });
   assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }]);
   assert.deepEqual(warnings, []);
 });
 
+test('AgentReviewEngine resolves nothing when the judge does not say fixed', async () => {
+  const { resolved } = await reviewWithDeclaration({ discussion: ownDiscussion({ resolved: true }) });
+  assert.deepEqual(resolved, []);
+});
+
 for (const [name, options, reason] of [
-  ['an unknown discussion', {}, 'discussion_not_found'],
-  ["a person's discussion", { discussion: ownDiscussion({ fromThisTool: false }) }, 'not_from_this_tool'],
-  ['a resolved discussion', { discussion: ownDiscussion({ resolved: true }) }, 'already_resolved'],
-  ['a discussion with no anchor', { discussion: ownDiscussion({ anchor: null }) }, 'no_anchor'],
-  ['a general discussion with no file', { discussion: ownDiscussion({ file: null }) }, 'no_anchor'],
-  [
-    'a discussion a finding links to',
-    {
-      discussion: ownDiscussion(),
-      findings: [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Still here.', relatesTo: 'd1' }],
-    },
-    'linked_by_finding',
-  ],
   ['a file that cannot be read', { discussion: ownDiscussion(), fileContent: { error: '404' } }, 'file_unreadable'],
   [
     'a file that still has the anchored line (re-indented)',
@@ -492,30 +491,22 @@ for (const [name, options, reason] of [
     'anchor_still_present',
   ],
 ] as const) {
-  test(`AgentReviewEngine rejects a fixed declaration for ${name}`, async () => {
+  test(`AgentReviewEngine rejects a fixed judgment for ${name}`, async () => {
     const { resolved, warnings } = await reviewWithDeclaration(options as Parameters<typeof reviewWithDeclaration>[0]);
     assert.deepEqual(resolved, []);
-    assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason });
+    assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason, source: 'discussion_judgment' });
   });
 }
 
-test('AgentReviewEngine accepts a fixed declaration on a deleted file without reading it', async () => {
+test('AgentReviewEngine accepts a fixed judgment on a deleted file without reading it', async () => {
   const { resolved, reads } = await reviewWithDeclaration({ discussion: ownDiscussion(), deleted: true });
   assert.equal(resolved.length, 1);
   assert.equal(reads, 0);
 });
 
-test('AgentReviewEngine reads each file at most once for several declarations', async () => {
+test('AgentReviewEngine reads each file at most once for several fixed judgments', async () => {
   const faux = fauxProvider();
-  logicOnly(faux, [
-    submitReview(
-      [],
-      [
-        { discussionId: 'd1', reason: 'Fixed one.' },
-        { discussionId: 'd2', reason: 'Fixed two.' },
-      ],
-    ),
-  ]);
+  perFocus(faux, {}, undefined, undefined, [judgeFixed(['Fixed one.', 'Fixed two.'])]);
   let reads = 0;
   const context = smallContext();
   context.listDiscussions = async () => [
@@ -677,56 +668,6 @@ test('AgentReviewEngine drops a finding outside its batch and logs outside_batch
     ['From part 2.'],
   );
   assert.deepEqual(warnings, [{ file: 'f2.ts', line: 5, batch: 1, reason: 'outside_batch' }]);
-});
-
-function batchDiscussion(id: string): ReviewDiscussion {
-  return {
-    id,
-    file: 'f1.ts',
-    line: 1,
-    positionCommit: 'abc',
-    resolved: false,
-    fromThisTool: true,
-    anchor: computeAnchor('f1.ts', 'code that is gone'),
-    notes: [{ author: 'bot', body: 'old finding' }],
-  };
-}
-
-test('AgentReviewEngine drops a declaration in batch 1 that a finding in batch 2 links to', async () => {
-  const faux = fauxProvider();
-  logicOnly(
-    faux,
-    steps(2, (context) =>
-      partOf(context) === 1
-        ? submitReview([], [{ discussionId: 'd1', reason: 'Fixed.' }])
-        : submitReview([{ file: 'f2.ts', line: 1, severity: 'low', summary: 'Same.', relatesTo: 'd1' }]),
-    ),
-  );
-  const { logger, warnings } = fullLogger();
-  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
-  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', logger, sleep: noSleep });
-
-  const { findings, resolved } = await engine.review(
-    bigContext(2, { listDiscussions: async () => [batchDiscussion('d1')] }),
-  );
-
-  assert.deepEqual(resolved, []);
-  assert.equal(findings[0]!.relatesTo, 'd1');
-  assert.ok(warnings.some((w) => w.discussionId === 'd1' && w.reason === 'linked_by_finding'));
-});
-
-test('AgentReviewEngine keeps the first of two declarations for the same discussion', async () => {
-  const faux = fauxProvider();
-  logicOnly(
-    faux,
-    steps(2, (context) => submitReview([], [{ discussionId: 'd1', reason: `Fixed, says part ${partOf(context)}.` }])),
-  );
-  const model = { ...faux.getModel(), contextWindow: BATCH_WINDOW };
-  const engine = new AgentReviewEngine({ provider: faux.provider, model, apiKey: 'k', sleep: noSleep });
-
-  const { resolved } = await engine.review(bigContext(2, { listDiscussions: async () => [batchDiscussion('d1')] }));
-
-  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'Fixed, says part 1.' }]);
 });
 
 test('AgentReviewEngine runs at most 3 batches at the same time', async () => {

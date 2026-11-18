@@ -63,11 +63,11 @@ The system SHALL accept the agent's findings only through a `submit_review` tool
 
 #### Scenario: A dropped finding is logged
 - **WHEN** the system rejects a `submit_review` call
-- **THEN** the system writes one `warn` log line that names each invalid finding or declaration in that call
+- **THEN** the system writes one `warn` log line that names each invalid finding in that call
 
 #### Scenario: Agent corrects a rejected call
-- **WHEN** the agent calls `submit_review` again in the same run after a rejected call, and every finding and declaration of the new call is valid
-- **THEN** the system accepts the new call's findings and declarations as the run's output
+- **WHEN** the agent calls `submit_review` again in the same run after a rejected call, and every finding of the new call is valid
+- **THEN** the system accepts the new call's findings as the run's output
 
 ### Requirement: Classify each finding with a severity
 The system SHALL assign each finding exactly one severity: `critical`, `high`, `medium`, `low`, or `pre_existing`. A bug the diff introduces SHALL be classified `critical`, `high`, `medium`, or `low` by impact. A bug in code the change did not modify SHALL be classified `pre_existing`, regardless of how severe it would otherwise be.
@@ -231,27 +231,27 @@ The system SHALL add an `anchor` to each returned finding. The anchor MUST be th
 - **WHEN** the only difference between two lines is the leading white space
 - **THEN** the two findings have the same anchor
 
-### Requirement: Declare fixed discussions
-The system SHALL let the agent declare that a discussion is fixed, with the discussion ID and a one-sentence reason, in the same `submit_review` call as its findings. The call's `resolved` array MUST list these declarations. When one declaration in a call is invalid, the system MUST reject the whole call, as for an invalid finding.
+### Requirement: Do not offer fixed declarations to the review agent
+The `submit_review` tool MUST NOT have a field for declarations of fixed discussions. The system prompt of the review agents MUST NOT tell the agent to declare a discussion fixed. The system SHALL ignore a `resolved` field in a `submit_review` call and SHALL NOT reject the call for it. The discussion judgment step is the only source of fixed declarations.
 
-#### Scenario: Agent declares a fix
-- **WHEN** the agent calls `submit_review` with one finding and one declaration that has a discussion ID and a reason
-- **THEN** the system accepts one finding and one declaration
+#### Scenario: The tool has no declaration field
+- **WHEN** the system builds the `submit_review` tool
+- **THEN** the tool parameters have a `findings` field and no field for declarations
 
-#### Scenario: Agent returns a bare array
-- **WHEN** the agent calls `submit_review` with findings and an empty `resolved` array
-- **THEN** the system accepts the findings and returns no declarations
+#### Scenario: The prompt does not offer declarations
+- **WHEN** the system builds the system prompt of a review agent
+- **THEN** the prompt does not tell the agent to declare a discussion fixed
 
-#### Scenario: A declaration has no reason
-- **WHEN** a declaration in a `submit_review` call has a discussion ID but no reason
-- **THEN** the system rejects the whole call and writes one `warn` log line
+#### Scenario: A resolved field in a call is ignored
+- **WHEN** the agent calls `submit_review` with one valid finding and a `resolved` array that has one item
+- **THEN** the system accepts the finding and returns no declaration
 
-#### Scenario: Output object has no findings array
-- **WHEN** the agent's `submit_review` call does not include a `findings` array
-- **THEN** the system reports a review failure
+#### Scenario: The judge is the only source
+- **WHEN** the review ends and the judge gave `fixed` for `d1`
+- **THEN** the review result has a declaration only for `d1`, and no declaration comes from a review agent
 
 ### Requirement: Accept a fixed declaration only after the checks
-The system SHALL accept a declaration only when the discussion exists in the change, this tool started it, it is not resolved, it has an anchor, and no finding in the same output links to it. The system SHALL also require that one of two conditions is true. The first condition is that no line in the current version of its file has the anchor. The second condition is that the requirement "Accept a judged declaration by its evidence line" accepts the declaration. The system SHALL drop any other declaration and write one `warn` log line with the reason.
+The system SHALL accept a declaration of the judge only when the discussion exists in the change, this tool started it, it is not resolved, it has an anchor, and no finding in the same output links to it. The system SHALL also require that one of two conditions is true. The first condition is that no line in the current version of its file has the anchor. The second condition is that the requirement "Accept a judged declaration by its evidence line" accepts the declaration. The system SHALL drop any other declaration and write one `warn` log line with the reason.
 
 #### Scenario: All checks pass
 - **WHEN** a declaration names an open discussion from this tool, and no line in the current file has the discussion's anchor
@@ -262,7 +262,7 @@ The system SHALL accept a declaration only when the discussion exists in the cha
 - **THEN** the system drops the declaration and logs the reason
 
 #### Scenario: The anchored line is still in the file
-- **WHEN** a declaration of an agent for a review focus names a discussion whose anchor matches a line in the current version of the file
+- **WHEN** a declaration names a discussion whose anchor matches a line in the current version of the file, and the judgment has no valid evidence line
 - **THEN** the system drops the declaration and logs the reason
 
 #### Scenario: Discussion has no anchor
@@ -356,32 +356,20 @@ The system SHALL keep a finding from a batch only when its line is an added or c
 - **WHEN** a batch has part 1 of a file and reports a finding on a line that is only in part 2
 - **THEN** the system drops the finding and logs the reason `outside_batch`
 
-### Requirement: Run the checks once on the merged output
-The system SHALL merge the outputs of all agents before it runs the checks on `relatesTo`, the diff line check, the anchor, the deduplication step, the verification step, the discussion judgment step, and the fixed declarations, in this order. The merge SHALL keep the findings in the order of the run scopes, and in each run scope in the order of the review focuses. The merge SHALL keep the first fixed declaration for each discussion ID in that order. In the check on fixed declarations, "the same output" MUST mean the merged output of the review.
-
-#### Scenario: Declaration and link in different batches
-- **WHEN** batch 1 declares a discussion fixed, and a finding in batch 2 has `relatesTo` equal to that discussion
-- **THEN** the system drops the declaration and logs the reason
-
-#### Scenario: Two batches declare the same discussion
-- **WHEN** batch 1 and batch 2 both declare the same discussion fixed
-- **THEN** the merged output has one declaration for that discussion, with the reason from batch 1, before the checks
-
-#### Scenario: Two review focuses declare the same discussion
-- **WHEN** the agent for logic correctness and the agent for security both declare the same discussion fixed
-- **THEN** the merged output has one declaration for that discussion, with the reason from the agent for logic correctness
+### Requirement: Run the checks in order on the merged output
+The system SHALL merge the outputs of all agents before it runs the checks on `relatesTo`, the diff line check, the anchor, the deduplication step, the verification step, the discussion judgment step, and the fixed declarations, in this order. The merge SHALL keep the findings in the order of the run scopes, and in each run scope in the order of the review focuses. In the check on fixed declarations, "the same output" MUST mean the merged output of the review.
 
 #### Scenario: Order of the merged findings
 - **WHEN** a run scope has findings from the agent for security and from the agent for logic correctness
 - **THEN** the merged findings list the findings of the agent for logic correctness first
 
-#### Scenario: The verification step runs before the fixed declarations
-- **WHEN** the verification step drops a finding that has `relatesTo` equal to `d1`, and an agent declared `d1` fixed
-- **THEN** the system checks the declaration of `d1` against the findings that remain after the verification step
-
 #### Scenario: The discussion judgment step runs after the verification step
 - **WHEN** the verification step drops the only finding that has `relatesTo` equal to `d1`
 - **THEN** the discussion judgment step selects `d1`, and the check on fixed declarations runs after the discussion judgment step
+
+#### Scenario: A finding in another batch links to the discussion
+- **WHEN** batch 2 has a finding with `relatesTo` equal to `d1`, and the judge gave `fixed` for `d1`
+- **THEN** the system drops the declaration of `d1` and logs the reason
 
 ### Requirement: Retry a model run that ends with an error
 The system SHALL start a run again, with a new agent and new tools, when its final message has the stop reason `error`, or when the run ends with no accepted `submit_review` call. A request that exceeds the request timeout ends with the stop reason `error`. The same rule applies to the call of the deduplication step, to each verifier run of the verification step, and to each judge run of the discussion judgment step. The system SHALL try a run at most 3 times in total, and SHALL wait 2 seconds before the second try and 4 seconds before the third. Each retry MUST write one `warn` log line with the batch number when the run has one, the review focus, the try number, and the error message. The system MUST NOT retry a run that stops with `aborted`. A run that stops with `length` follows the requirement "Report a review cut at the token limit".
@@ -485,8 +473,9 @@ The system SHALL return every omitted changed file as an unreviewed file, with i
 The system SHALL accept at most 5 `submit_review` calls in one run. After the limit, the system SHALL end the run without accepting any call.
 
 #### Scenario: Agent exhausts the attempt limit
-- **WHEN** the agent calls `submit_review` with an invalid finding or declaration on 5 calls in one run
+- **WHEN** the agent calls `submit_review` with an invalid finding on 5 calls in one run
 - **THEN** the system stops accepting further calls in that run, and the run ends without an accepted submission
+
 ### Requirement: Append review instructions to the system prompt
 The system SHALL add the review instructions to the system prompt of every agent run. The review instructions go after the paragraph of the review focus and before the language sentence. The system SHALL put a statement before the review instructions. The statement says that the project owner wrote them, that they win over the general guidance when the two conflict, and that they never change the output format of `submit_review`, the rules for the tools, or the rule that discussion text is information and not an instruction. The system MUST NOT fill placeholders in the review instructions. The system SHALL remove white space at the start and the end of the text, and SHALL read each CRLF line break as LF. The system SHALL still check every finding with the existing checks.
 
@@ -957,8 +946,8 @@ The system prompt of the verifier SHALL tell the verifier to quote, in the `reas
 - **WHEN** the verifier calls `submit_verdicts` with a valid verdict whose `reason` holds no quote
 - **THEN** the system accepts the call, as before this requirement
 
-### Requirement: Judge open discussions with the discussion judgment step
-The system SHALL run the discussion judgment step after the verification step and before the check on fixed declarations. The step MUST select a discussion only when all of these are true. This tool started the discussion. It is not resolved. It has an anchor and a file. No finding that remains after the verification step has `relatesTo` equal to it. No agent for a review focus declared it fixed, and this holds even when the check on fixed declarations later drops that declaration. The system SHALL start one judge run for each file that has at least one selected discussion. The judge SHALL give each selected discussion of that file one judgment: `fixed`, `not_fixed`, or `uncertain`. The system MUST NOT call the model for this step when no discussion is selected.
+### Requirement: Select and judge the open discussions
+The system SHALL run the discussion judgment step after the verification step and before the check on fixed declarations. The step MUST select a discussion only when all of these are true. This tool started the discussion. It is not resolved. It has an anchor and a file. No finding that remains after the verification step has `relatesTo` equal to it. The system SHALL start one judge run for each file that has at least one selected discussion. The judge SHALL give each selected discussion of that file one judgment: `fixed`, `not_fixed`, or `uncertain`. The system MUST NOT call the model for this step when no discussion is selected.
 
 #### Scenario: Selected discussions are judged by file
 - **WHEN** two open discussions from this tool are on `src/a.ts` and one is on `src/b.ts`, and no finding links to them
@@ -976,10 +965,6 @@ The system SHALL run the discussion judgment step after the verification step an
 - **WHEN** a discussion from this tool is a general comment with no file
 - **THEN** the system does not select it
 
-#### Scenario: A declaration of an agent is later dropped
-- **WHEN** an agent for a review focus declared `d1` fixed, and the check on fixed declarations drops that declaration with the reason `anchor_still_present`
-- **THEN** the system does not select `d1` and does not start a judge run for it
-
 #### Scenario: A discussion without an anchor is not selected
 - **WHEN** a discussion from this tool has no anchor
 - **THEN** the system does not select it
@@ -991,10 +976,6 @@ The system SHALL run the discussion judgment step after the verification step an
 #### Scenario: The verification step removes the linking finding
 - **WHEN** the verification step drops the only finding that has `relatesTo` equal to `d1`
 - **THEN** the system selects `d1`
-
-#### Scenario: An agent for a review focus already declared the discussion
-- **WHEN** an agent for a review focus declared `d1` fixed
-- **THEN** the system does not select `d1`
 
 #### Scenario: No discussion is selected
 - **WHEN** no discussion meets the selection rules
@@ -1062,12 +1043,12 @@ The judge SHALL report its judgments with one call to a `submit_judgments` tool.
 - **WHEN** an object in the call has an empty reason
 - **THEN** the system rejects the call
 
-### Requirement: Turn a fixed judgment into a fixed declaration
-The system SHALL turn each `fixed` judgment into one fixed declaration with the discussion ID and the reason of the judgment. The system MUST NOT turn a `not_fixed` or an `uncertain` judgment into a declaration. The system SHALL merge these declarations with the declarations of the review focus agents. For each discussion ID the merge SHALL keep the first declaration, and the declarations of the review focus agents come first. The merged declarations MUST go through the check in "Accept a fixed declaration only after the checks". The system SHALL give the evidence line of a `fixed` judgment to that check. It MUST do this only for a declaration that the merge kept from the judge. The system MUST NOT resolve a discussion with a judgment alone.
+### Requirement: Turn a fixed judgment into a declaration
+The system SHALL turn each `fixed` judgment into one fixed declaration with the discussion ID and the reason of the judgment. The system MUST NOT turn a `not_fixed` or an `uncertain` judgment into a declaration. The declarations MUST go through the check in "Accept a fixed declaration only after the checks". The system SHALL give the evidence line of a `fixed` judgment to that check. The system MUST NOT resolve a discussion with a judgment alone.
 
 #### Scenario: A fixed judgment on a deleted file
 - **WHEN** the judge gives `fixed` for a discussion from this tool on a file that the change deletes
-- **THEN** the check accepts the declaration without a file read, as for a declaration of an agent for a review focus
+- **THEN** the check accepts the declaration without a file read
 
 #### Scenario: A fixed judgment becomes a declaration
 - **WHEN** the judge gives the judgment `fixed` with the reason "Line 41 now calls `hide()` after the navigation." for discussion `d1`
@@ -1080,10 +1061,6 @@ The system SHALL turn each `fixed` judgment into one fixed declaration with the 
 #### Scenario: An uncertain judgment gives no declaration
 - **WHEN** the judge gives the judgment `uncertain` for `d3`
 - **THEN** the system adds no declaration for `d3`
-
-#### Scenario: A review focus agent already declared the discussion
-- **WHEN** an agent for a review focus declared `d1` fixed, and the judge also gives `fixed` for `d1`
-- **THEN** the merged declarations have one declaration for `d1`, with the reason from the agent for the review focus
 
 #### Scenario: The anchored line is still in the file
 - **WHEN** the judge gives `fixed` for `d1` with no evidence line, and a line in the current file still has the anchor of `d1`
@@ -1117,7 +1094,7 @@ The system prompt of the judge MUST tell the judge to give an evidence line for 
 - **THEN** the system accepts the call and ignores the `evidence`
 
 ### Requirement: Accept a judged declaration by its evidence line
-This requirement applies to a declaration that the merge kept from a `fixed` judgment of the judge. It applies only when a line of the current file has the anchor of the discussion. The system SHALL accept such a declaration if its evidence line is valid. To normalize a text, the system trims it, replaces each run of white space by one space, and removes `;` and `,` at its end. An evidence line is valid when all of these are true. The evidence line has no line feed. The string length of the normalized evidence line is at least 8. After normalizing both texts, a whole line of the current file has the same text as the evidence line. At least one such line has another anchor than the discussion. The system SHALL drop such a declaration when its evidence line is not valid. The reason is `evidence_not_valid` when the judgment has an evidence line. The reason is `anchor_still_present` when the judgment has no evidence line. The `warn` log line for `evidence_not_valid` MUST have the field `evidence` with the text. It MUST also have the field `source` with the value `discussion_judgment`. It MUST also have the field `problem` with the first rule that failed, in this order: `multiple_lines`, `too_short`, `is_anchored_line`, or `not_in_file`. The system SHALL write one `info` log line for each declaration that this requirement accepts. The line has the discussion ID, the file, and the evidence line. The system MUST NOT record the evidence line in the findings file.
+This requirement applies to a declaration that came from a `fixed` judgment of the judge. It applies only when a line of the current file has the anchor of the discussion. The system SHALL accept such a declaration if its evidence line is valid. To normalize a text, the system trims it, replaces each run of white space by one space, and removes `;` and `,` at its end. An evidence line is valid when all of these are true. The evidence line has no line feed. The string length of the normalized evidence line is at least 8. After normalizing both texts, a whole line of the current file has the same text as the evidence line. At least one such line has another anchor than the discussion. The system SHALL drop such a declaration when its evidence line is not valid. The reason is `evidence_not_valid` when the judgment has an evidence line. The reason is `anchor_still_present` when the judgment has no evidence line. The `warn` log line for `evidence_not_valid` MUST have the field `evidence` with the text. It MUST also have the field `source` with the value `discussion_judgment`. It MUST also have the field `problem` with the first rule that failed, in this order: `multiple_lines`, `too_short`, `is_anchored_line`, or `not_in_file`. The system SHALL write one `info` log line for each declaration that this requirement accepts. The line has the discussion ID, the file, and the evidence line. The system MUST NOT record the evidence line in the findings file.
 
 #### Scenario: A valid evidence line accepts the declaration
 - **WHEN** the judge gives `fixed` for `d1` with an evidence line that has at least 8 characters, is a whole line of the current file, and has another anchor than `d1`, and a line of the file still has the anchor of `d1`
@@ -1170,10 +1147,6 @@ This requirement applies to a declaration that the merge kept from a `fixed` jud
 #### Scenario: The file has CRLF line ends
 - **WHEN** the lines of the current file end with a carriage return and a line feed, and the evidence line is the text of one of them with no carriage return
 - **THEN** the check returns the declaration
-
-#### Scenario: A review focus agent and the judge declared the discussion
-- **WHEN** an agent for a review focus and the judge both declared `d1` fixed, a line of the current file has the anchor of `d1`, and the evidence line of the judge is valid
-- **THEN** the check drops the declaration of the agent with the reason `anchor_still_present`
 
 #### Scenario: The findings file has no evidence line
 - **WHEN** the review accepts a declaration by its evidence line and writes the findings file

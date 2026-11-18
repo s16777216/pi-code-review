@@ -269,16 +269,25 @@ test('the findings keep their order', async () => {
   );
 });
 
-test('a finding that the verification step drops cannot keep a fixed declaration invalid', async () => {
+test('a finding that the verification step drops cannot keep a fixed judgment invalid', async () => {
   const faux = fauxProvider();
   perFocus(
     faux,
     {
       [LOGIC]: [submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Linked.', relatesTo: 'd1' }])],
-      [SECURITY]: [submitReview([], [{ discussionId: 'd1', reason: 'The loop is fixed.' }])],
     },
     undefined,
     [submitVerdicts([verdict(1, 'rejected', 'low')])],
+    [
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submit_judgments', {
+            judgments: [{ number: 1, judgment: 'fixed', reason: 'The loop is fixed.' }],
+          } as never),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+    ],
   );
   const discussion: ReviewDiscussion = {
     id: 'd1',

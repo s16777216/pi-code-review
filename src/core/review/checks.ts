@@ -28,9 +28,9 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
  * `betweenSteps` is an optional step on the checked findings, before the check
  * on the fixed declarations: the deduplication step runs there
  * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
- * optional step after it: it gets the remaining findings and the IDs already
- * declared. Its declarations go after `output.resolved`, and the first
- * declaration of an ID wins (`judge-open-discussions` design, Decision 1). */
+ * optional step after it: it gets the remaining findings and is the only
+ * source of fixed declarations (`remove-agent-resolve-declaration` design,
+ * Decision 3). */
 /** A declaration from the discussion judgment step. `evidence` is the line of
  * the current file that the judge gave for a `fixed` judgment
  * (`judge-evidence-line` design, Decision 5). It never reaches the result. */
@@ -42,7 +42,7 @@ export async function runChecks(
   changes: ChangeSet,
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
-  judgeDiscussions?: (findings: Finding[], declaredIds: ReadonlySet<string>) => Promise<JudgedDeclaration[]>,
+  judgeDiscussions?: (findings: Finding[]) => Promise<JudgedDeclaration[]>,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
@@ -63,24 +63,18 @@ export async function runChecks(
       return { ...finding, anchor: computeAnchor(finding.file, lineText) };
     });
   const findings = await betweenSteps(checked);
-  if (judgeDiscussions === undefined) {
-    return { findings, resolved: await checkResolved(output.resolved, findings, context, changes, logger) };
-  }
-  const declaredIds = new Set(output.resolved.map((declaration) => declaration.discussionId));
-  const judged = await judgeDiscussions(findings, declaredIds);
-  // The focus agents come first, so their declaration of an ID wins.
-  const seen = new Set<string>();
+  if (judgeDiscussions === undefined) return { findings, resolved: [] };
+  const judged = await judgeDiscussions(findings);
+  // The evidence line of each declaration. A key with no value is a
+  // declaration with no evidence line. The first declaration of an ID wins.
+  const evidenceById = new Map<string, string | undefined>();
   const declarations: ResolvedDiscussion[] = [];
-  // The evidence line of each declaration that the merge kept from the judge.
-  // A key with no value is a judge declaration with no evidence line.
-  const judgedOnly = new Map<string, string | undefined>();
-  for (const { evidence, ...declaration } of [...output.resolved, ...judged] as JudgedDeclaration[]) {
-    if (seen.has(declaration.discussionId)) continue;
-    seen.add(declaration.discussionId);
+  for (const { evidence, ...declaration } of judged) {
+    if (evidenceById.has(declaration.discussionId)) continue;
+    evidenceById.set(declaration.discussionId, evidence);
     declarations.push(declaration);
-    if (!declaredIds.has(declaration.discussionId)) judgedOnly.set(declaration.discussionId, evidence);
   }
-  const resolved = await checkResolved(declarations, findings, context, changes, logger, judgedOnly);
+  const resolved = await checkResolved(declarations, findings, context, changes, logger, evidenceById);
   return { findings, resolved };
 }
 
@@ -165,7 +159,7 @@ async function checkResolved(
   context: ReviewContext,
   changes: ChangeSet,
   logger: Logger,
-  judged: ReadonlyMap<string, string | undefined> = new Map(),
+  judged: ReadonlyMap<string, string | undefined>,
 ): Promise<ResolvedDiscussion[]> {
   if (declarations.length === 0) return [];
 

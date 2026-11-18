@@ -3,7 +3,7 @@ import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../errorMessage.ts';
-import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
+import type { Finding, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
@@ -52,9 +52,7 @@ For each problem, first check whether the change's own diff introduces it, or wh
 - "medium": a real bug, but limited to edge cases or of modest impact.
 - "low": a minor issue worth a comment but not worth blocking on (for example, style or naming).
 
-You can also declare that an existing discussion is fixed. Declare it only for a discussion with "fromThisTool": true that is not resolved, only after you read the current code and confirmed that the problem is gone, and give a one-sentence reason. Never declare a discussion that a person started. Do not declare a discussion fixed and also link a finding to it.
-
-When you are done, call the submit_review tool once with two fields: "findings" (an array of findings) and "resolved" (an array of fixed declarations, each an object with exactly "discussionId" and "reason"). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Report in "line" the line that holds the problem. When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it. When the problem is in code that the diff does not change, report the line of that code that holds the problem. Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem. Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with empty "findings" and "resolved" arrays when you have nothing to report.`;
+When you are done, call the submit_review tool once with one field: "findings" (an array of findings). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Report in "line" the line that holds the problem. When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it. When the problem is in code that the diff does not change, report the line of that code that holds the problem. Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem. Add the optional field "relatesTo" (a discussion "id" from list_discussions) only when an existing discussion covers the same problem. Call submit_review with an empty "findings" array when you have nothing to report.`;
 
 /** At most this many agent runs are active at the same time
  * (`review-large-changes-in-batches` design, Decision 7). */
@@ -184,28 +182,24 @@ export class AgentReviewEngine implements ReviewEngine {
 
     const findings: Finding[] = [];
     const perFocus = new Map<string, number>(REVIEW_FOCUSES.map((focus) => [focus.name, 0]));
-    const resolvedById = new Map<string, ResolvedDiscussion>();
     outputs.forEach((output, i) => {
       const run = runs[i]!;
       const kept = run.scope.filterFindings(output.findings, changes, logger);
       findings.push(...kept);
       perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
-      for (const declaration of output.resolved) {
-        if (!resolvedById.has(declaration.discussionId)) resolvedById.set(declaration.discussionId, declaration);
-      }
     });
     for (const [focus, count] of perFocus) {
       logger.info({ focus, findings: count }, `Review focus ${focus}: ${count} finding(s).`);
     }
 
     const checked = await runChecks(
-      { findings, resolved: [...resolvedById.values()] },
+      { findings },
       context,
       changes,
       logger,
       async (checkedFindings) =>
         this.verify(await this.deduplicate(checkedFindings, logger, warnings), context, changes, logger, warnings),
-      (remaining, declaredIds) => this.judgeDiscussions(remaining, declaredIds, context, changes, logger),
+      (remaining) => this.judgeDiscussions(remaining, context, changes, logger),
     );
     return { ...checked, unreviewedFiles, warnings };
   }
@@ -501,14 +495,13 @@ export class AgentReviewEngine implements ReviewEngine {
    * to the result. */
   private async judgeDiscussions(
     findings: Finding[],
-    declaredIds: ReadonlySet<string>,
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
   ): Promise<JudgedDeclaration[]> {
     const discussions = await context.listDiscussions();
     if (!Array.isArray(discussions)) return [];
-    const selected = selectDiscussions(discussions, findings, declaredIds);
+    const selected = selectDiscussions(discussions, findings);
     const groups = groupDiscussionsByFile(selected);
     if (groups.length === 0) return [];
 

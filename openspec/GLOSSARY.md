@@ -14,3 +14,4 @@
 - **verifier** — 執行驗證步驟的 agent,每次處理一個檔案的 findings。Aliases: 驗證 agent。
 - **verdict** — verifier 對一條 finding 的判決:`confirmed`、`rejected`、`uncertain`。Aliases: 判決。
 - **evidence line** — judge 對一則 `fixed` 判斷所引用的一行現行檔案內容,用來證明修正存在。程式只驗證該行是檔案中的整行(比對前兩邊去除前後空白、合併連續空白、移除行尾的 `;` 或 `,`)、為單行、至少 8 字元,且至少有一個相符行的錨點與討論的錨點不同。Aliases: 證據行。
+- **review agent** — 三個各有一個 review focus、並行審查變更並找出新問題的 agent。Aliases: 審查 agent。

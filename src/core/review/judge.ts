@@ -66,13 +66,10 @@ export function groupDiscussionsByFile(discussions: readonly ReviewDiscussion[])
 }
 
 /** Picks the discussions to judge: from this tool, not resolved, with a file
- * and an anchor, with no remaining finding that has `relatesTo` equal to them,
- * and not declared fixed by a review focus agent (also when the check on
- * declarations drops that declaration later). */
+ * and an anchor, with no remaining finding that has `relatesTo` equal to them. */
 export function selectDiscussions(
   discussions: readonly ReviewDiscussion[],
   findings: readonly Finding[],
-  declaredIds: ReadonlySet<string>,
 ): ReviewDiscussion[] {
   const linked = new Set(findings.flatMap((finding) => (finding.relatesTo === undefined ? [] : [finding.relatesTo])));
   return discussions.filter(
@@ -81,8 +78,7 @@ export function selectDiscussions(
       !discussion.resolved &&
       discussion.file !== null &&
       discussion.anchor !== null &&
-      !linked.has(discussion.id) &&
-      !declaredIds.has(discussion.id),
+      !linked.has(discussion.id),
   );
 }
 

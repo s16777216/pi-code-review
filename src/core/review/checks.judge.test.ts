@@ -43,42 +43,29 @@ function setup(discussions: ReviewDiscussion[]) {
 const decl = (discussionId: string, reason: string): ResolvedDiscussion => ({ discussionId, reason });
 const finding: Finding = { file: 'a.ts', line: 1, severity: 'low', summary: 'S' };
 
-test('a focus agent declaration wins over a judge declaration with the same ID', async () => {
+test('the first judge declaration of an ID wins', async () => {
   const { context, logger } = setup([discussion('d1')]);
-  const result = await runChecks(
-    { findings: [], resolved: [decl('d1', 'agent')] },
-    context,
-    changes,
-    logger,
-    undefined,
-    async () => [decl('d1', 'judge'), decl('d1', 'judge again')],
-  );
-  assert.deepEqual(result.resolved, [decl('d1', 'agent')]);
+  const result = await runChecks({ findings: [] }, context, changes, logger, undefined, async () => [
+    decl('d1', 'judge'),
+    decl('d1', 'judge again'),
+  ]);
+  assert.deepEqual(result.resolved, [decl('d1', 'judge')]);
 });
 
-test('without judgeDiscussions the behavior is unchanged', async () => {
+test('without judgeDiscussions nothing is resolved', async () => {
   const { context, logger } = setup([discussion('d1'), discussion('d2')]);
-  const result = await runChecks({ findings: [], resolved: [decl('d1', 'agent')] }, context, changes, logger);
-  assert.deepEqual(result.resolved, [decl('d1', 'agent')]);
+  const result = await runChecks({ findings: [] }, context, changes, logger);
+  assert.deepEqual(result.resolved, []);
 });
 
 test('a judge declaration whose anchor line is still present is dropped with source discussion_judgment', async () => {
   const anchor = computeAnchor('a.ts', 'two');
   const { context, logger, warns } = setup([discussion('d1', { anchor })]);
-  const result = await runChecks({ findings: [], resolved: [] }, context, changes, logger, undefined, async () => [
+  const result = await runChecks({ findings: [] }, context, changes, logger, undefined, async () => [
     decl('d1', 'judge'),
   ]);
   assert.deepEqual(result.resolved, []);
   assert.deepEqual(warns, [{ discussionId: 'd1', reason: 'anchor_still_present', source: 'discussion_judgment' }]);
-});
-
-test('a dropped focus agent declaration has no source field', async () => {
-  const anchor = computeAnchor('a.ts', 'two');
-  const { context, logger, warns } = setup([discussion('d1', { anchor })]);
-  await runChecks({ findings: [], resolved: [decl('d1', 'agent')] }, context, changes, logger, undefined, async () => [
-    decl('d1', 'judge'),
-  ]);
-  assert.deepEqual(warns, [{ discussionId: 'd1', reason: 'anchor_still_present' }]);
 });
 
 test('a judge declaration on a deleted file is accepted without a file read', async () => {
@@ -86,30 +73,29 @@ test('a judge declaration on a deleted file is accepted without a file read', as
     { oldPath: 'a.ts', newPath: 'a.ts', hunks: '@@ -1,2 +0,0 @@\n-one\n-two', deleted: true },
   ]);
   const { context, logger, reads } = setup([discussion('d1')]);
-  const result = await runChecks({ findings: [], resolved: [] }, context, deleted, logger, undefined, async () => [
+  const result = await runChecks({ findings: [] }, context, deleted, logger, undefined, async () => [
     decl('d1', 'judge'),
   ]);
   assert.deepEqual(result.resolved, [decl('d1', 'judge')]);
   assert.deepEqual(reads, []);
 });
 
-test('judgeDiscussions gets the findings after betweenSteps and the declared IDs', async () => {
+test('judgeDiscussions gets the findings after betweenSteps', async () => {
   const { context, logger } = setup([]);
-  let seen: { findings: Finding[]; ids: string[] } | undefined;
+  let seen: Finding[] | undefined;
   await runChecks(
-    { findings: [finding, { ...finding, line: 2 }], resolved: [decl('d9', 'agent')] },
+    { findings: [finding, { ...finding, line: 2 }] },
     context,
     changes,
     logger,
     async (findings) => findings.slice(0, 1),
-    async (findings, ids) => {
-      seen = { findings, ids: [...ids] };
+    async (findings) => {
+      seen = findings;
       return [];
     },
   );
-  assert.equal(seen?.findings.length, 1);
-  assert.equal(seen?.findings[0]?.line, 1);
-  assert.deepEqual(seen?.ids, ['d9']);
+  assert.equal(seen?.length, 1);
+  assert.equal(seen?.[0]?.line, 1);
 });
 
 // --- evidence line (`judge-evidence-line`) ---
@@ -132,16 +118,9 @@ const judged =
   (evidence?: string, id = 'd1') =>
   async () => [{ ...decl(id, 'judge'), ...(evidence === undefined ? {} : { evidence }) }];
 
-async function runJudged(content: string, evidence?: string, resolved: ResolvedDiscussion[] = []) {
+async function runJudged(content: string, evidence?: string) {
   const env = evidenceSetup(content);
-  const result = await runChecks(
-    { findings: [], resolved },
-    env.context,
-    changes,
-    env.logger,
-    undefined,
-    judged(evidence),
-  );
+  const result = await runChecks({ findings: [] }, env.context, changes, env.logger, undefined, judged(evidence));
   return { ...env, result };
 }
 
@@ -187,14 +166,7 @@ for (const [name, evidence, problem] of [
 test('an anchored line with at least 8 characters is not valid evidence', async () => {
   const text = 'throw new Error(x);';
   const env = evidenceSetup(`one\n${text}\ntwo`, [discussion('d1', { anchor: computeAnchor('a.ts', text) })]);
-  const result = await runChecks(
-    { findings: [], resolved: [] },
-    env.context,
-    changes,
-    env.logger,
-    undefined,
-    judged(text),
-  );
+  const result = await runChecks({ findings: [] }, env.context, changes, env.logger, undefined, judged(text));
   assert.deepEqual(result.resolved, []);
   assert.equal(env.warns[0]?.reason, 'evidence_not_valid');
   assert.equal(env.warns[0]?.problem, 'is_anchored_line');
@@ -216,7 +188,7 @@ test('the anchored line without its semicolon is not valid evidence', async () =
   const text = 'throw new Error(x);';
   const env = evidenceSetup(`one\n${text}\ntwo`, [discussion('d1', { anchor: computeAnchor('a.ts', text) })]);
   const result = await runChecks(
-    { findings: [], resolved: [] },
+    { findings: [] },
     env.context,
     changes,
     env.logger,
@@ -242,17 +214,11 @@ test('an evidence line matches a line of a file with CRLF line ends', async () =
   assert.deepEqual(result.resolved, [decl('d1', 'judge')]);
 });
 
-test('an agent and the judge that declare the same discussion do not use the evidence line', async () => {
-  const { result, warns } = await runJudged(evidenceFile, 'return guard(value);', [decl('d1', 'agent')]);
-  assert.deepEqual(result.resolved, []);
-  assert.deepEqual(warns, [{ discussionId: 'd1', reason: 'anchor_still_present' }]);
-});
-
 test('a judge declaration with an evidence line on a file that cannot be read is dropped with file_unreadable', async () => {
   const env = evidenceSetup('');
   const context: ReviewContext = { ...env.context, getFileContent: async () => ({ error: 'gone' }) };
   const result = await runChecks(
-    { findings: [], resolved: [] },
+    { findings: [] },
     context,
     changes,
     env.logger,
@@ -269,7 +235,7 @@ test('a judge declaration with an evidence line on a deleted file is accepted wi
   ]);
   const env = evidenceSetup(evidenceFile);
   const result = await runChecks(
-    { findings: [], resolved: [] },
+    { findings: [] },
     env.context,
     deleted,
     env.logger,
