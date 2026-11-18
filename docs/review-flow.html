@@ -56,6 +56,12 @@
   .step.end { background: var(--end-bg); border-color: var(--end-bd); }
   .tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid currentColor; color: var(--new-bd); }
   .tag.same { color: var(--muted); }
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .lane { display: flex; flex-direction: column; align-items: stretch; border-top: 3px solid var(--line); padding-top: 8px; }
+  .lane-title { font-weight: 700; margin: 0 0 8px; }
+  .lane .trio { grid-template-columns: 1fr; }
+  .lane-out { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 760px) { .lanes, .lane-out { grid-template-columns: 1fr; } }
   .arrow { align-self: center; display: flex; flex-direction: column; align-items: center; color: var(--muted); font-size: 12px; min-height: 34px; justify-content: center; }
   .arrow::before { content: ""; width: 2px; height: 10px; background: var(--line); }
   .arrow::after { content: ""; width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 8px solid var(--line); }
@@ -71,6 +77,13 @@
   .yes { color: var(--new-bd); font-weight: 600; }
   .no { color: var(--warn); font-weight: 600; }
   .scroll { overflow-x: auto; }
+  .mermaid .node.old rect, .mermaid .node.old polygon { fill: var(--old-bg) !important; stroke: var(--old-bd) !important; stroke-width: 2px !important; }
+  .mermaid .node.judge rect, .mermaid .node.judge polygon { fill: var(--judge-bg) !important; stroke: var(--judge-bd) !important; stroke-width: 2px !important; }
+  .mermaid .node.guard rect, .mermaid .node.guard polygon { fill: var(--guard-bg) !important; stroke: var(--guard-bd) !important; stroke-width: 2px !important; }
+  .mermaid .node.final rect, .mermaid .node.final polygon { fill: var(--end-bg) !important; stroke: var(--end-bd) !important; stroke-width: 2px !important; }
+  .mermaid .edgeLabel p, .mermaid .edgeLabel span, .mermaid .edgeLabel div, .mermaid .edgeLabel, .mermaid .edgeLabel rect, .mermaid .labelBkg { background-color: var(--bg) !important; fill: var(--bg) !important; }
+  .mermaid .nodeLabel, .mermaid .label text, .mermaid span { color: var(--text) !important; fill: var(--text) !important; }
+  pre.mermaid { background: transparent; text-align: center; margin: 0 0 8px; }
   .note { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin-top: 12px; }
   code { font: 13px ui-monospace, Consolas, monospace; background: var(--end-bg); padding: 1px 5px; border-radius: 4px; }
 </style>
@@ -78,96 +91,51 @@
 <body>
 <main>
   <h1>審查與討論自動 resolve 流程</h1>
-  <p class="sub">目前實作：由 judge agent 判斷本工具開的未解決討論是否已修好，程式端再檢查程式碼。</p>
+  <p class="sub">由上而下是執行順序，箭頭是依賴：箭頭起點的產物，是終點的輸入。這是設計中的流程，不是目前的實作。</p>
 
-  <div class="legend">
-    <span class="l-old">現有步驟（不變）</span>
-    <span class="l-judge">judge agent</span>
-    <span class="l-guard">程式端把關</span>
+  <div class="note" style="margin:0 0 16px">
+    <ul style="margin:0;padding-left:20px">
+      <li>judge agent 與 review agent 在同一高度，表示兩者互不依賴：judge agent 只讀討論、diff 與檔案內容。</li>
+      <li>4. verify agent 同時接受 finding verifier（3.）的 finding 與 judge agent（2.）的宣告，由它判斷最終輸出的 open issue 與 resolved issue。</li>
+      <li>下方的表格與「失敗時的處理」描述的是目前的實作，還沒有改成這個流程。</li>
+    </ul>
   </div>
 
-  <div class="flow">
-    <div class="step end">
-      <h3>輸入</h3>
-      變更內容（diff）與 GitLab 上現有的討論
-    </div>
-    <div class="arrow"></div>
+  <pre class="mermaid">
+flowchart TD
+  R["1#46; review agent ×3（並行）"]
+  J["2#46; judge agent（逐檔一次）"]
+  F["3#46; finding verifier：整理並驗證"]
+  V["4#46; verify agent"]
+  O["輸出"]
+  R -->|"合併後的 finding"| F
+  F -->|"整理後的 finding"| V
+  J --->|"fixed 的宣告（含證據行）"| V
+  V -->|"open issue、resolved issue"| O
+  classDef old stroke-width:2px
+  classDef judge stroke-width:2px
+  classDef guard stroke-width:2px
+  classDef final stroke-width:2px
+  class R,F old
+  class J judge
+  class V guard
+  class O final
+  </pre>
 
-    <div class="group">
-      <div class="group-title"><span class="n">①</span> 三個 review agent 並行執行（最多 3 個同時） <span class="tag same">現有</span></div>
-      <div class="trio">
-        <div class="step">
-          <h3>review agent</h3>
-          <div class="focus">review focus：邏輯正確性</div>
-          <ul>
-            <li>找新問題，產生 finding</li>
-          </ul>
-        </div>
-        <div class="step">
-          <h3>review agent</h3>
-          <div class="focus">review focus：安全性</div>
-          <ul>
-            <li>找新問題，產生 finding</li>
-          </ul>
-        </div>
-        <div class="step">
-          <h3>review agent</h3>
-          <div class="focus">review focus：資源與並行</div>
-          <ul>
-            <li>找新問題，產生 finding</li>
-          </ul>
-        </div>
-      </div>
-      <div class="side">三者拿到相同的輸入與審查指示；review focus 只是主要偏重，不是限制。review agent 不再宣告舊討論已修好，這由 judge agent 負責。</div>
-    </div>
-    <div class="arrow"><span>合併三個輸出；檢查 relatesTo 與 diff 行；為每個 finding 算錨點</span></div>
-
-    <div class="step">
-      <h3><span class="n">②</span> 去重 <span class="tag same">現有</span></h3>
-      同一問題被多個 agent 重複報告時，只留一個（1 次模型呼叫）
-    </div>
-    <div class="arrow"></div>
-
-    <div class="step">
-      <h3><span class="n">③</span> verifier：第一次 <span class="tag same">現有</span></h3>
-      <ul>
-        <li>逐檔複核 finding：<code>confirmed</code> / <code>rejected</code> / <code>uncertain</code>，並重評嚴重度</li>
-        <li>只有 <code>rejected</code> 會被刪掉</li>
-      </ul>
-    </div>
-    <div class="arrow"><span>驗證後剩下的 finding</span></div>
-
-    <div class="step">
-      <h3><span class="n">④</span> 選出要判斷的討論 <span class="tag same">現有</span></h3>
-      本工具開的、未 resolve、有錨點、沒有剩下的 finding 連結。
-      <div class="side stop">沒選到任何討論 → 不呼叫模型，直接結束這一段</div>
-    </div>
-    <div class="arrow"></div>
-
-    <div class="step judge">
-      <h3><span class="n">⑤</span> judge agent（逐檔一次）</h3>
-      <ul>
-        <li>讀：完整筆記（含人的回覆）＋現行程式碼</li>
-        <li>輸出：<code>fixed</code> / <code>not_fixed</code> / <code>uncertain</code>，附理由；<code>fixed</code> 另附一行證據行</li>
-      </ul>
-      <div class="side stop"><code>not_fixed</code>、<code>uncertain</code> 到此為止，不 resolve</div>
-    </div>
-    <div class="arrow"><span>只有 <code>fixed</code> 繼續</span></div>
-
-    <div class="step guard">
-      <h3><span class="n">⑥</span> 程式端檢查 <span class="tag">放行條件</span></h3>
-      <ul>
-        <li>討論存在、本工具開的、未 resolve、有錨點</li>
-        <li>沒有 finding 連結；檔案可讀（已刪除的檔案可略過讀取）</li>
-        <li><strong>錨點已消失</strong>，或 <strong>證據行有效</strong>：是現行檔案的整行（比對前去除前後空白、合併連續空白、去掉行尾的 <code>;</code> <code>,</code>）、單行、至少 8 字元，且不是被指到的那一行</li>
-      </ul>
-    </div>
-    <div class="arrow"><span>通過 → resolved</span></div>
-
-    <div class="step end">
-      <h3>輸出</h3>
-      <code>findings.json</code>（finding、resolved、warnings）→ <code>publish</code> 發討論，並對 resolved 的討論回覆後呼叫 GitLab resolve
-    </div>
+  <h2>各區塊說明</h2>
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr><th>區塊</th><th style="text-align:left">讀取</th><th style="text-align:left">工作</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1. review agent ×3（並行）</td><td style="text-align:left">diff、現有討論</td><td style="text-align:left">找新問題，產生 finding</td></tr>
+        <tr><td>2. judge agent（逐檔一次）</td><td style="text-align:left">現有討論、diff、檔案內容。不看任何 finding</td><td style="text-align:left">判斷本工具開的未解決討論：<code>fixed</code> / <code>not_fixed</code> / <code>uncertain</code>，<code>fixed</code> 附證據行</td></tr>
+        <tr><td>3. finding verifier</td><td style="text-align:left">1. 合併後的 finding</td><td style="text-align:left">整理：同一問題被重複報告時只留一個。驗證：逐檔複核，刪掉被判 <code>rejected</code> 的</td></tr>
+        <tr><td>4. verify agent</td><td style="text-align:left">現有討論、diff、檔案內容；3. 的 finding；2. 的宣告</td><td style="text-align:left">判斷最終輸出的 open issue（仍成立的 finding）與 resolved issue（已修好的討論）</td></tr>
+        <tr><td>輸出</td><td style="text-align:left">4. 的 open issue 與 resolved issue</td><td style="text-align:left"><code>findings.json</code>（finding、resolved、warnings）→ <code>publish</code></td></tr>
+      </tbody>
+    </table>
   </div>
 
   <h2>各 agent 看到什麼</h2>
@@ -179,7 +147,7 @@
       <tbody>
         <tr><td>review agent</td><td>自己找</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
         <tr><td>judge agent</td><td class="no">無</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
-        <tr><td>verifier 第一次</td><td class="yes">看</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
+        <tr><td>finding verifier</td><td class="yes">看</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
       </tbody>
     </table>
   </div>
@@ -187,11 +155,16 @@
   <h2>失敗時的處理</h2>
   <div class="note">
     <ul style="margin:0;padding-left:20px">
-      <li>⑤ 某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：該檔案不 resolve，只寫 <code>warn</code> log，不讓審查失敗，也不新增 warning 代碼。</li>
+      <li>judge agent（2.）某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：該檔案不 resolve，只寫 <code>warn</code> log，不讓審查失敗，也不新增 warning 代碼。</li>
       <li>證據行無效時，程式端丟棄該宣告並寫 <code>warn</code> log（<code>evidence_not_valid</code>，附 <code>problem</code> 欄位）；沒有證據行且錨點還在，原因是 <code>anchor_still_present</code>。</li>
       <li>證據行只能證明該行存在，不能證明修正有效。尚未實作的想法：讓 verifier 複查 judge 判為 <code>fixed</code> 的討論。</li>
     </ul>
   </div>
 </main>
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.0/dist/mermaid.esm.min.mjs';
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? 'dark' : 'default', securityLevel: 'strict', flowchart: { wrappingWidth: 320 } });
+</script>
 </body>
 </html>
