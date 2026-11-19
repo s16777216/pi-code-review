@@ -44,7 +44,7 @@ export function isJudgeCall(context: unknown): boolean {
  * the numbers from the last user message. */
 export function uncertainAll(context: unknown) {
   const text = lastUserText(context);
-  const numbers = [...new Set([...text.matchAll(/"number": (d+)/g)].map((match) => Number(match[1])))];
+  const numbers = [...new Set([...text.matchAll(/"number": (\d+)/g)].map((match) => Number(match[1])))];
   const judgments = numbers.map((number) => ({
     number,
     judgment: 'uncertain',

@@ -80,22 +80,35 @@ test('a judge declaration on a deleted file is accepted without a file read', as
   assert.deepEqual(reads, []);
 });
 
-test('judgeDiscussions gets the findings after betweenSteps', async () => {
+test('judgeDiscussions runs once after betweenSteps and gets no argument', async () => {
   const { context, logger } = setup([]);
-  let seen: Finding[] | undefined;
+  const seen: unknown[][] = [];
   await runChecks(
     { findings: [finding, { ...finding, line: 2 }] },
     context,
     changes,
     logger,
     async (findings) => findings.slice(0, 1),
-    async (findings) => {
-      seen = findings;
+    async (...args) => {
+      seen.push(args);
       return [];
     },
   );
-  assert.equal(seen?.length, 1);
-  assert.equal(seen?.[0]?.line, 1);
+  assert.deepEqual(seen, [[]]);
+});
+
+test('a fixed judgment for a discussion that a remaining finding links to is dropped with linked_by_finding', async () => {
+  const { context, logger, warns } = setup([discussion('d1')]);
+  const linked: Finding = { ...finding, relatesTo: 'd1' };
+  const result = await runChecks({ findings: [linked] }, context, changes, logger, undefined, async () => [
+    decl('d1', 'judge'),
+  ]);
+  assert.deepEqual(result.resolved, []);
+  assert.deepEqual(
+    result.findings.map((item) => item.relatesTo),
+    ['d1'],
+  );
+  assert.deepEqual(warns, [{ discussionId: 'd1', reason: 'linked_by_finding', source: 'discussion_judgment' }]);
 });
 
 // --- evidence line (`judge-evidence-line`) ---

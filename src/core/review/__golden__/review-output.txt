@@ -1,4 +1,4 @@
-=== SINGLE RUN (calls=7) ===
+=== SINGLE RUN (calls=8) ===
 {
  "findings": [
   {
@@ -91,9 +91,9 @@ WARNS [
   "reason": "diff_omitted"
  }
 ]
-INFOS [{"focus":"logic correctness","findings":10},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3528},{"batch":null,"promptChars":3783,"systemChars":3521},{"batch":null,"promptChars":3783,"systemChars":3475},{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206}]
-DEBUG OTHER KEYS ["contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict"]
+INFOS [{"focus":"logic correctness","findings":10},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0},{"selected":1,"fixed":0,"notFixed":0,"uncertain":1}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3528},{"batch":null,"promptChars":3783,"systemChars":3521},{"batch":null,"promptChars":3783,"systemChars":3475},{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":682,"systemChars":2495},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206}]
+DEBUG OTHER KEYS ["contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","contentBlockTypes,file,step,stopReason,usage","file,judgment,line,reason"]
 --- logged prompt batch=- ---
 # Change: Characterization change
 
@@ -441,6 +441,47 @@ Pins the prompts.
   24 |  }
 ```
 
+## Discussions to judge
+
+The line of a discussion refers to the new version of src/a.ts at its commit; on a newer commit it can point at different code.
+
+[
+  {
+    "number": 1,
+    "line": 2,
+    "commit": "old",
+    "notes": [
+      {
+        "author": "bot",
+        "body": "**[high]** Earlier problem."
+      }
+    ]
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/a.ts
+```diff
+@@ -1,4 +1,5 @@
+   1 |  import { x } from "./x";
+     | -const n = 1;
+   2 | +const n = 2;
+   3 | +const m = 3;
+   4 |  
+   5 |  export { n };
+@@ -20,3 +21,4 @@
+  21 |  function f() {
+     | -  return 1;
+  22 | +  return 2;
+  23 | +  // changed
+  24 |  }
+```
+
 ## Findings to verify
 
 [
@@ -565,7 +606,7 @@ Pins the prompts.
     "summary": "renamed file"
   }
 ]
-=== BATCHES (calls=16) ===
+=== BATCHES (calls=17) ===
 {
  "findings": [
   {
@@ -829,9 +870,9 @@ WARNS [
   "reason": "diff_omitted"
  }
 ]
-INFOS [{"batches":4},{"focus":"logic correctness","findings":19},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206},{"batch":1,"promptChars":756,"systemChars":3832},{"batch":1,"promptChars":756,"systemChars":3825},{"batch":1,"promptChars":756,"systemChars":3779},{"batch":2,"promptChars":1562,"systemChars":3832},{"batch":2,"promptChars":1562,"systemChars":3825},{"batch":2,"promptChars":1562,"systemChars":3779},{"batch":3,"promptChars":1564,"systemChars":3832},{"batch":3,"promptChars":1564,"systemChars":3825},{"batch":3,"promptChars":1564,"systemChars":3779},{"batch":4,"promptChars":1759,"systemChars":3832},{"batch":4,"promptChars":1759,"systemChars":3825},{"batch":4,"promptChars":1759,"systemChars":3779}]
-DEBUG OTHER KEYS ["batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict"]
+INFOS [{"batches":4},{"focus":"logic correctness","findings":19},{"focus":"security","findings":0},{"focus":"resources and concurrency","findings":0},{"before":7,"after":7},{"before":7,"after":7,"rejected":0,"severityChanged":0},{"selected":1,"fixed":0,"notFixed":0,"uncertain":1}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":752,"systemChars":720},{"batch":null,"promptChars":682,"systemChars":2495},{"batch":null,"promptChars":764,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206},{"batch":1,"promptChars":756,"systemChars":3832},{"batch":1,"promptChars":756,"systemChars":3825},{"batch":1,"promptChars":756,"systemChars":3779},{"batch":2,"promptChars":1562,"systemChars":3832},{"batch":2,"promptChars":1562,"systemChars":3825},{"batch":2,"promptChars":1562,"systemChars":3779},{"batch":3,"promptChars":1564,"systemChars":3832},{"batch":3,"promptChars":1564,"systemChars":3825},{"batch":3,"promptChars":1564,"systemChars":3779},{"batch":4,"promptChars":1759,"systemChars":3832},{"batch":4,"promptChars":1759,"systemChars":3825},{"batch":4,"promptChars":1759,"systemChars":3779}]
+DEBUG OTHER KEYS ["batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","contentBlockTypes,file,step,stopReason,usage","file,judgment,line,reason"]
 --- logged prompt batch=- ---
 Group the findings below.
 
@@ -877,6 +918,47 @@ Group the findings below.
     "line": 41,
     "severity": "low",
     "summary": "in b second hunk"
+  }
+]
+--- logged prompt batch=- ---
+# Change: Characterization change
+
+Pins the prompts.
+
+## Diff of the file
+
+### src/a.ts
+```diff
+@@ -1,4 +1,5 @@
+   1 |  import { x } from "./x";
+     | -const n = 1;
+   2 | +const n = 2;
+   3 | +const m = 3;
+   4 |  
+   5 |  export { n };
+@@ -20,3 +21,4 @@
+  21 |  function f() {
+     | -  return 1;
+  22 | +  return 2;
+  23 | +  // changed
+  24 |  }
+```
+
+## Discussions to judge
+
+The line of a discussion refers to the new version of src/a.ts at its commit; on a newer commit it can point at different code.
+
+[
+  {
+    "number": 1,
+    "line": 2,
+    "commit": "old",
+    "notes": [
+      {
+        "author": "bot",
+        "body": "**[high]** Earlier problem."
+      }
+    ]
   }
 ]
 --- logged prompt batch=- ---

@@ -946,11 +946,11 @@ The system prompt of the verifier SHALL tell the verifier to quote, in the `reas
 - **WHEN** the verifier calls `submit_verdicts` with a valid verdict whose `reason` holds no quote
 - **THEN** the system accepts the call, as before this requirement
 
-### Requirement: Select and judge the open discussions
-The system SHALL run the discussion judgment step after the verification step and before the check on fixed declarations. The step MUST select a discussion only when all of these are true. This tool started the discussion. It is not resolved. It has an anchor and a file. No finding that remains after the verification step has `relatesTo` equal to it. The system SHALL start one judge run for each file that has at least one selected discussion. The judge SHALL give each selected discussion of that file one judgment: `fixed`, `not_fixed`, or `uncertain`. The system MUST NOT call the model for this step when no discussion is selected.
+### Requirement: Judge each open discussion of this tool
+The system SHALL run the discussion judgment step after the verification step and before the check on fixed declarations. The step MUST select a discussion only when all of these are true. This tool started the discussion. It is not resolved. It has an anchor and a file. The selection MUST NOT read the findings. The system SHALL start one judge run for each file that has at least one selected discussion. The judge SHALL give each selected discussion of that file one judgment: `fixed`, `not_fixed`, or `uncertain`. The system MUST NOT call the model for this step when no discussion is selected.
 
 #### Scenario: Selected discussions are judged by file
-- **WHEN** two open discussions from this tool are on `src/a.ts` and one is on `src/b.ts`, and no finding links to them
+- **WHEN** two open discussions from this tool are on `src/a.ts` and one is on `src/b.ts`
 - **THEN** the system starts two judge runs, one for `src/a.ts` with two discussions and one for `src/b.ts` with one discussion
 
 #### Scenario: A discussion from a person is not selected
@@ -970,12 +970,8 @@ The system SHALL run the discussion judgment step after the verification step an
 - **THEN** the system does not select it
 
 #### Scenario: A finding links to the discussion
-- **WHEN** a finding that remains after the verification step has `relatesTo` equal to `d1`
-- **THEN** the system does not select `d1`
-
-#### Scenario: The verification step removes the linking finding
-- **WHEN** the verification step drops the only finding that has `relatesTo` equal to `d1`
-- **THEN** the system selects `d1`
+- **WHEN** a finding that remains after the verification step has `relatesTo` equal to `d1`, and `d1` is an open discussion from this tool with a file and an anchor
+- **THEN** the system selects `d1` and gives it to the judge
 
 #### Scenario: No discussion is selected
 - **WHEN** no discussion meets the selection rules
@@ -1065,6 +1061,10 @@ The system SHALL turn each `fixed` judgment into one fixed declaration with the 
 #### Scenario: The anchored line is still in the file
 - **WHEN** the judge gives `fixed` for `d1` with no evidence line, and a line in the current file still has the anchor of `d1`
 - **THEN** the check drops the declaration with the reason `anchor_still_present`, and the system does not resolve `d1`
+
+#### Scenario: A finding links to the discussion
+- **WHEN** the judge gives `fixed` for `d1`, the anchor of `d1` is gone from the current file, and a finding that remains after the verification step has `relatesTo` equal to `d1`
+- **THEN** the check drops the declaration with the reason `linked_by_finding`, the system does not resolve `d1`, and the `warn` log line has the field `source` with the value `discussion_judgment`
 
 ### Requirement: Ask the judge for an evidence line
 The system prompt of the judge MUST tell the judge to give an evidence line for each `fixed` judgment. The evidence line is one line of the current file that shows the fix. The prompt MUST tell the judge to copy the line as it appears in the file, with no line number. The prompt MUST tell the judge to choose a line that is not the line of the problem. The prompt MUST tell the judge to choose a line that is in the current file and not in a note. The prompt MUST tell the judge to copy one whole line, with the characters at its end. It MUST tell the judge to choose one of the lines when the code has more than one line, and not to join them. The `submit_judgments` tool SHALL accept an optional `evidence` in each judgment object, as a string or as `null`. The system SHALL accept a call that has no `evidence`. The system MUST ignore the `evidence` of a judgment that is not `fixed`. The system MUST treat an empty `evidence`, a blank `evidence`, `null`, and a value that is not a string as no evidence.

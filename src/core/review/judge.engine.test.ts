@@ -5,7 +5,7 @@ import type { FauxResponseStep } from '@earendil-works/pi-ai';
 import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import { computeAnchor } from './anchor.ts';
 import { AgentReviewEngine } from './engine.ts';
-import { confirmAll, perFocus } from './fauxFocus.ts';
+import { perFocus } from './fauxFocus.ts';
 
 // Tests for `judge-open-discussions`: the engine runs the discussion judgment
 // step after the verification step, one judge run for each file.
@@ -135,7 +135,7 @@ test('the judgment step makes no model call when listDiscussions returns an erro
   assert.deepEqual(result.resolved, []);
 });
 
-test('only a discussion linked by a finding that the verification step drops is selected', async () => {
+test('a discussion that a finding links to is still judged', async () => {
   const faux = fauxProvider();
   const judgePrompts: string[] = [];
   perFocus(
@@ -149,32 +149,48 @@ test('only a discussion linked by a finding that the verification step drops is 
       ],
     },
     undefined,
-    Array.from({ length: 2 }, () => (context: unknown) => {
-      const rejected = JSON.stringify(context).includes('a.ts');
-      return rejected
-        ? fauxAssistantMessage(
-            [
-              fauxToolCall('submit_verdicts', {
-                verdicts: [{ number: 1, verdict: 'rejected', severity: 'high', reason: 'Not a problem.' }],
-              } as never),
-            ],
-            { stopReason: 'toolUse' },
-          )
-        : confirmAll(context);
-    }),
-    [(context) => (judgePrompts.push(JSON.stringify(context)), submitJudgments([judgment(1, 'uncertain')]))],
+    undefined,
+    judgeBy(
+      (_file, _call, context) => (
+        judgePrompts.push(JSON.stringify(context)),
+        submitJudgments([judgment(1, 'uncertain')])
+      ),
+    ),
   );
   const discussions = [discussion('d1', 'a.ts', 'x'), discussion('d2', 'b.ts', 'x')];
 
   const { findings } = await engineFor(faux).review(contextFor(['a.ts', 'b.ts'], discussions));
 
-  assert.deepEqual(
-    findings.map((finding) => finding.file),
-    ['b.ts'],
+  assert.equal(findings.length, 2);
+  assert.equal(judgePrompts.length, 2);
+  assert.ok(judgePrompts.some((prompt) => prompt.includes('Note of d1.')));
+  assert.ok(judgePrompts.some((prompt) => prompt.includes('Note of d2.')));
+});
+
+test('a fixed judgment for a discussion that a finding links to resolves nothing and logs linked_by_finding', async () => {
+  const faux = fauxProvider();
+  perFocus(
+    faux,
+    { [LOGIC]: [submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'A is wrong.', relatesTo: 'd1' }])] },
+    undefined,
+    undefined,
+    judgeBy(() => submitJudgments([judgment(1, 'fixed')])),
   );
-  assert.equal(judgePrompts.length, 1);
-  assert.ok(judgePrompts[0]!.includes('Note of d1.'));
-  assert.ok(!judgePrompts[0]!.includes('Note of d2.'));
+  const { logger, warnings } = recordingLogger();
+
+  const { resolved } = await engineFor(faux, { logger }).review(
+    contextFor(['a.ts'], [discussion('d1', 'a.ts', 'gone line')]),
+  );
+
+  assert.deepEqual(resolved, []);
+  assert.ok(
+    warnings.some(
+      (warning) =>
+        warning.discussionId === 'd1' &&
+        warning.reason === 'linked_by_finding' &&
+        warning.source === 'discussion_judgment',
+    ),
+  );
 });
 
 // --- Shared run rules ---

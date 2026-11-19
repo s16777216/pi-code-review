@@ -28,9 +28,9 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
  * `betweenSteps` is an optional step on the checked findings, before the check
  * on the fixed declarations: the deduplication step runs there
  * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
- * optional step after it: it gets the remaining findings and is the only
- * source of fixed declarations (`remove-agent-resolve-declaration` design,
- * Decision 3). */
+ * optional step after it: it gets no argument and is the only source of
+ * fixed declarations (`remove-agent-resolve-declaration` design, Decision 3).
+ * It does not read the findings (`decouple-judge-from-findings` design). */
 /** A declaration from the discussion judgment step. `evidence` is the line of
  * the current file that the judge gave for a `fixed` judgment
  * (`judge-evidence-line` design, Decision 5). It never reaches the result. */
@@ -42,7 +42,7 @@ export async function runChecks(
   changes: ChangeSet,
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
-  judgeDiscussions?: (findings: Finding[]) => Promise<JudgedDeclaration[]>,
+  judgeDiscussions?: () => Promise<JudgedDeclaration[]>,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
@@ -64,7 +64,7 @@ export async function runChecks(
     });
   const findings = await betweenSteps(checked);
   if (judgeDiscussions === undefined) return { findings, resolved: [] };
-  const judged = await judgeDiscussions(findings);
+  const judged = await judgeDiscussions();
   // The evidence line of each declaration. A key with no value is a
   // declaration with no evidence line. The first declaration of an ID wins.
   const evidenceById = new Map<string, string | undefined>();

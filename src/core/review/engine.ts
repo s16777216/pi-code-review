@@ -199,7 +199,7 @@ export class AgentReviewEngine implements ReviewEngine {
       logger,
       async (checkedFindings) =>
         this.verify(await this.deduplicate(checkedFindings, logger, warnings), context, changes, logger, warnings),
-      (remaining) => this.judgeDiscussions(remaining, context, changes, logger),
+      () => this.judgeDiscussions(context, changes, logger),
     );
     return { ...checked, unreviewedFiles, warnings };
   }
@@ -494,14 +494,13 @@ export class AgentReviewEngine implements ReviewEngine {
    * too large, gives no declaration and a `warn` line, and no warning is added
    * to the result. */
   private async judgeDiscussions(
-    findings: Finding[],
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
   ): Promise<JudgedDeclaration[]> {
     const discussions = await context.listDiscussions();
     if (!Array.isArray(discussions)) return [];
-    const selected = selectDiscussions(discussions, findings);
+    const selected = selectDiscussions(discussions);
     const groups = groupDiscussionsByFile(selected);
     if (groups.length === 0) return [];
 
