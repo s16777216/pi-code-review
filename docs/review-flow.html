@@ -77,6 +77,7 @@
   .yes { color: var(--new-bd); font-weight: 600; }
   .no { color: var(--warn); font-weight: 600; }
   .scroll { overflow-x: auto; }
+  .mermaid .node.code rect, .mermaid .node.code polygon { fill: var(--guard-bg) !important; stroke: var(--guard-bd) !important; stroke-width: 2px !important; stroke-dasharray: 5 3 !important; }
   .mermaid .node.old rect, .mermaid .node.old polygon { fill: var(--old-bg) !important; stroke: var(--old-bd) !important; stroke-width: 2px !important; }
   .mermaid .node.judge rect, .mermaid .node.judge polygon { fill: var(--judge-bg) !important; stroke: var(--judge-bd) !important; stroke-width: 2px !important; }
   .mermaid .node.guard rect, .mermaid .node.guard polygon { fill: var(--guard-bg) !important; stroke: var(--guard-bd) !important; stroke-width: 2px !important; }
@@ -96,7 +97,7 @@
   <div class="note" style="margin:0 0 16px">
     <ul style="margin:0;padding-left:20px">
       <li>judge agent 與 review agent 在同一高度，表示兩者互不依賴：judge agent 只讀討論、diff 與檔案內容。</li>
-      <li>4. verify agent 同時接受 finding verifier（3.）的 finding 與 judge agent（2.）的宣告，由它判斷最終輸出的 open issue 與 resolved issue。</li>
+      <li>4. verify agent 同時接受 finding verifier（3.）的 finding 與 judge agent（2.）的宣告，由它判斷最終輸出的 open issue 與 resolved issue。它負責 finding 與舊討論的對應，可以讀人的回覆，並單獨決定是否 resolve，沒有程式端的確定性把關（錨點、證據行）。</li>
       <li>下方的表格與「失敗時的處理」描述的是目前的實作，還沒有改成這個流程。</li>
     </ul>
   </div>
@@ -105,17 +106,21 @@
 flowchart TD
   R["1#46; review agent ×3（並行）"]
   J["2#46; judge agent（逐檔一次）"]
+  C["程式碼：移除不在 MR diff 內的 finding"]
   F["3#46; finding verifier：整理並驗證"]
   V["4#46; verify agent"]
   O["輸出"]
-  R -->|"合併後的 finding"| F
+  R -->|"合併後的 finding"| C
+  C -->|"在 diff 內的 finding"| F
   F -->|"整理後的 finding"| V
-  J --->|"fixed 的宣告（含證據行）"| V
+  J ---->|"fixed 的宣告（含證據行）"| V
   V -->|"open issue、resolved issue"| O
   classDef old stroke-width:2px
   classDef judge stroke-width:2px
   classDef guard stroke-width:2px
   classDef final stroke-width:2px
+  classDef code stroke-width:2px
+  class C code
   class R,F old
   class J judge
   class V guard
@@ -129,10 +134,11 @@ flowchart TD
         <tr><th>區塊</th><th style="text-align:left">讀取</th><th style="text-align:left">工作</th></tr>
       </thead>
       <tbody>
-        <tr><td>1. review agent ×3（並行）</td><td style="text-align:left">diff、現有討論</td><td style="text-align:left">找新問題，產生 finding</td></tr>
+        <tr><td>1. review agent ×3（並行）</td><td style="text-align:left">diff。與討論無關</td><td style="text-align:left">找新問題，產生 finding</td></tr>
         <tr><td>2. judge agent（逐檔一次）</td><td style="text-align:left">現有討論、diff、檔案內容。不看任何 finding</td><td style="text-align:left">判斷本工具開的未解決討論：<code>fixed</code> / <code>not_fixed</code> / <code>uncertain</code>，<code>fixed</code> 附證據行</td></tr>
-        <tr><td>3. finding verifier</td><td style="text-align:left">1. 合併後的 finding</td><td style="text-align:left">整理：同一問題被重複報告時只留一個。驗證：逐檔複核，刪掉被判 <code>rejected</code> 的</td></tr>
-        <tr><td>4. verify agent</td><td style="text-align:left">現有討論、diff、檔案內容；3. 的 finding；2. 的宣告</td><td style="text-align:left">判斷最終輸出的 open issue（仍成立的 finding）與 resolved issue（已修好的討論）</td></tr>
+        <tr><td>程式碼：移除不在 MR diff 內的 finding</td><td style="text-align:left">1. 合併後的 finding、MR 的 diff</td><td style="text-align:left">不用模型。丟掉檔案不在變更內、行號不在 diff 內，或 diff 被省略的 finding，並寫一行 <code>warn</code></td></tr>
+        <tr><td>3. finding verifier</td><td style="text-align:left">上一步留下的 finding</td><td style="text-align:left">整理：同一問題被重複報告時只留一個。驗證：逐檔複核，刪掉被判 <code>rejected</code> 的</td></tr>
+        <tr><td>4. verify agent</td><td style="text-align:left">現有討論（含人的回覆）、diff、檔案內容；3. 的 finding；2. 的宣告</td><td style="text-align:left">對每個 finding 判斷：新問題，或重複了開著的討論（丟掉），或關聯到已 resolve 的討論（回覆並重開），或人已說明是刻意設計（丟掉）。對每個 2. 的宣告判斷是否 resolve。輸出 open issue 與 resolved issue</td></tr>
         <tr><td>輸出</td><td style="text-align:left">4. 的 open issue 與 resolved issue</td><td style="text-align:left"><code>findings.json</code>（finding、resolved、warnings）→ <code>publish</code></td></tr>
       </tbody>
     </table>
@@ -145,9 +151,10 @@ flowchart TD
         <tr><th>agent</th><th>finding</th><th>第一則筆記</th><th>人的回覆</th><th>judge 結論</th><th>現行程式碼</th></tr>
       </thead>
       <tbody>
-        <tr><td>review agent</td><td>自己找</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
+        <tr><td>review agent</td><td>自己找</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
         <tr><td>judge agent</td><td class="no">無</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
         <tr><td>finding verifier</td><td class="yes">看</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
+        <tr><td>verify agent</td><td class="yes">看</td><td class="yes">看</td><td class="yes">看</td><td class="yes">看</td><td class="yes">看</td></tr>
       </tbody>
     </table>
   </div>
