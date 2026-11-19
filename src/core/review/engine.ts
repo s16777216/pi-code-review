@@ -147,6 +147,81 @@ export interface AgentReviewEngineOptions {
   timeoutMs?: number;
 }
 
+/** The one limit of active agent runs for one review
+ * (`run-judge-with-review-agents` design, Decision 2). Every pool job takes a
+ * slot and gives it back. A free slot goes to the waiting job with the lowest
+ * `priority`, and among equal priorities to the one that asked first. The slots
+ * are given out in a microtask, so a worker that gives back a slot and asks
+ * again in the same tick wins against a waiter of a higher priority number. */
+export class RunLimit {
+  private active = 0;
+  private seq = 0;
+  private readonly waiting: { priority: number; seq: number; resolve: () => void }[] = [];
+
+  constructor(private readonly max: number) {}
+
+  acquire(priority: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.waiting.push({ priority, seq: this.seq++, resolve });
+      this.schedule();
+    });
+  }
+
+  release(): void {
+    this.active -= 1;
+    this.schedule();
+  }
+
+  private schedule(): void {
+    queueMicrotask(() => {
+      while (this.active < this.max && this.waiting.length > 0) {
+        let best = 0;
+        this.waiting.forEach((w, i) => {
+          const b = this.waiting[best]!;
+          if (w.priority < b.priority || (w.priority === b.priority && w.seq < b.seq)) best = i;
+        });
+        const [next] = this.waiting.splice(best, 1);
+        this.active += 1;
+        next!.resolve();
+      }
+    });
+  }
+}
+
+/** Runs `count` jobs in order. Every job takes a slot of the review's one
+ * limit (`limit`) before it starts and gives it back when it ends or throws,
+ * so all pools of a review together run at most `MAX_PARALLEL_RUNS` jobs. No
+ * new job starts when `stopped()` is true, also for a worker that waited for
+ * its slot. */
+export async function runPool(
+  limit: RunLimit,
+  priority: number,
+  count: number,
+  job: (index: number) => Promise<void>,
+  stopped: () => boolean = () => false,
+): Promise<void> {
+  let next = 0;
+  const worker = async () => {
+    while (!stopped() && next < count) {
+      await limit.acquire(priority);
+      try {
+        if (stopped() || next >= count) return;
+        const index = next;
+        next += 1;
+        await job(index);
+      } finally {
+        limit.release();
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_RUNS, count) }, worker));
+}
+
+/** The priority of the review agent runs. The judge and verifier runs wait
+ * behind them. */
+export const REVIEW_PRIORITY = 0;
+export const STEP_PRIORITY = 1;
+
 /** One agent run: a run scope and a review focus
  * (`add-multi-agent-review` design, Decision 1). */
 interface PlannedRun {
@@ -194,31 +269,52 @@ export class AgentReviewEngine implements ReviewEngine {
     const scopes = this.planRuns(context, changes, logger);
     // By scope, then by review focus: the order of the runs, of the pool, and of the merge.
     const runs: PlannedRun[] = scopes.flatMap((scope) => REVIEW_FOCUSES.map((focus) => ({ scope, focus })));
-    const outputs = await this.runAll(context, changes, runs, logger);
+    // One limit for all steps of this review. The judge starts now, with the review agents
+    // (`run-judge-with-review-agents` design, Decisions 1 to 3).
+    const limit = new RunLimit(MAX_PARALLEL_RUNS);
+    let reviewFailed = false;
+    const judged = this.judgeDiscussions(context, changes, logger, limit, () => reviewFailed);
+    // A review that fails first must leave no unhandled rejection. `runChecks` still gets the original error.
+    judged.catch(() => {});
+    try {
+      const outputs = await this.runAll(context, changes, runs, logger, limit, () => {
+        reviewFailed = true;
+      });
 
-    const findings: Finding[] = [];
-    const perFocus = new Map<string, number>(REVIEW_FOCUSES.map((focus) => [focus.name, 0]));
-    outputs.forEach((output, i) => {
-      const run = runs[i]!;
-      const kept = run.scope.filterFindings(output.findings, changes, logger);
-      findings.push(...kept);
-      perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
-    });
-    for (const [focus, count] of perFocus) {
-      logger.info({ focus, findings: count }, `Review focus ${focus}: ${count} finding(s).`);
+      const findings: Finding[] = [];
+      const perFocus = new Map<string, number>(REVIEW_FOCUSES.map((focus) => [focus.name, 0]));
+      outputs.forEach((output, i) => {
+        const run = runs[i]!;
+        const kept = run.scope.filterFindings(output.findings, changes, logger);
+        findings.push(...kept);
+        perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
+      });
+      for (const [focus, count] of perFocus) {
+        logger.info({ focus, findings: count }, `Review focus ${focus}: ${count} finding(s).`);
+      }
+
+      const checked = await runChecks(
+        { findings },
+        context,
+        changes,
+        logger,
+        async (checkedFindings) =>
+          this.verify(
+            await this.deduplicate(checkedFindings, logger, warnings),
+            context,
+            changes,
+            logger,
+            warnings,
+            limit,
+          ),
+        () => judged,
+        (remaining, declarations) => this.decideFinal(remaining, declarations, context, changes, logger, limit),
+      );
+      return { ...checked, unreviewedFiles, warnings };
+    } catch (error) {
+      reviewFailed = true;
+      throw error;
     }
-
-    const checked = await runChecks(
-      { findings },
-      context,
-      changes,
-      logger,
-      async (checkedFindings) =>
-        this.verify(await this.deduplicate(checkedFindings, logger, warnings), context, changes, logger, warnings),
-      () => this.judgeDiscussions(context, changes, logger),
-      (remaining, declarations) => this.decideFinal(remaining, declarations, context, changes, logger),
-    );
-    return { ...checked, unreviewedFiles, warnings };
   }
 
   /** One scope for the whole change, or one `Batch` for each run
@@ -311,12 +407,16 @@ export class AgentReviewEngine implements ReviewEngine {
     changes: ChangeSet,
     runs: PlannedRun[],
     logger: Logger,
+    limit: RunLimit,
+    onFailure: () => void,
   ): Promise<ParsedReviewOutput[]> {
     const outputs: ParsedReviewOutput[] = [];
     const active = new Set<Agent>();
     let failure: { error: unknown } | null = null;
 
-    await this.runPool(
+    await runPool(
+      limit,
+      REVIEW_PRIORITY,
       runs.length,
       async (i) => {
         const { scope, focus } = runs[i]!;
@@ -339,6 +439,7 @@ export class AgentReviewEngine implements ReviewEngine {
                 )
               : error;
           failure = { error: scope.describeFailure(named) };
+          onFailure();
           for (const agent of active) agent.abort();
         }
       },
@@ -346,21 +447,6 @@ export class AgentReviewEngine implements ReviewEngine {
     );
     if (failure !== null) throw (failure as { error: unknown }).error;
     return outputs;
-  }
-
-  /** Runs `count` jobs, at most `MAX_PARALLEL_RUNS` at a time, in order. The
-   * review runs and the verifier runs use this one limit. No new job starts
-   * when `stopped()` is true. */
-  private async runPool(count: number, job: (index: number) => Promise<void>, stopped: () => boolean = () => false) {
-    let next = 0;
-    const worker = async () => {
-      while (!stopped() && next < count) {
-        const index = next;
-        next += 1;
-        await job(index);
-      }
-    };
-    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_RUNS, count) }, worker));
   }
 
   /** The verification step on the findings after the deduplication step
@@ -374,12 +460,13 @@ export class AgentReviewEngine implements ReviewEngine {
     changes: ChangeSet,
     logger: Logger,
     warnings: ReviewWarning[],
+    limit: RunLimit,
   ): Promise<Finding[]> {
     const groups = groupByFile(findings);
     if (groups.length === 0) return findings;
 
     const applied: (AppliedVerdict[] | null)[] = groups.map(() => null);
-    await this.runPool(groups.length, async (i) => {
+    await runPool(limit, STEP_PRIORITY, groups.length, async (i) => {
       applied[i] = await this.verifyFile(groups[i]!, context, changes, logger, warnings);
     });
 
@@ -514,6 +601,8 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
+    limit: RunLimit,
+    stopped: () => boolean,
   ): Promise<JudgedDeclaration[]> {
     const discussions = await context.listDiscussions();
     if (!Array.isArray(discussions)) return [];
@@ -522,9 +611,15 @@ export class AgentReviewEngine implements ReviewEngine {
     if (groups.length === 0) return [];
 
     const judged: (DiscussionJudgment[] | null)[] = groups.map(() => null);
-    await this.runPool(groups.length, async (i) => {
-      judged[i] = await this.judgeFile(groups[i]!, context, changes, logger);
-    });
+    await runPool(
+      limit,
+      STEP_PRIORITY,
+      groups.length,
+      async (i) => {
+        judged[i] = await this.judgeFile(groups[i]!, context, changes, logger);
+      },
+      stopped,
+    );
 
     const resolved: JudgedDeclaration[] = [];
     const counts = { fixed: 0, not_fixed: 0, uncertain: 0 };
@@ -620,6 +715,7 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
+    limit: RunLimit,
   ): Promise<{ findings: Finding[]; resolved: ResolvedDiscussion[] }> {
     const discussions = await context.listDiscussions();
     if (!Array.isArray(discussions)) return { findings, resolved: [] };
@@ -627,7 +723,7 @@ export class AgentReviewEngine implements ReviewEngine {
     if (groups.length === 0) return { findings, resolved: [] };
 
     const decided: (Decisions | null)[] = groups.map(() => null);
-    await this.runPool(groups.length, async (i) => {
+    await runPool(limit, STEP_PRIORITY, groups.length, async (i) => {
       decided[i] = await this.decideFile(groups[i]!, context, changes, logger);
     });
 

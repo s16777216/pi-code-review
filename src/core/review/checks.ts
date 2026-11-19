@@ -30,7 +30,9 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
  * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
  * optional step after it: it gets no argument and is the only source of
  * fixed declarations (`remove-agent-resolve-declaration` design, Decision 3).
- * It does not read the findings (`decouple-judge-from-findings` design). */
+ * It does not read the findings (`decouple-judge-from-findings` design). The
+ * caller starts the step early and the function only returns its promise, so
+ * the check waits here for the result (`run-judge-with-review-agents` design). */
 /** A declaration from the discussion judgment step. `evidence` is the line of
  * the current file that the judge gave for a `fixed` judgment
  * (`judge-evidence-line` design, Decision 5). It never reaches the result. */
