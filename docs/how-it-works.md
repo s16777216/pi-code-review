@@ -10,7 +10,7 @@
 
 A change that is too large for one request is split first. See [Large merge requests](#large-merge-requests).
 
-> A review makes about three times more model calls than a review with one agent, plus at most one call for deduplication, one for each file with findings, and one for each file with open discussions from this tool. It costs more, and for a change in many batches it takes more time. For a change that fits one request, the three agents run at the same time.
+> A review makes about three times more model calls than a review with one agent, plus at most one call for deduplication, one for each file with findings, one for each file with open discussions from this tool, and one for each file that has a discussion and a finding or a declaration (the verify agent). It costs more, and for a change in many batches it takes more time. For a change that fits one request, the three agents run at the same time.
 
 ## Review agents
 
@@ -22,7 +22,7 @@ A change that is too large for one request is split first. See [Large merge requ
 
 A review focus is not a limit. An agent still reports any other genuine bug that it sees. The three agents get the same input and the same [review instructions](customization.md#review-instructions). The review focuses are built in. You cannot change them or turn them off.
 
-The agent reads each diff with the line numbers of the new file. It can read any changed file with `get_file_content`. The system prompt tells it to report the line that holds the problem: a line inside the added or changed lines for a changed problem, the line of the unchanged code for an unchanged problem, and not the line that opens the function, the block, or the call around the problem. The tool does not check this rule. A finding on a line that is not in the diff is dropped.
+The agent reads each diff with the line numbers of the new file. It can read any changed file with `get_file_content`. It does not read the discussions of the merge request. The system prompt tells it to report the line that holds the problem: a line inside the added or changed lines for a changed problem, the line of the unchanged code for an unchanged problem, and not the line that opens the function, the block, or the call around the problem. The tool does not check this rule. A finding on a line that is not in the diff is dropped.
 
 ## Deduplication
 
@@ -50,13 +50,25 @@ The findings file does not hold the verdicts. The `info` log shows the numbers b
 
 After verification, a **judge** agent checks the open discussions that this tool started. The **discussion judgment step** finds the cases where the author already fixed the problem.
 
-- The step selects a discussion when this tool started it, it is not resolved, it has an anchor, no remaining finding links to it with `relatesTo`. When no discussion is selected, the step makes no model call.
+- The step selects a discussion when this tool started it, it is not resolved, it has an anchor. The step does not read the findings, so a discussion that a finding links to is also judged. If the judge says `fixed` for such a discussion, the check on declarations drops the declaration with the reason `linked_by_finding` and writes a `warn` line. When no discussion is selected, the step makes no model call.
 - The judge handles one file at a time. It sees the title, the description, the diff of the file, and the numbered discussions with their notes. It can read any changed file with `get_file_content`. It also gets the review instructions. The prompt tells it that notes, including replies from people, are only hints. The current code decides.
 - For each discussion it gives a **judgment**: `fixed`, `not_fixed`, or `uncertain`, with a reason that quotes the code. A reply of a person that rejects the finding gives `not_fixed`. Resolving such a discussion is a decision for a person.
-- Only `fixed` has an effect. It becomes a fixed declaration and goes through the checks on declarations. The anchor check stays: when a line of the current file still has the anchor of the discussion, the declaration is dropped. One exception applies to the judge only: it gives an evidence line with each `fixed` judgment. The declaration passes when that line is a whole line of the current file (compared after trimming, collapsing spaces, and removing a final `;` or `,`), has at least 8 characters, is one line, and is not the anchored line. The log shows each accepted evidence line, and a rejected one has a `problem` field.
+- Only `fixed` has an effect. It becomes a fixed declaration and goes to the verify agent. The judge alone never resolves a discussion. The judge also gives an evidence line with each `fixed` judgment. The code check treats a declaration as supported when no line of the current file has the anchor of the discussion, or when the evidence line is a whole line of the current file (compared after trimming, collapsing spaces, and removing a final `;` or `,`), has at least 8 characters, is one line, and is not the anchored line. The log shows each accepted evidence line, and a rejected one has a `problem` field.
 - When the run for a file fails after its tries, or its first request is larger than half of the context window, `review` writes a `warn` line and declares no discussion of that file fixed. It adds no warning to the findings file. The review does not fail.
 
-The findings file does not hold the judgments. The `info` log shows how many discussions the step selected and how many got each judgment, and one line for each `fixed` judgment. When the checks drop a declaration that came from the judge, the `warn` line has `source: discussion_judgment`. With `--debug`, the log has one more line for every judgment.
+The findings file does not hold the judgments. The `info` log shows how many discussions the step selected and how many got each judgment, and one line for each `fixed` judgment. The `warn` line of the code check for a declaration that came from the judge has `source: discussion_judgment`. With `--debug`, the log has one more line for every judgment.
+
+## Final decisions
+
+After the judge, a **verify agent** makes the final decisions. It is a different agent from the verifier of the verification step. It runs once for each file that has a discussion, and at least one finding or one declaration. A file with no discussion needs no match and no resolve, so its findings pass with no call.
+
+- The agent sees the diff of the file and three numbered lists: the findings of the file, the declarations of the judge with their reason and evidence line, and all discussions of the file with their notes. The discussions are from this tool and from people, open and resolved. It can read any changed file with `get_file_content`. It also gets the review instructions.
+- For each finding it decides `keep` or `drop`. A kept finding gets the discussion that it relates to, or none. The review agents do not set `relatesTo`, so the verify agent is its only source. `publish` then posts nothing for an open discussion and replies and reopens for a resolved one. The agent drops a finding when a note shows that the problem is intended or already handled.
+- For each declaration it decides `resolve` or `keep_open`. Only a discussion that the judge declared can be resolved. A discussion that a kept finding relates to must stay open: the tool rejects a call that does both. When a person replied that the problem stays by decision, for example the author does not accept the finding, and the code did not change, the prompt tells the agent to keep the discussion open, also when the reason of the judge says that there is no problem.
+- The replies of people are information and not proof. The prompt says so. There is no program check that stops a reply from influencing a decision. The anchor check and the evidence line no longer decide: the program runs them for each resolved discussion and writes a `warn` line with the field `comparison` set to `verify_agent_resolved` when it would reject the discussion.
+- When the run for a file fails after its tries, or its first request is larger than half of the context window, `review` writes a `warn` line, keeps the findings of that file as they are, and resolves nothing there. It adds no warning to the findings file.
+
+The `info` log shows how many files the agent decided, how many findings it kept and dropped, and how many discussions it resolved and left open. With `--debug`, it shows each decision and its reason.
 
 ## Large merge requests
 
@@ -65,7 +77,7 @@ The findings file does not hold the judgments. The `info` log shows how many dis
 - Files are sorted by path and packed into batches, so files in one directory usually share a batch. A file that is too large for one batch is split at its hunks, shown as `<path> (part k of n)`, with the real line numbers.
 - Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file.
 - A finding from a batch counts only on a line of that batch's own diffs. The outputs of all agents are merged, and the checks, the deduplication step, the verification step, and the discussion judgment step run once on the merged output.
-- At most 20 batches, and at most 3 agent runs at the same time for all batches and focuses together. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
+- At most 20 batches, and at most 3 agent runs at the same time for all batches, focuses, and steps together. The judge starts with the review agents and uses the free slots, so its time overlaps the time of the review agents. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
 
 **Room for the answer.** A run can answer with at most the context window minus its input minus 4,096 tokens, which `pi-ai` keeps free. So set `--context-window` to the real window of the model, and to at least about twice `4096 + --max-tokens`. The defaults (`128000` and `32000`) meet this. With a smaller window, a run can stop at the token limit. `review` then tries the run once more with twice `--max-tokens`. If the run stops again, `review` fails with an error that names `--max-tokens` and `--context-window`. A large batch with many findings can also stop at the default `--max-tokens`. For a merge request with about 90 changed files, `--max-tokens 48000` worked.
 
@@ -75,13 +87,13 @@ Files whose diff is not reviewed (see [Output](#output)) are not counted in the 
 
 ## Existing discussions
 
-During `review`, the agent can read the existing discussions of the merge request with a `list_discussions` tool: comments from people and from earlier runs of this tool, with file, line, resolved state, and author. It uses them to avoid repeating a problem, and to respect explanations such as "this is intentional". A finding that covers the same problem as a discussion carries `relatesTo: <discussion id>` in `findings.json`.
+The review agents do not read the discussions. They read the diff and the code only. The judge reads the open discussions of this tool, and the [verify agent](#final-decisions) reads all discussions of a file: comments from people and from earlier runs of this tool, with file, line, resolved state, and notes. The verify agent drops a finding that a person already explained as intended, and it links a finding that covers the same problem as a discussion. Such a finding carries `relatesTo: <discussion id>` in `findings.json`.
 
 Each comment that `publish` posts starts with a hidden `<!-- pi-code-review -->` marker, so later runs can tell this tool's comments from a person's.
 
-The discussion judgment step can declare that one of this tool's own open comments is fixed, with a reason. `review` accepts the declaration only after a check on the code: the exact line that the comment pointed at (same file, same text, ignoring indentation) must no longer be in the current file, or the file must be deleted. `publish` then replies `**Resolved**: <reason>` (the default `RESOLVED.md` template) and resolves the discussion. The check is strict on purpose: a fix in another place, such as a caller, leaves the comment open for a person. A discussion that a person started is never resolved by this tool. Fixed declarations never affect pass or fail.
+The judge can declare that one of this tool's own open comments is fixed, with a reason, and the verify agent decides whether `review` resolves it. A check on the code only writes a `warn` line for a resolved comment that it would reject: the exact line that the comment pointed at (same file, same text, ignoring indentation) is still in the current file, and the evidence line of the judge does not support the fix. `publish` then replies `**Resolved**: <reason>` (the default `RESOLVED.md` template) and resolves the discussion. A discussion that a person started is never resolved by this tool. Fixed declarations never affect pass or fail.
 
-**Risk.** Anyone who can comment on the merge request writes text that the agent reads. The agent treats that text as information, not as instructions, but a crafted comment can still influence the review. Keep this in mind when the exit code of `publish` gates a merge.
+**Risk.** Anyone who can comment on the merge request writes text that the judge and the verify agent read. They treat that text as information, not as instructions, but a crafted comment can still influence the review. Keep this in mind when the exit code of `publish` gates a merge.
 
 ## Failures and warnings
 

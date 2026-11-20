@@ -24,17 +24,27 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
 }
 
 /** The fixed checks, in their existing order, on one merged output:
- * `relatesTo`, the diff line check, the anchor, and the fixed declarations.
+ * the diff line check, the anchor, and the fixed declarations.
  * `betweenSteps` is an optional step on the checked findings, before the check
  * on the fixed declarations: the deduplication step runs there
  * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
- * optional step after it: it gets the remaining findings and is the only
- * source of fixed declarations (`remove-agent-resolve-declaration` design,
- * Decision 3). */
+ * optional step after it: it gets no argument and is the only source of
+ * fixed declarations (`remove-agent-resolve-declaration` design, Decision 3).
+ * It does not read the findings (`decouple-judge-from-findings` design). The
+ * caller starts the step early and the function only returns its promise, so
+ * the check waits here for the result (`run-judge-with-review-agents` design). */
 /** A declaration from the discussion judgment step. `evidence` is the line of
  * the current file that the judge gave for a `fixed` judgment
  * (`judge-evidence-line` design, Decision 5). It never reaches the result. */
 export type JudgedDeclaration = ResolvedDiscussion & { evidence?: string };
+
+/** The verify agent step: it gets the findings and the declarations of the
+ * judge, and returns the final findings and the resolved discussions
+ * (`add-verify-agent` design). */
+export type DecideFinal = (
+  findings: Finding[],
+  declarations: JudgedDeclaration[],
+) => Promise<{ findings: Finding[]; resolved: ResolvedDiscussion[] }>;
 
 export async function runChecks(
   output: ParsedReviewOutput,
@@ -42,9 +52,10 @@ export async function runChecks(
   changes: ChangeSet,
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
-  judgeDiscussions?: (findings: Finding[]) => Promise<JudgedDeclaration[]>,
+  judgeDiscussions?: () => Promise<JudgedDeclaration[]>,
+  decideFinal?: DecideFinal,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
-  const checked = (await checkRelatesTo(output.findings, context, logger))
+  const checked = output.findings
     .filter((finding) => {
       // The review did not show this file's diff, so it does not report on it
       // (`handle-omitted-diffs` design, Decision 3).
@@ -64,7 +75,7 @@ export async function runChecks(
     });
   const findings = await betweenSteps(checked);
   if (judgeDiscussions === undefined) return { findings, resolved: [] };
-  const judged = await judgeDiscussions(findings);
+  const judged = await judgeDiscussions();
   // The evidence line of each declaration. A key with no value is a
   // declaration with no evidence line. The first declaration of an ID wins.
   const evidenceById = new Map<string, string | undefined>();
@@ -74,35 +85,21 @@ export async function runChecks(
     evidenceById.set(declaration.discussionId, evidence);
     declarations.push(declaration);
   }
-  const resolved = await checkResolved(declarations, findings, context, changes, logger, evidenceById);
-  return { findings, resolved };
-}
-
-/** Keeps a finding's `relatesTo` only when it names a discussion that
- * `listDiscussions` returned for this change. An unknown ID is removed with a
- * `warn` line, and the finding stays. When the discussions cannot be read,
- * every `relatesTo` is removed. `listDiscussions` is cached per review, so
- * this makes no extra API call when the agent already used the tool. */
-async function checkRelatesTo(findings: Finding[], context: ReviewContext, logger: Logger): Promise<Finding[]> {
-  if (!findings.some((finding) => finding.relatesTo !== undefined)) return findings;
-
-  const discussions = await context.listDiscussions();
-  const knownIds = Array.isArray(discussions) ? new Set(discussions.map((discussion) => discussion.id)) : null;
-
-  return findings.map((finding) => {
-    if (finding.relatesTo === undefined || knownIds?.has(finding.relatesTo)) return finding;
-    logger.warn(
-      {
-        file: finding.file,
-        line: finding.line,
-        relatesTo: finding.relatesTo,
-        reason: knownIds === null ? 'discussions_unavailable' : 'unknown_discussion',
-      },
-      'removed relatesTo from a finding',
-    );
-    const { relatesTo: _removed, ...rest } = finding;
-    return rest;
+  if (decideFinal === undefined) {
+    const resolved = await checkResolved(declarations, findings, context, changes, logger, evidenceById);
+    return { findings, resolved };
+  }
+  // The verify agent decides. The code check runs for the log only: it writes
+  // a `warn` line for each resolved discussion that it would reject
+  // (`add-verify-agent` design, Decision 7).
+  const decided = await decideFinal(
+    findings,
+    judged.filter((item, index) => judged.findIndex((other) => other.discussionId === item.discussionId) === index),
+  );
+  await checkResolved(decided.resolved, decided.findings, context, changes, logger, evidenceById, {
+    comparison: 'verify_agent_resolved',
   });
+  return { findings: decided.findings, resolved: decided.resolved };
 }
 
 /** Why a fixed declaration was not accepted. The checks run in this order,
@@ -160,6 +157,7 @@ async function checkResolved(
   changes: ChangeSet,
   logger: Logger,
   judged: ReadonlyMap<string, string | undefined>,
+  extraWarnFields: Record<string, unknown> = {},
 ): Promise<ResolvedDiscussion[]> {
   if (declarations.length === 0) return [];
 
@@ -224,6 +222,7 @@ async function checkResolved(
               }
             : {}),
           ...(judged.has(declaration.discussionId) ? { source: 'discussion_judgment' } : {}),
+          ...extraWarnFields,
         },
         'did not accept a fixed declaration',
       );

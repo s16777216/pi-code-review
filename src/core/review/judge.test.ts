@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Finding, ReviewContext, ReviewDiscussion } from '../types.ts';
+import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import { MAX_SUBMIT_ATTEMPTS } from './agent.ts';
 import { ChangedFile } from './changedFile.ts';
 import { ReviewFailureError } from './findings.ts';
@@ -28,10 +28,6 @@ function discussion(id: string, file: string | null, extra: Partial<ReviewDiscus
     notes: [{ author: 'picr', body: `Note of ${id}.` }],
     ...extra,
   };
-}
-
-function finding(relatesTo?: string): Finding {
-  return { file: 'a.ts', line: 1, severity: 'low', summary: 'S.', ...(relatesTo === undefined ? {} : { relatesTo }) };
 }
 
 function judgment(number: number, value: DiscussionJudgment['judgment'], reason = 'The code shows it.') {
@@ -64,45 +60,35 @@ test('grouping leaves out a discussion with no file and gives no group for no di
 
 test('an open discussion from this tool is selected', () => {
   const list = [discussion('d1', 'src/a.ts')];
-  assert.deepEqual(ids(selectDiscussions(list, [])), ['d1']);
+  assert.deepEqual(ids(selectDiscussions(list)), ['d1']);
 });
 
 test('a discussion from a person is not selected', () => {
   const list = [discussion('d1', 'src/a.ts', { fromThisTool: false, anchor: null })];
-  assert.deepEqual(selectDiscussions(list, []), []);
-  assert.deepEqual(selectDiscussions([discussion('d2', 'src/a.ts', { fromThisTool: false })], []), []);
+  assert.deepEqual(selectDiscussions(list), []);
+  assert.deepEqual(selectDiscussions([discussion('d2', 'src/a.ts', { fromThisTool: false })]), []);
 });
 
 test('a resolved discussion is not selected', () => {
-  assert.deepEqual(selectDiscussions([discussion('d1', 'src/a.ts', { resolved: true })], []), []);
+  assert.deepEqual(selectDiscussions([discussion('d1', 'src/a.ts', { resolved: true })]), []);
 });
 
 test('a discussion with no file is not selected', () => {
-  assert.deepEqual(selectDiscussions([discussion('d1', null)], []), []);
+  assert.deepEqual(selectDiscussions([discussion('d1', null)]), []);
 });
 
 test('a discussion with no anchor is not selected', () => {
-  assert.deepEqual(selectDiscussions([discussion('d1', 'src/a.ts', { anchor: null })], []), []);
-});
-
-test('a discussion that a remaining finding links to is not selected', () => {
-  const list = [discussion('d1', 'src/a.ts'), discussion('d2', 'src/a.ts')];
-  assert.deepEqual(ids(selectDiscussions(list, [finding('d1')])), ['d2']);
-});
-
-test('a discussion is selected when no finding links to it any more', () => {
-  // The verification step dropped the finding, so the findings do not hold it.
-  assert.deepEqual(ids(selectDiscussions([discussion('d1', 'src/a.ts')], [finding()])), ['d1']);
+  assert.deepEqual(selectDiscussions([discussion('d1', 'src/a.ts', { anchor: null })]), []);
 });
 
 test('no discussion selected gives no group, so there is no run', () => {
   const list = [discussion('d1', 'src/a.ts', { resolved: true })];
-  assert.deepEqual(groupDiscussionsByFile(selectDiscussions(list, [])), []);
+  assert.deepEqual(groupDiscussionsByFile(selectDiscussions(list)), []);
 });
 
 test('two discussions on one file and one on another give two groups', () => {
   const list = [discussion('d1', 'src/a.ts'), discussion('d2', 'src/a.ts'), discussion('d3', 'src/b.ts')];
-  const groups = groupDiscussionsByFile(selectDiscussions(list, []));
+  const groups = groupDiscussionsByFile(selectDiscussions(list));
   assert.deepEqual(
     groups.map((group) => [group.file, group.discussions.length]),
     [

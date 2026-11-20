@@ -119,6 +119,22 @@ export function formatDiff(title: string, file: ChangedFile): string {
   return `### ${title}\n\`\`\`diff\n${file.numbered()}\n\`\`\``;
 }
 
+/** The diff part of the prompt of an agent that works on one file: the diff
+ * of the file, or the reason why there is none. `file` is the changed file of
+ * the change, or `undefined` when the change does not include the file. */
+export function describeFileDiff(path: string, file: ChangedFile | undefined): string {
+  if (file === undefined) {
+    return `The change does not include ${path}. There is no diff. Read the file with the get_file_content tool.`;
+  }
+  if (file.omitted !== undefined) {
+    return `The diff of ${path} is omitted. Read the file with the get_file_content tool.`;
+  }
+  if (file.deleted) {
+    return `${formatDiff(file.path, file)}\n\nThe change deletes ${path}. The file no longer exists in the current code.`;
+  }
+  return formatDiff(file.path, file);
+}
+
 /** One line of the file list: the path, its state, and its counts of added
  * and removed lines. */
 function describeFile(file: ChangedFile): string {

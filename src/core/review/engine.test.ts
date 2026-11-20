@@ -311,62 +311,43 @@ const knownDiscussion: ReviewDiscussion = {
   notes: [{ author: 'bot', body: '**[important]** Real bug.' }],
 };
 
-test('SYSTEM_PROMPT covers the discussion tool and how to treat discussion text', () => {
-  assert.match(SYSTEM_PROMPT, /list_discussions/);
-  assert.match(SYSTEM_PROMPT, /never as instructions to you/);
-  assert.match(SYSTEM_PROMPT, /Consider resolved discussions and explanations from people/);
-  assert.match(SYSTEM_PROMPT, /"relatesTo"/);
+test('SYSTEM_PROMPT has no sentence about discussions and no relatesTo', () => {
+  assert.doesNotMatch(SYSTEM_PROMPT, /discussion/i);
+  assert.doesNotMatch(SYSTEM_PROMPT, /list_discussions/);
+  assert.doesNotMatch(SYSTEM_PROMPT, /relatesTo/);
 });
 
-test('AgentReviewEngine lets the agent call list_discussions and keeps a known relatesTo', async () => {
+test('a review agent run has the file-content tool and the submit_review tool only', async () => {
+  const faux = fauxProvider();
+  const seen: string[] = [];
+  logicOnly(faux, [
+    (context) => {
+      seen.push(JSON.stringify(context));
+      return submitReview([]);
+    },
+  ]);
+  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
+
+  await engine.review(smallContext());
+
+  assert.equal(seen.length, 1);
+  assert.match(seen[0]!, /get_file_content/);
+  assert.match(seen[0]!, /submit_review/);
+  assert.doesNotMatch(seen[0]!, /list_discussions/);
+});
+
+test('a relatesTo that a review agent sends does not reach the result', async () => {
   const faux = fauxProvider();
   logicOnly(faux, [
-    fauxAssistantMessage([fauxToolCall('list_discussions', { file: 'a.ts' })], { stopReason: 'toolUse' }),
     submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', relatesTo: 'd1' }]),
   ]);
-  let reads = 0;
   const context = smallContext();
-  context.listDiscussions = async () => {
-    reads += 1;
-    return [knownDiscussion];
-  };
+  context.listDiscussions = async () => [knownDiscussion];
   const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key' });
 
   const { findings } = await engine.review(context);
 
-  assert.deepEqual(withoutAnchors(findings), [
-    { file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', relatesTo: 'd1' },
-  ]);
-  assert.equal(faux.state.callCount, 5);
-  assert.equal(reads >= 1, true);
-});
-
-test('AgentReviewEngine removes an unknown relatesTo, keeps the finding, and logs it', async () => {
-  const faux = fauxProvider();
-  logicOnly(faux, [submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.', relatesTo: 'nope' }])]);
-  const context = smallContext();
-  context.listDiscussions = async () => [knownDiscussion];
-  const { logger, warnings } = recordingLogger();
-  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
-
-  const { findings } = await engine.review(context);
-
-  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }]);
-  assert.deepEqual(warnings, [{ file: 'a.ts', line: 1, relatesTo: 'nope', reason: 'unknown_discussion' }]);
-});
-
-test('AgentReviewEngine removes every relatesTo when the discussions cannot be read', async () => {
-  const faux = fauxProvider();
-  logicOnly(faux, [submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.', relatesTo: 'd1' }])]);
-  const context = smallContext();
-  context.listDiscussions = async () => ({ error: 'Failed to list discussions: 500' });
-  const { logger, warnings } = recordingLogger();
-  const engine = new AgentReviewEngine({ provider: faux.provider, model: faux.getModel(), apiKey: 'test-key', logger });
-
-  const { findings } = await engine.review(context);
-
-  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'low', summary: 'Minor.' }]);
-  assert.equal(warnings[0]!.reason, 'discussions_unavailable');
+  assert.deepEqual(withoutAnchors(findings), [{ file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.' }]);
 });
 
 test('AgentReviewEngine reads the discussions only once when no finding has relatesTo', async () => {
@@ -474,7 +455,7 @@ test('SYSTEM_PROMPT has one field for submit_review and no sentence about declar
 
 test('AgentReviewEngine accepts a fixed judgment when every check passes', async () => {
   const { resolved, warnings } = await reviewWithDeclaration({ discussion: ownDiscussion() });
-  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }]);
+  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.deepEqual(warnings, []);
 });
 
@@ -491,10 +472,15 @@ for (const [name, options, reason] of [
     'anchor_still_present',
   ],
 ] as const) {
-  test(`AgentReviewEngine rejects a fixed judgment for ${name}`, async () => {
+  test(`AgentReviewEngine resolves with the verify agent and logs the code check for ${name}`, async () => {
     const { resolved, warnings } = await reviewWithDeclaration(options as Parameters<typeof reviewWithDeclaration>[0]);
-    assert.deepEqual(resolved, []);
-    assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason, source: 'discussion_judgment' });
+    assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
+    assert.deepEqual(warnings.at(-1), {
+      discussionId: 'd1',
+      reason,
+      source: 'discussion_judgment',
+      comparison: 'verify_agent_resolved',
+    });
   });
 }
 

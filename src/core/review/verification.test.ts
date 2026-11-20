@@ -305,7 +305,7 @@ test('a finding that the verification step drops cannot keep a fixed judgment in
   );
 
   assert.deepEqual(findings, []);
-  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The loop is fixed.' }]);
+  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
 });
 
 // --- Failures ---

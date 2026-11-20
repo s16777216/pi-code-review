@@ -80,22 +80,35 @@ test('a judge declaration on a deleted file is accepted without a file read', as
   assert.deepEqual(reads, []);
 });
 
-test('judgeDiscussions gets the findings after betweenSteps', async () => {
+test('judgeDiscussions runs once after betweenSteps and gets no argument', async () => {
   const { context, logger } = setup([]);
-  let seen: Finding[] | undefined;
+  const seen: unknown[][] = [];
   await runChecks(
     { findings: [finding, { ...finding, line: 2 }] },
     context,
     changes,
     logger,
     async (findings) => findings.slice(0, 1),
-    async (findings) => {
-      seen = findings;
+    async (...args) => {
+      seen.push(args);
       return [];
     },
   );
-  assert.equal(seen?.length, 1);
-  assert.equal(seen?.[0]?.line, 1);
+  assert.deepEqual(seen, [[]]);
+});
+
+test('a fixed judgment for a discussion that a remaining finding links to is dropped with linked_by_finding', async () => {
+  const { context, logger, warns } = setup([discussion('d1')]);
+  const linked: Finding = { ...finding, relatesTo: 'd1' };
+  const result = await runChecks({ findings: [linked] }, context, changes, logger, undefined, async () => [
+    decl('d1', 'judge'),
+  ]);
+  assert.deepEqual(result.resolved, []);
+  assert.deepEqual(
+    result.findings.map((item) => item.relatesTo),
+    ['d1'],
+  );
+  assert.deepEqual(warns, [{ discussionId: 'd1', reason: 'linked_by_finding', source: 'discussion_judgment' }]);
 });
 
 // --- evidence line (`judge-evidence-line`) ---
@@ -244,4 +257,51 @@ test('a judge declaration with an evidence line on a deleted file is accepted wi
   );
   assert.deepEqual(result.resolved, [decl('d1', 'judge')]);
   assert.deepEqual(env.reads, []);
+});
+
+// --- verify agent (`add-verify-agent`) ---
+
+test('with a verify agent step, its result is the result, and the code check only logs a rejection', async () => {
+  const anchor = computeAnchor('a.ts', 'two');
+  const { context, logger, warns } = setup([discussion('d1', { anchor })]);
+  const result = await runChecks(
+    { findings: [finding] },
+    context,
+    changes,
+    logger,
+    undefined,
+    async () => [decl('d1', 'judge')],
+    async (findings, declarations) => ({
+      findings: findings.slice(0, 0),
+      resolved: declarations.map((declaration) => ({ discussionId: declaration.discussionId, reason: 'agent' })),
+    }),
+  );
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.resolved, [decl('d1', 'agent')]);
+  assert.deepEqual(warns, [
+    {
+      discussionId: 'd1',
+      reason: 'anchor_still_present',
+      source: 'discussion_judgment',
+      comparison: 'verify_agent_resolved',
+    },
+  ]);
+});
+
+test('the verify agent step gets the declarations of the judge with their evidence line', async () => {
+  const { context, logger } = setup([discussion('d1')]);
+  let seen: unknown;
+  await runChecks(
+    { findings: [] },
+    context,
+    changes,
+    logger,
+    undefined,
+    async () => [{ ...decl('d1', 'judge'), evidence: 'return guard(value);' }],
+    async (_findings, declarations) => {
+      seen = declarations;
+      return { findings: [], resolved: [] };
+    },
+  );
+  assert.deepEqual(seen, [{ discussionId: 'd1', reason: 'judge', evidence: 'return guard(value);' }]);
 });

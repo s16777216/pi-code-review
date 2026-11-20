@@ -1,11 +1,11 @@
 import { Type } from '@earendil-works/pi-ai';
 import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { silentLogger, type Logger } from '../../logger.ts';
-import type { Finding, ReviewContext, ReviewDiscussion } from '../types.ts';
+import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import { MAX_SUBMIT_ATTEMPTS } from './agent.ts';
 import type { ChangedFile } from './changedFile.ts';
 import { ReviewFailureError } from './findings.ts';
-import { formatDiff, header } from './prompt.ts';
+import { describeFileDiff, header } from './prompt.ts';
 
 // The discussion judgment step (`judge-open-discussions` design). A judge agent
 // reads the open discussions of one file against the current code. The model
@@ -66,19 +66,12 @@ export function groupDiscussionsByFile(discussions: readonly ReviewDiscussion[])
 }
 
 /** Picks the discussions to judge: from this tool, not resolved, with a file
- * and an anchor, with no remaining finding that has `relatesTo` equal to them. */
-export function selectDiscussions(
-  discussions: readonly ReviewDiscussion[],
-  findings: readonly Finding[],
-): ReviewDiscussion[] {
-  const linked = new Set(findings.flatMap((finding) => (finding.relatesTo === undefined ? [] : [finding.relatesTo])));
+ * and an anchor. The selection does not read the findings
+ * (`decouple-judge-from-findings` design, Decision 1). */
+export function selectDiscussions(discussions: readonly ReviewDiscussion[]): ReviewDiscussion[] {
   return discussions.filter(
     (discussion) =>
-      discussion.fromThisTool &&
-      !discussion.resolved &&
-      discussion.file !== null &&
-      discussion.anchor !== null &&
-      !linked.has(discussion.id),
+      discussion.fromThisTool && !discussion.resolved && discussion.file !== null && discussion.anchor !== null,
   );
 }
 
@@ -100,21 +93,11 @@ export function buildJudgePrompt(
     commit: discussion.positionCommit ?? NOT_KNOWN,
     notes: discussion.notes.map((note) => ({ author: note.author, body: note.body })),
   }));
-  let diff: string;
-  if (file === undefined) {
-    diff = `The change does not include ${path}. There is no diff. Read the file with the get_file_content tool.`;
-  } else if (file.omitted !== undefined) {
-    diff = `The diff of ${path} is omitted. Read the file with the get_file_content tool.`;
-  } else if (file.deleted) {
-    diff = `${formatDiff(file.path, file)}\n\nThe change deletes ${path}. The file no longer exists in the current code.`;
-  } else {
-    diff = formatDiff(file.path, file);
-  }
   return [
     ...header(context),
     '## Diff of the file',
     '',
-    diff,
+    describeFileDiff(path, file),
     '',
     '## Discussions to judge',
     '',

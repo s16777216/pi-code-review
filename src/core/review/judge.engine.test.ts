@@ -5,7 +5,7 @@ import type { FauxResponseStep } from '@earendil-works/pi-ai';
 import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import { computeAnchor } from './anchor.ts';
 import { AgentReviewEngine } from './engine.ts';
-import { confirmAll, perFocus } from './fauxFocus.ts';
+import { perFocus } from './fauxFocus.ts';
 
 // Tests for `judge-open-discussions`: the engine runs the discussion judgment
 // step after the verification step, one judge run for each file.
@@ -135,7 +135,7 @@ test('the judgment step makes no model call when listDiscussions returns an erro
   assert.deepEqual(result.resolved, []);
 });
 
-test('only a discussion linked by a finding that the verification step drops is selected', async () => {
+test('a discussion that a finding links to is still judged', async () => {
   const faux = fauxProvider();
   const judgePrompts: string[] = [];
   perFocus(
@@ -149,32 +149,56 @@ test('only a discussion linked by a finding that the verification step drops is 
       ],
     },
     undefined,
-    Array.from({ length: 2 }, () => (context: unknown) => {
-      const rejected = JSON.stringify(context).includes('a.ts');
-      return rejected
-        ? fauxAssistantMessage(
-            [
-              fauxToolCall('submit_verdicts', {
-                verdicts: [{ number: 1, verdict: 'rejected', severity: 'high', reason: 'Not a problem.' }],
-              } as never),
-            ],
-            { stopReason: 'toolUse' },
-          )
-        : confirmAll(context);
-    }),
-    [(context) => (judgePrompts.push(JSON.stringify(context)), submitJudgments([judgment(1, 'uncertain')]))],
+    undefined,
+    judgeBy(
+      (_file, _call, context) => (
+        judgePrompts.push(JSON.stringify(context)),
+        submitJudgments([judgment(1, 'uncertain')])
+      ),
+    ),
   );
   const discussions = [discussion('d1', 'a.ts', 'x'), discussion('d2', 'b.ts', 'x')];
 
   const { findings } = await engineFor(faux).review(contextFor(['a.ts', 'b.ts'], discussions));
 
-  assert.deepEqual(
-    findings.map((finding) => finding.file),
-    ['b.ts'],
+  assert.equal(findings.length, 2);
+  assert.equal(judgePrompts.length, 2);
+  assert.ok(judgePrompts.some((prompt) => prompt.includes('Note of d1.')));
+  assert.ok(judgePrompts.some((prompt) => prompt.includes('Note of d2.')));
+});
+
+test('a fixed judgment for a discussion that a finding links to stays open when the verify agent keeps the finding', async () => {
+  const faux = fauxProvider();
+  perFocus(
+    faux,
+    { [LOGIC]: [submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'A is wrong.' }])] },
+    undefined,
+    undefined,
+    judgeBy(() => submitJudgments([judgment(1, 'fixed')])),
+    [
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submit_decisions', {
+            findings: [{ number: 1, decision: 'keep', relatesTo: 1, reason: 'The same problem.' }],
+            declarations: [{ number: 1, decision: 'keep_open', reason: 'The finding is still open.' }],
+          } as never),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+    ],
   );
-  assert.equal(judgePrompts.length, 1);
-  assert.ok(judgePrompts[0]!.includes('Note of d1.'));
-  assert.ok(!judgePrompts[0]!.includes('Note of d2.'));
+  const { logger, warnings } = recordingLogger();
+
+  const { resolved, findings } = await engineFor(faux, { logger }).review(
+    contextFor(['a.ts'], [discussion('d1', 'a.ts', 'gone line')]),
+  );
+
+  assert.deepEqual(resolved, []);
+  assert.equal(findings[0]?.relatesTo, 'd1');
+  assert.equal(
+    warnings.some((warning) => warning.discussionId === 'd1'),
+    false,
+  );
 });
 
 // --- Shared run rules ---
@@ -362,13 +386,13 @@ test('the review result has no field for a judgment', async () => {
   const result = await engineFor(faux).review(contextFor(['a.ts'], [gone]));
 
   assert.deepEqual(Object.keys(result).sort(), ['findings', 'resolved', 'unreviewedFiles', 'warnings']);
-  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'Gone.' }]);
+  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.equal(JSON.stringify(result).includes('judgment'), false);
 });
 
 // --- End to end ---
 
-test('only a fixed judgment whose anchor is gone is resolved, and a fixed judgment with its anchor present is dropped', async () => {
+test('the verify agent resolves each fixed judgment, and the code check only logs the one with its anchor present', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([
@@ -388,10 +412,14 @@ test('only a fixed judgment whose anchor is gone is resolved, and a fixed judgme
 
   const result = await engineFor(faux, { logger }).review(contextFor(['a.ts'], discussions));
 
-  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The line is gone.' }]);
-  const dropped = warnings.find((fields) => fields.discussionId === 'd2');
-  assert.equal(dropped?.reason, 'anchor_still_present');
-  assert.equal(dropped?.source, 'discussion_judgment');
+  assert.deepEqual(
+    result.resolved.map((item) => item.discussionId),
+    ['d1', 'd2'],
+  );
+  const logged = warnings.find((fields) => fields.discussionId === 'd2');
+  assert.equal(logged?.reason, 'anchor_still_present');
+  assert.equal(logged?.source, 'discussion_judgment');
+  assert.equal(logged?.comparison, 'verify_agent_resolved');
   assert.equal(
     warnings.some((fields) => fields.discussionId === 'd3' || fields.discussionId === 'd4'),
     false,
@@ -415,7 +443,7 @@ test('a fixed judgment with a valid evidence line resolves a discussion whose an
 
   const result = await engineFor(faux, { logger }).review(evidenceContext([discussion('d1', 'a.ts', 'two')]));
 
-  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The guard is new.' }]);
+  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.equal(
     infos.some((fields) => fields.discussionId === 'd1' && fields.evidence === 'return guard(value);'),
     true,
@@ -433,7 +461,7 @@ test('the findings result has no field for the evidence line', async () => {
   assert.equal(JSON.stringify(result).includes('evidence'), false);
 });
 
-test('four fixed judgments: the anchor gone and a valid evidence line resolve, the others are dropped', async () => {
+test('four fixed judgments: the verify agent resolves all, and the code check logs the two that it rejects', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([
@@ -455,7 +483,7 @@ test('four fixed judgments: the anchor gone and a valid evidence line resolve, t
 
   assert.deepEqual(
     result.resolved.map((item) => item.discussionId),
-    ['d1', 'd2'],
+    ['d1', 'd2', 'd3', 'd4'],
   );
   assert.equal(warnings.find((fields) => fields.discussionId === 'd3')?.reason, 'evidence_not_valid');
   assert.equal(warnings.find((fields) => fields.discussionId === 'd4')?.reason, 'anchor_still_present');

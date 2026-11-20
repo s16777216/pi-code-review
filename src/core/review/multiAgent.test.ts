@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
-import type { Finding, ReviewContext, ReviewDiscussion } from '../types.ts';
+import type { Finding, ReviewContext } from '../types.ts';
 import {
   AgentReviewEngine,
   buildSystemPrompt,
@@ -497,35 +497,6 @@ test('the review goes on with the findings as they were when the deduplication s
   assert.equal(findings.length, 2);
   assert.deepEqual(warnings, [{ code: 'deduplication_failed' }]);
   assert.ok(logLines.some((line) => line.step === 'deduplication' && /Server error\./.test(String(line.error))));
-});
-
-test('the kept finding takes the relatesTo of the first finding of its group that has one', async () => {
-  const faux = fauxProvider();
-  const discussion: ReviewDiscussion = {
-    id: 'd1',
-    file: 'a.ts',
-    line: 1,
-    positionCommit: 'old',
-    resolved: false,
-    fromThisTool: false,
-    anchor: null,
-    notes: [{ author: 'person', body: 'Known.' }],
-  };
-  perFocus(
-    faux,
-    {
-      [LOGIC]: [submitReview([{ file: 'a.ts', line: 1, severity: 'low', summary: 'Low.', relatesTo: 'd1' }])],
-      [SECURITY]: [submitReview([{ file: 'a.ts', line: 2, severity: 'high', summary: 'High.' }])],
-    },
-    [submitGroups([[1, 2]])],
-  );
-
-  const { findings } = await engineFor(faux).review(context({ listDiscussions: async () => [discussion] }));
-
-  assert.deepEqual(
-    findings.map(({ anchor: _anchor, ...rest }) => rest),
-    [{ file: 'a.ts', line: 2, severity: 'high', summary: 'High.', relatesTo: 'd1' }],
-  );
 });
 
 test('the agent for a review focus sees only its own focus', () => {
