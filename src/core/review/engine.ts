@@ -21,6 +21,7 @@ import {
   type DiscussionJudgment,
 } from './judge.ts';
 import { promptTemplates, systemPrompts } from './prompt.ts';
+import { MAX_PARALLEL_RUNS, REVIEW_PRIORITY, RunLimit, runPool, STEP_PRIORITY } from './runPool.ts';
 import { Batch, WholeChange, type RunScope } from './scope.ts';
 import {
   applyVerdicts,
@@ -42,9 +43,6 @@ import {
   type VerifyGroup,
 } from './verifyAgent.ts';
 
-/** At most this many agent runs are active at the same time
- * (`review-large-changes-in-batches` design, Decision 7). */
-export const MAX_PARALLEL_RUNS = 3;
 /** A run that ends with an error is tried at most this many times in total
  * (Decision 8). */
 export const MAX_RUN_TRIES = 3;
@@ -124,81 +122,6 @@ export interface AgentReviewEngineOptions {
    * (`harden-run-failures` design, Decision 1). */
   timeoutMs?: number;
 }
-
-/** The one limit of active agent runs for one review
- * (`run-judge-with-review-agents` design, Decision 2). Every pool job takes a
- * slot and gives it back. A free slot goes to the waiting job with the lowest
- * `priority`, and among equal priorities to the one that asked first. The slots
- * are given out in a microtask, so a worker that gives back a slot and asks
- * again in the same tick wins against a waiter of a higher priority number. */
-export class RunLimit {
-  private active = 0;
-  private seq = 0;
-  private readonly waiting: { priority: number; seq: number; resolve: () => void }[] = [];
-
-  constructor(private readonly max: number) {}
-
-  acquire(priority: number): Promise<void> {
-    return new Promise((resolve) => {
-      this.waiting.push({ priority, seq: this.seq++, resolve });
-      this.schedule();
-    });
-  }
-
-  release(): void {
-    this.active -= 1;
-    this.schedule();
-  }
-
-  private schedule(): void {
-    queueMicrotask(() => {
-      while (this.active < this.max && this.waiting.length > 0) {
-        let best = 0;
-        this.waiting.forEach((w, i) => {
-          const b = this.waiting[best]!;
-          if (w.priority < b.priority || (w.priority === b.priority && w.seq < b.seq)) best = i;
-        });
-        const [next] = this.waiting.splice(best, 1);
-        this.active += 1;
-        next!.resolve();
-      }
-    });
-  }
-}
-
-/** Runs `count` jobs in order. Every job takes a slot of the review's one
- * limit (`limit`) before it starts and gives it back when it ends or throws,
- * so all pools of a review together run at most `MAX_PARALLEL_RUNS` jobs. No
- * new job starts when `stopped()` is true, also for a worker that waited for
- * its slot. */
-export async function runPool(
-  limit: RunLimit,
-  priority: number,
-  count: number,
-  job: (index: number) => Promise<void>,
-  stopped: () => boolean = () => false,
-): Promise<void> {
-  let next = 0;
-  const worker = async () => {
-    while (!stopped() && next < count) {
-      await limit.acquire(priority);
-      try {
-        if (stopped() || next >= count) return;
-        const index = next;
-        next += 1;
-        await job(index);
-      } finally {
-        limit.release();
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_RUNS, count) }, worker));
-}
-
-/** The priority of the review agent runs. The judge and verifier runs wait
- * behind them. */
-export const REVIEW_PRIORITY = 0;
-export const STEP_PRIORITY = 1;
 
 /** One agent run: a run scope and a review focus
  * (`add-multi-agent-review` design, Decision 1). */
@@ -524,29 +447,65 @@ export class AgentReviewEngine implements ReviewEngine {
         },
       });
 
-    const tokens = this.oversizedFirstRequest(createAgent, prompt);
+    const verdicts = await this.runForFile<FindingVerdict[]>(
+      {
+        file: group.file,
+        prompt,
+        createAgent,
+        toolName: 'submit_verdicts',
+        step: 'verification',
+        action: 'did not verify the findings of a file',
+        onSkipped: () => warnings.push({ code: 'verification_skipped', file: group.file }),
+        onFailed: () => warnings.push({ code: 'verification_failed', file: group.file }),
+      },
+      logger,
+    );
+    return verdicts === null ? null : applyVerdicts(group.findings, verdicts);
+  }
+
+  /** One agent run for one file of a step: the verification step, the
+   * discussion judgment step, or the verify agent step. It gives up with a `warn`
+   * line and `null` when the first request is larger than half of the context
+   * window, or when the run fails after its tries. A step that records a warning
+   * for these two cases passes `onSkipped` and `onFailed`. An error that is
+   * not a review failure goes on to the caller. */
+  private async runForFile<T>(
+    run: {
+      file: string;
+      prompt: string;
+      createAgent: (onSubmit: (value: T) => void, model: Model<Api>) => Agent;
+      toolName: string;
+      /** The `step` field of the log lines of the run. */
+      step: string;
+      /** The start of the text of both `warn` lines. */
+      action: string;
+      onSkipped?: () => void;
+      onFailed?: () => void;
+    },
+    logger: Logger,
+  ): Promise<T | null> {
+    const tokens = this.oversizedFirstRequest(run.createAgent, run.prompt);
     if (tokens !== null) {
       logger.warn(
-        { file: group.file, tokens },
-        'did not verify the findings of a file: the first request is larger than half of the context window',
+        { file: run.file, tokens },
+        `${run.action}: the first request is larger than half of the context window`,
       );
-      warnings.push({ code: 'verification_skipped', file: group.file });
+      run.onSkipped?.();
       return null;
     }
 
-    const spec: RunSpec<FindingVerdict[]> = {
-      createAgent,
-      prompt,
-      toolName: 'submit_verdicts',
-      logFields: { step: 'verification', file: group.file },
+    const spec: RunSpec<T> = {
+      createAgent: run.createAgent,
+      prompt: run.prompt,
+      toolName: run.toolName,
+      logFields: { step: run.step, file: run.file },
     };
     try {
-      const verdicts = await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
-      return applyVerdicts(group.findings, verdicts);
+      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
     } catch (error) {
       if (!(error instanceof ReviewFailureError)) throw error;
-      logger.warn({ file: group.file, error: error.message }, 'did not verify the findings of a file: the run failed');
-      warnings.push({ code: 'verification_failed', file: group.file });
+      logger.warn({ file: run.file, error: error.message }, `${run.action}: the run failed`);
+      run.onFailed?.();
       return null;
     }
   }
@@ -647,31 +606,17 @@ export class AgentReviewEngine implements ReviewEngine {
         },
       });
 
-    const tokens = this.oversizedFirstRequest(createAgent, prompt);
-    if (tokens !== null) {
-      logger.warn(
-        { file: group.file, tokens },
-        'did not judge the discussions of a file: the first request is larger than half of the context window',
-      );
-      return null;
-    }
-
-    const spec: RunSpec<DiscussionJudgment[]> = {
-      createAgent,
-      prompt,
-      toolName: 'submit_judgments',
-      logFields: { step: 'discussion_judgment', file: group.file },
-    };
-    try {
-      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
-    } catch (error) {
-      if (!(error instanceof ReviewFailureError)) throw error;
-      logger.warn(
-        { file: group.file, error: error.message },
-        'did not judge the discussions of a file: the run failed',
-      );
-      return null;
-    }
+    return this.runForFile<DiscussionJudgment[]>(
+      {
+        file: group.file,
+        prompt,
+        createAgent,
+        toolName: 'submit_judgments',
+        step: 'discussion_judgment',
+        action: 'did not judge the discussions of a file',
+      },
+      logger,
+    );
   }
 
   /** The verify agent step (`add-verify-agent` design). One run for each file
@@ -763,31 +708,17 @@ export class AgentReviewEngine implements ReviewEngine {
         },
       });
 
-    const tokens = this.oversizedFirstRequest(createAgent, prompt);
-    if (tokens !== null) {
-      logger.warn(
-        { file: group.file, tokens },
-        'did not run the verify agent for a file: the first request is larger than half of the context window',
-      );
-      return null;
-    }
-
-    const spec: RunSpec<Decisions> = {
-      createAgent,
-      prompt,
-      toolName: 'submit_decisions',
-      logFields: { step: 'verify_agent', file: group.file },
-    };
-    try {
-      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
-    } catch (error) {
-      if (!(error instanceof ReviewFailureError)) throw error;
-      logger.warn(
-        { file: group.file, error: error.message },
-        'did not run the verify agent for a file: the run failed',
-      );
-      return null;
-    }
+    return this.runForFile<Decisions>(
+      {
+        file: group.file,
+        prompt,
+        createAgent,
+        toolName: 'submit_decisions',
+        step: 'verify_agent',
+        action: 'did not run the verify agent for a file',
+      },
+      logger,
+    );
   }
 
   /** The deduplication step on the checked findings (`add-multi-agent-review`

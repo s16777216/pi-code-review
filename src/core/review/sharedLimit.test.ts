@@ -4,7 +4,8 @@ import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-work
 import type { FauxResponseStep } from '@earendil-works/pi-ai';
 import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import { computeAnchor } from './anchor.ts';
-import { AgentReviewEngine, REVIEW_PRIORITY, runPool, RunLimit, STEP_PRIORITY } from './engine.ts';
+import { AgentReviewEngine } from './engine.ts';
+import { REVIEW_PRIORITY, runPool, RunLimit, STEP_PRIORITY } from './runPool.ts';
 import { perFocus } from './fauxFocus.ts';
 
 // Tests for `run-judge-with-review-agents`: one limit of 3 runs for all steps,
