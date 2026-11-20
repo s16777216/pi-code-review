@@ -171,18 +171,30 @@ test('a fixed judgment for a discussion that a finding links to stays open when 
   const faux = fauxProvider();
   perFocus(
     faux,
-    { [LOGIC]: [submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'A is wrong.', relatesTo: 'd1' }])] },
+    { [LOGIC]: [submitReview([{ file: 'a.ts', line: 1, severity: 'high', summary: 'A is wrong.' }])] },
     undefined,
     undefined,
     judgeBy(() => submitJudgments([judgment(1, 'fixed')])),
+    [
+      fauxAssistantMessage(
+        [
+          fauxToolCall('submit_decisions', {
+            findings: [{ number: 1, decision: 'keep', relatesTo: 1, reason: 'The same problem.' }],
+            declarations: [{ number: 1, decision: 'keep_open', reason: 'The finding is still open.' }],
+          } as never),
+        ],
+        { stopReason: 'toolUse' },
+      ),
+    ],
   );
   const { logger, warnings } = recordingLogger();
 
-  const { resolved } = await engineFor(faux, { logger }).review(
+  const { resolved, findings } = await engineFor(faux, { logger }).review(
     contextFor(['a.ts'], [discussion('d1', 'a.ts', 'gone line')]),
   );
 
   assert.deepEqual(resolved, []);
+  assert.equal(findings[0]?.relatesTo, 'd1');
   assert.equal(
     warnings.some((warning) => warning.discussionId === 'd1'),
     false,

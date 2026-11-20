@@ -134,9 +134,9 @@ test('the prompt has the reason and the evidence line of a declaration', () => {
   assert.match(prompt, /"evidenceLine": "if \(value === null\) return;"/);
 });
 
-test('the prompt gives the hint of a review agent as the number of a discussion', () => {
+test('the prompt has no hint about a link of a review agent', () => {
   const prompt = buildVerifyAgentPrompt(context, group(), undefined);
-  assert.match(prompt, /"linkedDiscussion": 2/);
+  assert.doesNotMatch(prompt, /linkedDiscussion|relatesTo/);
 });
 
 test('the prompt has no discussion ID', () => {

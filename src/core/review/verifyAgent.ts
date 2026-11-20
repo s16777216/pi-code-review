@@ -97,24 +97,19 @@ const NOT_KNOWN = 'not known';
 
 /** The user prompt of a verify agent run: the title and the description, the
  * diff of the file, and three numbered lists. The prompt has no discussion
- * ID. A finding names the discussion that a review agent linked it to with the
- * number of that discussion in the third list. */
+ * ID. */
 export function buildVerifyAgentPrompt(
   context: ReviewContext,
   group: VerifyGroup,
   file: ChangedFile | undefined,
 ): string {
   const numberOf = new Map(group.discussions.map((discussion, index) => [discussion.id, index + 1]));
-  const findings = group.findings.map((finding, index) => {
-    const linked = finding.relatesTo === undefined ? undefined : numberOf.get(finding.relatesTo);
-    return {
-      number: index + 1,
-      line: finding.line,
-      severity: finding.severity,
-      summary: finding.summary,
-      ...(linked === undefined ? {} : { linkedDiscussion: linked }),
-    };
-  });
+  const findings = group.findings.map((finding, index) => ({
+    number: index + 1,
+    line: finding.line,
+    severity: finding.severity,
+    summary: finding.summary,
+  }));
   const declarations = group.declarations.map((declaration, index) => ({
     number: index + 1,
     discussion: numberOf.get(declaration.discussionId) ?? NOT_KNOWN,

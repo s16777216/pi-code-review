@@ -328,7 +328,7 @@ test('the code check does not run for a declaration that stays open', async () =
 
 // --- Failures ---
 
-test('a failed run keeps the findings with their relatesTo, resolves nothing, and adds no warning', async () => {
+test('a failed run keeps the findings with no relatesTo, resolves nothing, and adds no warning', async () => {
   const faux = fauxProvider();
   const runs: string[] = [];
   perFocus(
@@ -345,7 +345,7 @@ test('a failed run keeps the findings with their relatesTo, resolves nothing, an
 
   assert.deepEqual(
     result.findings.map((finding) => [finding.summary, finding.relatesTo]),
-    [['A.', 'd1']],
+    [['A.', undefined]],
   );
   assert.deepEqual(result.resolved, []);
   assert.deepEqual(result.warnings, []);

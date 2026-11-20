@@ -22,7 +22,7 @@ A change that is too large for one request is split first. See [Large merge requ
 
 A review focus is not a limit. An agent still reports any other genuine bug that it sees. The three agents get the same input and the same [review instructions](customization.md#review-instructions). The review focuses are built in. You cannot change them or turn them off.
 
-The agent reads each diff with the line numbers of the new file. It can read any changed file with `get_file_content`. The system prompt tells it to report the line that holds the problem: a line inside the added or changed lines for a changed problem, the line of the unchanged code for an unchanged problem, and not the line that opens the function, the block, or the call around the problem. The tool does not check this rule. A finding on a line that is not in the diff is dropped.
+The agent reads each diff with the line numbers of the new file. It can read any changed file with `get_file_content`. It does not read the discussions of the merge request. The system prompt tells it to report the line that holds the problem: a line inside the added or changed lines for a changed problem, the line of the unchanged code for an unchanged problem, and not the line that opens the function, the block, or the call around the problem. The tool does not check this rule. A finding on a line that is not in the diff is dropped.
 
 ## Deduplication
 
@@ -63,7 +63,7 @@ The findings file does not hold the judgments. The `info` log shows how many dis
 After the judge, a **verify agent** makes the final decisions. It is a different agent from the verifier of the verification step. It runs once for each file that has a discussion, and at least one finding or one declaration. A file with no discussion needs no match and no resolve, so its findings pass with no call.
 
 - The agent sees the diff of the file and three numbered lists: the findings of the file, the declarations of the judge with their reason and evidence line, and all discussions of the file with their notes. The discussions are from this tool and from people, open and resolved. It can read any changed file with `get_file_content`. It also gets the review instructions.
-- For each finding it decides `keep` or `drop`. A kept finding gets the discussion that it relates to, or none, and this replaces the `relatesTo` of the review agents. `publish` then posts nothing for an open discussion and replies and reopens for a resolved one. The agent drops a finding when a note shows that the problem is intended or already handled.
+- For each finding it decides `keep` or `drop`. A kept finding gets the discussion that it relates to, or none. The review agents do not set `relatesTo`, so the verify agent is its only source. `publish` then posts nothing for an open discussion and replies and reopens for a resolved one. The agent drops a finding when a note shows that the problem is intended or already handled.
 - For each declaration it decides `resolve` or `keep_open`. Only a discussion that the judge declared can be resolved. A discussion that a kept finding relates to must stay open: the tool rejects a call that does both.
 - The replies of people are information and not proof. The prompt says so. There is no program check that stops a reply from influencing a decision. The anchor check and the evidence line no longer decide: the program runs them for each resolved discussion and writes a `warn` line with the field `comparison` set to `verify_agent_resolved` when it would reject the discussion.
 - When the run for a file fails after its tries, or its first request is larger than half of the context window, `review` writes a `warn` line, keeps the findings of that file as they are, and resolves nothing there. It adds no warning to the findings file.
@@ -87,13 +87,13 @@ Files whose diff is not reviewed (see [Output](#output)) are not counted in the 
 
 ## Existing discussions
 
-During `review`, the agent can read the existing discussions of the merge request with a `list_discussions` tool: comments from people and from earlier runs of this tool, with file, line, resolved state, and author. It uses them to avoid repeating a problem, and to respect explanations such as "this is intentional". A finding that covers the same problem as a discussion carries `relatesTo: <discussion id>` in `findings.json`.
+The review agents do not read the discussions. They read the diff and the code only. The judge reads the open discussions of this tool, and the [verify agent](#final-decisions) reads all discussions of a file: comments from people and from earlier runs of this tool, with file, line, resolved state, and notes. The verify agent drops a finding that a person already explained as intended, and it links a finding that covers the same problem as a discussion. Such a finding carries `relatesTo: <discussion id>` in `findings.json`.
 
 Each comment that `publish` posts starts with a hidden `<!-- pi-code-review -->` marker, so later runs can tell this tool's comments from a person's.
 
 The judge can declare that one of this tool's own open comments is fixed, with a reason, and the verify agent decides whether `review` resolves it. A check on the code only writes a `warn` line for a resolved comment that it would reject: the exact line that the comment pointed at (same file, same text, ignoring indentation) is still in the current file, and the evidence line of the judge does not support the fix. `publish` then replies `**Resolved**: <reason>` (the default `RESOLVED.md` template) and resolves the discussion. A discussion that a person started is never resolved by this tool. Fixed declarations never affect pass or fail.
 
-**Risk.** Anyone who can comment on the merge request writes text that the agent reads. The agent treats that text as information, not as instructions, but a crafted comment can still influence the review. Keep this in mind when the exit code of `publish` gates a merge.
+**Risk.** Anyone who can comment on the merge request writes text that the judge and the verify agent read. They treat that text as information, not as instructions, but a crafted comment can still influence the review. Keep this in mind when the exit code of `publish` gates a merge.
 
 ## Failures and warnings
 

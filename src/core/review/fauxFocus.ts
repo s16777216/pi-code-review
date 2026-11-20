@@ -67,27 +67,23 @@ function listUnder(text: string, title: string): Record<string, unknown>[] {
   return start === -1 ? [] : (JSON.parse(lines.slice(start).join('\n').trim()) as Record<string, unknown>[]);
 }
 
-/** A `submit_decisions` call that keeps each finding with the discussion that
- * its hint names, and resolves each declaration, except one that a kept
- * finding relates to. A test that does not care about the verify agent step
- * keeps what the earlier steps gave. */
+/** A `submit_decisions` call that keeps each finding with no discussion and
+ * resolves each declaration. A test that does not care about the verify agent
+ * step keeps what the earlier steps gave. */
 export function keepAndResolve(context: unknown) {
   const text = lastUserText(context);
   const findings = listUnder(text, 'Findings');
   const declarations = listUnder(text, 'Declarations');
-  const linked = new Set(
-    findings.flatMap((finding) => (typeof finding.linkedDiscussion === 'number' ? [finding.linkedDiscussion] : [])),
-  );
   const call = {
     findings: findings.map((finding) => ({
       number: finding.number,
       decision: 'keep',
-      relatesTo: typeof finding.linkedDiscussion === 'number' ? finding.linkedDiscussion : null,
+      relatesTo: null,
       reason: 'The code shows it.',
     })),
     declarations: declarations.map((declaration) => ({
       number: declaration.number,
-      decision: linked.has(declaration.discussion as number) ? 'keep_open' : 'resolve',
+      decision: 'resolve',
       reason: 'The code shows it.',
     })),
   };

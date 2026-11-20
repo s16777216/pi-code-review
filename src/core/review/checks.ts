@@ -24,7 +24,7 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
 }
 
 /** The fixed checks, in their existing order, on one merged output:
- * `relatesTo`, the diff line check, the anchor, and the fixed declarations.
+ * the diff line check, the anchor, and the fixed declarations.
  * `betweenSteps` is an optional step on the checked findings, before the check
  * on the fixed declarations: the deduplication step runs there
  * (`add-multi-agent-review` design, Decision 4). `judgeDiscussions` is an
@@ -55,7 +55,7 @@ export async function runChecks(
   judgeDiscussions?: () => Promise<JudgedDeclaration[]>,
   decideFinal?: DecideFinal,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
-  const checked = (await checkRelatesTo(output.findings, context, logger))
+  const checked = output.findings
     .filter((finding) => {
       // The review did not show this file's diff, so it does not report on it
       // (`handle-omitted-diffs` design, Decision 3).
@@ -100,33 +100,6 @@ export async function runChecks(
     comparison: 'verify_agent_resolved',
   });
   return { findings: decided.findings, resolved: decided.resolved };
-}
-
-/** Keeps a finding's `relatesTo` only when it names a discussion that
- * `listDiscussions` returned for this change. An unknown ID is removed with a
- * `warn` line, and the finding stays. When the discussions cannot be read,
- * every `relatesTo` is removed. `listDiscussions` is cached per review, so
- * this makes no extra API call when the agent already used the tool. */
-async function checkRelatesTo(findings: Finding[], context: ReviewContext, logger: Logger): Promise<Finding[]> {
-  if (!findings.some((finding) => finding.relatesTo !== undefined)) return findings;
-
-  const discussions = await context.listDiscussions();
-  const knownIds = Array.isArray(discussions) ? new Set(discussions.map((discussion) => discussion.id)) : null;
-
-  return findings.map((finding) => {
-    if (finding.relatesTo === undefined || knownIds?.has(finding.relatesTo)) return finding;
-    logger.warn(
-      {
-        file: finding.file,
-        line: finding.line,
-        relatesTo: finding.relatesTo,
-        reason: knownIds === null ? 'discussions_unavailable' : 'unknown_discussion',
-      },
-      'removed relatesTo from a finding',
-    );
-    const { relatesTo: _removed, ...rest } = finding;
-    return rest;
-  });
 }
 
 /** Why a fixed declaration was not accepted. The checks run in this order,

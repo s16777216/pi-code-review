@@ -25,8 +25,8 @@ import { REVIEW_FOCUSES } from './focus.ts';
 const AGENT_OUTPUT = {
   findings: [
     { file: 'src/a.ts', line: 2, severity: 'high', summary: 'ok line' },
-    { file: 'src/a.ts', line: 22, severity: 'low', summary: 'ok line in part 2', relatesTo: 'own-open' },
-    { file: 'src/a.ts', line: 3, severity: 'low', summary: 'unknown relatesTo', relatesTo: 'nope' },
+    { file: 'src/a.ts', line: 22, severity: 'low', summary: 'ok line in part 2' },
+    { file: 'src/a.ts', line: 3, severity: 'low', summary: 'a third line' },
     { file: 'src/a.ts', line: 99, severity: 'low', summary: 'line not in diff' },
     { file: 'src/zzz.ts', line: 1, severity: 'low', summary: 'file not changed' },
     { file: 'yarn.lock', line: 1, severity: 'low', summary: 'omitted file' },
@@ -100,7 +100,7 @@ async function render(window: number, label: string): Promise<string> {
 }
 
 async function renderAll(): Promise<string> {
-  const parts = [await render(128000, 'SINGLE RUN'), await render(4400, 'BATCHES')];
+  const parts = [await render(128000, 'SINGLE RUN'), await render(3450, 'BATCHES')];
   parts.push('=== SYSTEM PROMPT TAILS ===');
   parts.push(buildSystemPrompt().slice(-60));
   parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4), undefined, REVIEW_FOCUSES[1]).slice(-800));
@@ -129,6 +129,6 @@ test('the single run asks for the whole change, and the batches split it in four
   // Three agents for each scope, one for each review focus, and one call for
   // the deduplication step: the fixed output has more than one finding in a file. One more call is the judge run for the discussion that a finding links to.
   assert.match(text, /=== SINGLE RUN \(calls=9\) ===/);
-  assert.match(text, /=== BATCHES \(calls=18\) ===/);
+  assert.match(text, /=== BATCHES \(calls=17\) ===/);
   assert.match(text, /INFOS \[\{"batches":4\},/);
 });

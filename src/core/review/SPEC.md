@@ -14,7 +14,7 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 - `verify.ts`: the verification step: the verifier prompts, `groupByFile`, the `submit_verdicts` tool, `validateVerdicts`, and `applyVerdicts`.
 - `judge.ts`: the discussion judgment step: the judge prompts, `selectDiscussions`, `groupDiscussionsByFile`, `buildJudgePrompt`, the `submit_judgments` tool, and `validateJudgments` (it also keeps the optional evidence line of a `fixed` judgment).
 - `verifyAgent.ts`: the verify agent step: the prompts, `groupForVerifyAgent`, the `submit_decisions` tool, `validateDecisions`, and `applyDecisions`.
-- `agent.ts`: the agent's tools: `createGetFileContentTool`, `createListDiscussionsTool`, `createSubmitReviewTool` (the only way the agent reports findings).
+- `agent.ts`: the agent's tools: `createGetFileContentTool`, `createSubmitReviewTool` (the only way the agent reports findings).
 - `findings.ts`: `validateFinding`, `validateResolvedDiscussion`, `ReviewFailureError` (it has a failure `category`). Also used by `src/findingsFile.ts`. `Severity` values are `critical`, `high`, `medium`, `low`, `pre_existing`.
 - `scope.ts`: `RunScope`, `WholeChange`, `Batch` (what one agent run sees and which findings it may report).
 - `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `checks.ts`: `runChecks` (takes optional steps that run before the check on fixed declarations, and passes the evidence line of a judge declaration to the check), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
