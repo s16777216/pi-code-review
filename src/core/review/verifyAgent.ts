@@ -31,6 +31,8 @@ Decide each declaration:
 
 The reason of a declaration and its evidence line are hints. Check them in the current code. Do not resolve a discussion when you keep a finding that relates to it.
 
+Use "keep_open" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code that the note describes did not change. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies. When the code changed to fix the problem, resolve the discussion as above.
+
 In each "reason", write one sentence, and quote the code or the note that shows your decision.
 
 When you are done, call the submit_decisions tool once with two fields: "findings" and "declarations". Each is an array with exactly one object for each item of its list. Each object has "number" (the number of the item), "decision", and "reason". An object for a finding with the decision "keep" also has "relatesTo" (a discussion number or null). Do not add "relatesTo" to a finding that you drop.`;

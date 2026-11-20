@@ -79,7 +79,9 @@ async function render(window: number, label: string): Promise<string> {
   ).sort(
     (a, b) =>
       (a.batch ?? 0) - (b.batch ?? 0) ||
-      (a.systemPrompt < b.systemPrompt ? -1 : a.systemPrompt > b.systemPrompt ? 1 : 0),
+      (a.systemPrompt < b.systemPrompt ? -1 : a.systemPrompt > b.systemPrompt ? 1 : 0) ||
+      // Runs with the same system prompt (the verifier runs of several files) start in the order of their timing.
+      (a.prompt < b.prompt ? -1 : a.prompt > b.prompt ? 1 : 0),
   );
   out.push(
     'DEBUG PROMPT FIELDS ' +
@@ -93,7 +95,13 @@ async function render(window: number, label: string): Promise<string> {
   );
   out.push(
     'DEBUG OTHER KEYS ' +
-      JSON.stringify(debugs.filter((d) => !('prompt' in d)).map((d) => Object.keys(d).sort().join(','))),
+      // Sorted: the judge runs at the same time as the review agents, so the order of these lines follows the timing.
+      JSON.stringify(
+        debugs
+          .filter((d) => !('prompt' in d))
+          .map((d) => Object.keys(d).sort().join(','))
+          .sort(),
+      ),
   );
   logged.forEach((d) => out.push(`--- logged prompt batch=${d.batch ?? '-'} ---\n${d.prompt}`));
   return out.join('\n');

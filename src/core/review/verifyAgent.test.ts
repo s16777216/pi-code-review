@@ -370,3 +370,14 @@ test('a declaration that stays open gives no resolved entry', () => {
 test('shapeOf gives the sizes and the discussion number of each declaration', () => {
   assert.deepEqual(shapeOf(group()), { findings: 2, declarations: 1, discussions: 3, declaredDiscussion: [3] });
 });
+
+test('the system prompt tells the agent to keep a declined discussion open', () => {
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /Use "keep_open" when a person replied that the problem stays by decision/);
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /the code that the note describes did not change/);
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /Resolving such a discussion is a decision for a person/);
+});
+
+test('the rule of a declined discussion also covers a reason of the judge that says there is no problem', () => {
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /also when the reason of the judge says that there is no problem/);
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /When the code changed to fix the problem, resolve the discussion as above/);
+});
