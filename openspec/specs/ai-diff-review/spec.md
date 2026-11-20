@@ -1166,6 +1166,25 @@ The system prompt of the verify agent MUST tell the agent to use `keep_open` for
 - **WHEN** the system builds the system prompt of the verify agent
 - **THEN** the prompt tells the agent to use `keep_open` when the only support for a fix is a statement in a reply that the agent cannot check in the diff or in the files that it can read
 
+### Requirement: Keep a declined discussion open in the judgment
+The system prompt of the judge MUST tell the judge to give `not_fixed` when a person replied that the problem stays by decision and the code is unchanged. A person decides that the problem stays when the author does not accept the finding, and when the author leaves the problem for a later change. The system prompt MUST tell the judge to give `uncertain` when the only support for a fix is a statement in a reply that the judge cannot check in the diff or in the files that it can read. The system prompt MUST NOT tell the judge to give `not_fixed` when the code changed to fix the problem.
+
+#### Scenario: The prompt covers a decision to not accept
+- **WHEN** the system builds the system prompt of the judge
+- **THEN** the prompt tells the judge to give `not_fixed` when the author does not accept the finding and the code is unchanged
+
+#### Scenario: The prompt covers a decision to defer
+- **WHEN** the system builds the system prompt of the judge
+- **THEN** the prompt says that a decision to leave the problem for a later change is a decision that the problem stays
+
+#### Scenario: The prompt covers a statement that the judge cannot check
+- **WHEN** the system builds the system prompt of the judge
+- **THEN** the prompt tells the judge to give `uncertain` when the only support for a fix is a statement in a reply that the judge cannot check
+
+#### Scenario: A fix of the code is still fixed
+- **WHEN** the system builds the system prompt of the judge
+- **THEN** the prompt does not tell the judge to give `not_fixed` when the code changed to fix the problem
+
 ### Requirement: Apply the decisions to the findings and the discussions
 For each finding with the decision `keep`, the system SHALL keep the finding and SHALL set its `relatesTo` to the ID of the discussion that the agent chose, or leave the finding with no `relatesTo` when the agent gave `null`. The system SHALL remove each finding with the decision `drop` from the result. For each declaration with the decision `resolve`, the system SHALL add one entry to the `resolved` list with the discussion ID and the reason of the verify agent. The system MUST NOT resolve a discussion with a declaration that has the decision `keep_open`. The system MUST NOT resolve a discussion for which the judge gave no declaration. The system MUST NOT record the decisions in the findings file, other than the findings that remain and the `resolved` list.
 
