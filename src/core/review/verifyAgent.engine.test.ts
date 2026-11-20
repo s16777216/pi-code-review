@@ -280,7 +280,7 @@ test('a declaration that the agent keeps open does not resolve the discussion', 
   assert.deepEqual(result.resolved, []);
 });
 
-test('the result of the verify agent does not depend on the code check', async () => {
+test('the verify agent resolves a discussion whose anchored line is still in the file, with no warn line and no file read', async () => {
   const faux = fauxProvider();
   const runs: string[] = [];
   perFocus(
@@ -292,20 +292,25 @@ test('the result of the verify agent does not depend on the code check', async (
     decideBy(runs, () => submitDecisions([], [resolve(1)])),
   );
   const { logger, warnings } = recordingLogger();
+  let reads = 0;
+  const context = contextFor(['a.ts'], [discussion('d1', 'a.ts', 'two')]);
+  context.getFileContent = async () => {
+    reads += 1;
+    return 'one\ntwo';
+  };
 
-  // The anchored line "two" is still in the file, so the code check rejects the declaration.
-  const result = await engineFor(faux, { logger }).review(contextFor(['a.ts'], [discussion('d1', 'a.ts', 'two')]));
+  // The anchored line "two" is still in the file, and no rule of the code rejects the resolve.
+  const result = await engineFor(faux, { logger }).review(context);
 
   assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The code is fixed.' }]);
-  assert.deepEqual(warnings.at(-1), {
-    discussionId: 'd1',
-    reason: 'anchor_still_present',
-    source: 'discussion_judgment',
-    comparison: 'verify_agent_resolved',
-  });
+  assert.equal(
+    warnings.some((fields) => fields.discussionId === 'd1'),
+    false,
+  );
+  assert.equal(reads, 0);
 });
 
-test('the code check does not run for a declaration that stays open', async () => {
+test('a declaration that stays open gets no warn line', async () => {
   const faux = fauxProvider();
   const runs: string[] = [];
   perFocus(

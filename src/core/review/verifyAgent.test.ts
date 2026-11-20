@@ -42,11 +42,7 @@ function finding(file: string, extra: Partial<Finding> = {}): Finding {
   return { file, line: 5, severity: 'high', summary: `Problem in ${file}.`, ...extra };
 }
 
-const declaration = (discussionId: string, reason = 'Fixed.', evidence?: string) => ({
-  discussionId,
-  reason,
-  ...(evidence === undefined ? {} : { evidence }),
-});
+const declaration = (discussionId: string, reason = 'Fixed.') => ({ discussionId, reason });
 
 // --- groupForVerifyAgent ---
 
@@ -103,7 +99,7 @@ function group(): VerifyGroup {
   return {
     file: 'a.ts',
     findings: [finding('a.ts', { relatesTo: 'd2' }), finding('a.ts', { line: 9 })],
-    declarations: [declaration('d3', 'Line 3 now checks null.', 'if (value === null) return;')],
+    declarations: [declaration('d3', 'Line 3 now checks null.')],
     discussions,
   };
 }
@@ -128,10 +124,15 @@ test('the prompt has the notes of a discussion with their authors, including the
   assert.match(prompt, /This is intended\./);
 });
 
-test('the prompt has the reason and the evidence line of a declaration', () => {
+test('the prompt has the reason of a declaration and no evidence line', () => {
   const prompt = buildVerifyAgentPrompt(context, group(), undefined);
   assert.match(prompt, /Line 3 now checks null\./);
-  assert.match(prompt, /"evidenceLine": "if \(value === null\) return;"/);
+  assert.doesNotMatch(prompt, /evidenceLine|evidence line/);
+});
+
+test('the system prompt of the verify agent has no sentence about an evidence line', () => {
+  assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /evidence/i);
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /The reason of a declaration is a hint/);
 });
 
 test('the prompt has no hint about a link of a review agent', () => {

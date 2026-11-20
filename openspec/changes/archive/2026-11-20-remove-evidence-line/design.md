@@ -32,6 +32,8 @@ The gate is true when all of these hold:
 
 When the person judges any of these resolves to be wrong, the change does not go on. The choice is then between keeping the code check as a rule, and changing the verify agent.
 
+Decision of the owner (2026-11-20): the owner read the comparison cases and decided to remove the evidence line. The gate was not fully true in the strict sense. One case, `commander.vue` line 14 of merge request 60, is a resolve that may be wrong, and its evidence line was not in the file. The owner accepted this risk. The rule "keep a declined discussion open" (change `keep-declined-discussions-open`) is the guard for such a case. This change goes on.
+
 Alternative: implement now and rely on the log of the verify agent. The debug lines show the reasons, but nothing in the code stops a wrong resolve.
 
 ### Decision 2: Remove the code check, and not only its log

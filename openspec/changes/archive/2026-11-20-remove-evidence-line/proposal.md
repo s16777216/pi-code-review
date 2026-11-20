@@ -6,7 +6,7 @@ The evidence line and the code check cost code, tests, prompt text, and log line
 
 ## What Changes
 
-- **Gate**: Do not implement this change before the comparison data supports it. The condition is in the design (Decision 1). The proposal and the delta spec are ready, and the code stays as it is until the condition is true.
+- **Gate**: The owner checked the comparison data and decided on 2026-11-20 to implement this change. See Decision 1 in the design for the known risk that the owner accepted.
 - **BREAKING**: The judge no longer gives an evidence line. The judgment has no `evidence` field. An `evidence` in a call is ignored and is not an error.
 - The prompt of the verify agent no longer has the evidence line of a declaration. The reason of the judge stays.
 - The system no longer runs the code check on a resolved discussion. It no longer writes the `warn` lines with the field `comparison`, and it no longer writes the `info` line for an accepted evidence line. The verify agent alone decides.
