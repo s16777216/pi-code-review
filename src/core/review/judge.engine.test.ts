@@ -392,7 +392,7 @@ test('the review result has no field for a judgment', async () => {
 
 // --- End to end ---
 
-test('the verify agent resolves each fixed judgment, and the code check only logs the one with its anchor present', async () => {
+test('the verify agent resolves each fixed judgment, with no warn line for a discussion whose anchor is present', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([
@@ -416,17 +416,14 @@ test('the verify agent resolves each fixed judgment, and the code check only log
     result.resolved.map((item) => item.discussionId),
     ['d1', 'd2'],
   );
-  const logged = warnings.find((fields) => fields.discussionId === 'd2');
-  assert.equal(logged?.reason, 'anchor_still_present');
-  assert.equal(logged?.source, 'discussion_judgment');
-  assert.equal(logged?.comparison, 'verify_agent_resolved');
+  // No rule of the code checks a resolve (`remove-evidence-line`).
   assert.equal(
-    warnings.some((fields) => fields.discussionId === 'd3' || fields.discussionId === 'd4'),
+    warnings.some((fields) => 'comparison' in fields || 'reason' in fields),
     false,
   );
 });
 
-// --- Evidence line (`judge-evidence-line`) ---
+// --- No evidence line (`remove-evidence-line`) ---
 
 const evidenceContent = 'one\nreturn guard(value);\ntwo';
 
@@ -434,20 +431,21 @@ function evidenceContext(discussions: ReviewDiscussion[]) {
   return contextFor(['a.ts'], discussions, { getFileContent: async () => evidenceContent });
 }
 
-test('a fixed judgment with a valid evidence line resolves a discussion whose anchored line is still present', async () => {
+test('a call of the judge with an evidence field is accepted, and the declaration resolves with no log of the line', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([{ ...judgment(1, 'fixed', 'The guard is new.'), evidence: 'return guard(value);' }]),
   ]);
-  const { logger, infos } = recordingLogger();
+  const { logger, infos, warnings } = recordingLogger();
 
   const result = await engineFor(faux, { logger }).review(evidenceContext([discussion('d1', 'a.ts', 'two')]));
 
   assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.equal(
-    infos.some((fields) => fields.discussionId === 'd1' && fields.evidence === 'return guard(value);'),
-    true,
+    infos.some((fields) => 'evidence' in fields),
+    false,
   );
+  assert.deepEqual(warnings, []);
 });
 
 test('the findings result has no field for the evidence line', async () => {
@@ -461,7 +459,7 @@ test('the findings result has no field for the evidence line', async () => {
   assert.equal(JSON.stringify(result).includes('evidence'), false);
 });
 
-test('four fixed judgments: the verify agent resolves all, and the code check logs the two that it rejects', async () => {
+test('four fixed judgments with or without an evidence field: the verify agent resolves all, with no warn line', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([
@@ -485,6 +483,5 @@ test('four fixed judgments: the verify agent resolves all, and the code check lo
     result.resolved.map((item) => item.discussionId),
     ['d1', 'd2', 'd3', 'd4'],
   );
-  assert.equal(warnings.find((fields) => fields.discussionId === 'd3')?.reason, 'evidence_not_valid');
-  assert.equal(warnings.find((fields) => fields.discussionId === 'd4')?.reason, 'anchor_still_present');
+  assert.deepEqual(warnings, []);
 });

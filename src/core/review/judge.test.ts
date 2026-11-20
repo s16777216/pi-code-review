@@ -326,58 +326,36 @@ test('submit_judgments stops accepting calls after the limit', async () => {
   assert.equal(last!.terminate, true);
 });
 
-// --- evidence line (`judge-evidence-line`) ---
+// --- no evidence line (`remove-evidence-line`) ---
 
-test('validateJudgments keeps the trimmed evidence of a fixed judgment', () => {
-  const result = validateJudgments([{ ...judgment(1, 'fixed'), evidence: '  return guard(value);  ' }], 1);
-  assert.equal(result[0]?.evidence, 'return guard(value);');
-});
-
-test('validateJudgments accepts a fixed judgment with no evidence', () => {
-  const result = validateJudgments([judgment(1, 'fixed')], 1);
-  assert.equal('evidence' in result[0]!, false);
-});
-
-test('validateJudgments removes a blank evidence, null, and a value that is not a string, with no error', () => {
-  for (const evidence of ['   ', '', null, 42, { line: 'x' }]) {
-    const result = validateJudgments([{ ...judgment(1, 'fixed'), evidence }], 1);
-    assert.equal('evidence' in result[0]!, false, JSON.stringify(evidence));
-  }
-});
-
-test('validateJudgments removes the evidence of a judgment that is not fixed', () => {
+test('validateJudgments removes an evidence field, with no error, for every value of the judgment', () => {
   const result = validateJudgments(
     [
-      { ...judgment(1, 'not_fixed'), evidence: 'return guard(value);' },
-      { ...judgment(2, 'uncertain'), evidence: 'return guard(value);' },
-    ],
-    2,
-  );
-  assert.equal('evidence' in result[0]!, false);
-  assert.equal('evidence' in result[1]!, false);
-});
-
-test('the system prompt of the judge asks for an evidence line from the current file and not from a note', () => {
-  assert.match(JUDGE_SYSTEM_PROMPT, /"evidence" line/);
-  assert.match(JUDGE_SYSTEM_PROMPT, /no line number/);
-  assert.match(JUDGE_SYSTEM_PROMPT, /with the characters at its end/);
-  assert.match(JUDGE_SYSTEM_PROMPT, /choose one of its lines and do not join them/);
-  assert.match(JUDGE_SYSTEM_PROMPT, /not the line of the problem/);
-  assert.match(JUDGE_SYSTEM_PROMPT, /must come from the current file and not from a note/);
-  assert.match(JUDGE_SYSTEM_PROMPT, /the optional "evidence"/);
-});
-
-test('the submit_judgments tool accepts a call with an evidence, with null, and with none', async () => {
-  const submitted: DiscussionJudgment[][] = [];
-  const tool = createSubmitJudgmentsTool(3, (judgments) => submitted.push(judgments));
-  const result = await tool.execute('id', {
-    judgments: [
       { ...judgment(1, 'fixed'), evidence: 'return guard(value);' },
-      { ...judgment(2, 'fixed'), evidence: null },
-      judgment(3, 'fixed'),
+      { ...judgment(2, 'not_fixed'), evidence: null },
+      { ...judgment(3, 'uncertain'), evidence: 42 },
     ],
-  });
+    3,
+  );
+  for (const item of result) assert.equal('evidence' in item, false);
+});
+
+test('the system prompt of the judge has no sentence about an evidence line', () => {
+  assert.doesNotMatch(JUDGE_SYSTEM_PROMPT, /evidence/i);
+});
+
+test('the submit_judgments tool accepts a call with an evidence and the judgment has none', async () => {
+  const submitted: DiscussionJudgment[][] = [];
+  const tool = createSubmitJudgmentsTool(2, (judgments) => submitted.push(judgments));
+  const result = await tool.execute('id', {
+    judgments: [{ ...judgment(1, 'fixed'), evidence: 'return guard(value);' }, judgment(2, 'fixed')],
+  } as never);
   assert.equal(result.isError, undefined);
-  assert.equal(submitted[0]?.[0]?.evidence, 'return guard(value);');
-  assert.equal('evidence' in submitted[0]![1]!, false);
+  assert.equal('evidence' in submitted[0]![0]!, false);
+});
+
+test('the schema of the submit_judgments tool has no evidence field', () => {
+  const tool = createSubmitJudgmentsTool(1, () => {});
+  assert.doesNotMatch(JSON.stringify(tool.parameters), /evidence/);
+  assert.doesNotMatch(tool.description, /evidence/);
 });

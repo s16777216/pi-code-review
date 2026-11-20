@@ -464,23 +464,21 @@ test('AgentReviewEngine resolves nothing when the judge does not say fixed', asy
   assert.deepEqual(resolved, []);
 });
 
-for (const [name, options, reason] of [
-  ['a file that cannot be read', { discussion: ownDiscussion(), fileContent: { error: '404' } }, 'file_unreadable'],
+// No rule of the code checks a resolve of the verify agent (`remove-evidence-line`).
+for (const [name, options] of [
+  ['a file that cannot be read', { discussion: ownDiscussion(), fileContent: { error: '404' } }],
   [
     'a file that still has the anchored line (re-indented)',
     { discussion: ownDiscussion(), fileContent: `start();\n    ${FIXED_CODE}\n` },
-    'anchor_still_present',
   ],
 ] as const) {
-  test(`AgentReviewEngine resolves with the verify agent and logs the code check for ${name}`, async () => {
-    const { resolved, warnings } = await reviewWithDeclaration(options as Parameters<typeof reviewWithDeclaration>[0]);
+  test(`AgentReviewEngine resolves what the verify agent resolves for ${name}, with no file read`, async () => {
+    const { resolved, warnings, reads } = await reviewWithDeclaration(
+      options as Parameters<typeof reviewWithDeclaration>[0],
+    );
     assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
-    assert.deepEqual(warnings.at(-1), {
-      discussionId: 'd1',
-      reason,
-      source: 'discussion_judgment',
-      comparison: 'verify_agent_resolved',
-    });
+    assert.deepEqual(warnings, []);
+    assert.equal(reads, 0);
   });
 }
 
@@ -490,7 +488,7 @@ test('AgentReviewEngine accepts a fixed judgment on a deleted file without readi
   assert.equal(reads, 0);
 });
 
-test('AgentReviewEngine reads each file at most once for several fixed judgments', async () => {
+test('AgentReviewEngine reads no file to check the resolves of several fixed judgments', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [judgeFixed(['Fixed one.', 'Fixed two.'])]);
   let reads = 0;
@@ -508,7 +506,7 @@ test('AgentReviewEngine reads each file at most once for several fixed judgments
   const { resolved } = await engine.review(context);
 
   assert.equal(resolved.length, 2);
-  assert.equal(reads, 1);
+  assert.equal(reads, 0);
 });
 
 // --- Batches (`review-large-changes-in-batches`) ---

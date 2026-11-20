@@ -7,7 +7,7 @@ import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWa
 import { createGetFileContentTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
-import { listUnreviewedFiles, runChecks, type JudgedDeclaration } from './checks.ts';
+import { listUnreviewedFiles, runChecks } from './checks.ts';
 import {
   buildDedupPrompt,
   createSubmitGroupsTool,
@@ -293,7 +293,6 @@ export class AgentReviewEngine implements ReviewEngine {
 
       const checked = await runChecks(
         { findings },
-        context,
         changes,
         logger,
         async (checkedFindings) =>
@@ -597,7 +596,7 @@ export class AgentReviewEngine implements ReviewEngine {
     logger: Logger,
     limit: RunLimit,
     stopped: () => boolean,
-  ): Promise<JudgedDeclaration[]> {
+  ): Promise<ResolvedDiscussion[]> {
     const discussions = await context.listDiscussions();
     if (!Array.isArray(discussions)) return [];
     const selected = selectDiscussions(discussions);
@@ -615,7 +614,7 @@ export class AgentReviewEngine implements ReviewEngine {
       stopped,
     );
 
-    const resolved: JudgedDeclaration[] = [];
+    const resolved: ResolvedDiscussion[] = [];
     const counts = { fixed: 0, not_fixed: 0, uncertain: 0 };
     groups.forEach((group, i) => {
       const items = [...(judged[i] ?? [])].sort((a, b) => a.number - b.number);
@@ -631,11 +630,7 @@ export class AgentReviewEngine implements ReviewEngine {
           { file: group.file, line: discussion.line, discussionId: discussion.id, reason: item.reason },
           'discussion judgment found a discussion fixed',
         );
-        resolved.push({
-          discussionId: discussion.id,
-          reason: item.reason,
-          ...(item.evidence === undefined ? {} : { evidence: item.evidence }),
-        });
+        resolved.push({ discussionId: discussion.id, reason: item.reason });
       }
     });
     logger.info(
@@ -705,7 +700,7 @@ export class AgentReviewEngine implements ReviewEngine {
    * and resolves nothing, with a `warn` line and no warning in the result. */
   private async decideFinal(
     findings: Finding[],
-    declarations: JudgedDeclaration[],
+    declarations: ResolvedDiscussion[],
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
@@ -805,7 +800,10 @@ export class AgentReviewEngine implements ReviewEngine {
       return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
     } catch (error) {
       if (!(error instanceof ReviewFailureError)) throw error;
-      logger.warn({ file: group.file, error: error.message }, 'did not run the verify agent for a file: the run failed');
+      logger.warn(
+        { file: group.file, error: error.message },
+        'did not run the verify agent for a file: the run failed',
+      );
       return null;
     }
   }

@@ -42,11 +42,7 @@ function finding(file: string, extra: Partial<Finding> = {}): Finding {
   return { file, line: 5, severity: 'high', summary: `Problem in ${file}.`, ...extra };
 }
 
-const declaration = (discussionId: string, reason = 'Fixed.', evidence?: string) => ({
-  discussionId,
-  reason,
-  ...(evidence === undefined ? {} : { evidence }),
-});
+const declaration = (discussionId: string, reason = 'Fixed.') => ({ discussionId, reason });
 
 // --- groupForVerifyAgent ---
 
@@ -103,7 +99,7 @@ function group(): VerifyGroup {
   return {
     file: 'a.ts',
     findings: [finding('a.ts', { relatesTo: 'd2' }), finding('a.ts', { line: 9 })],
-    declarations: [declaration('d3', 'Line 3 now checks null.', 'if (value === null) return;')],
+    declarations: [declaration('d3', 'Line 3 now checks null.')],
     discussions,
   };
 }
@@ -128,10 +124,15 @@ test('the prompt has the notes of a discussion with their authors, including the
   assert.match(prompt, /This is intended\./);
 });
 
-test('the prompt has the reason and the evidence line of a declaration', () => {
+test('the prompt has the reason of a declaration and no evidence line', () => {
   const prompt = buildVerifyAgentPrompt(context, group(), undefined);
   assert.match(prompt, /Line 3 now checks null\./);
-  assert.match(prompt, /"evidenceLine": "if \(value === null\) return;"/);
+  assert.doesNotMatch(prompt, /evidenceLine|evidence line/);
+});
+
+test('the system prompt of the verify agent has no sentence about an evidence line', () => {
+  assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /evidence/i);
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /The reason of a declaration is a hint/);
 });
 
 test('the prompt has no hint about a link of a review agent', () => {
@@ -380,4 +381,29 @@ test('the system prompt tells the agent to keep a declined discussion open', () 
 test('the rule of a declined discussion also covers a reason of the judge that says there is no problem', () => {
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /also when the reason of the judge says that there is no problem/);
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /When the code changed to fix the problem, resolve the discussion as above/);
+});
+
+test('the rule of a declined discussion names a decision to leave the problem for a later change', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /A decision to leave the problem for a later change is also a decision that the problem stays/,
+  );
+});
+
+test('the system prompt tells the agent to keep a discussion open when a reply is the only support and it cannot be checked', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /Use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read/,
+  );
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /for example a statement about the behavior of another repository/);
+});
+
+test('the rule of an unchecked statement does not stop the agent from resolving a fix that the code shows', () => {
+  // The last sentence of the paragraph is still the rule for a fix, and it comes after the new rule.
+  const unchecked = VERIFY_AGENT_SYSTEM_PROMPT.indexOf('the only support for a fix is a statement in a reply');
+  const fixed = VERIFY_AGENT_SYSTEM_PROMPT.indexOf(
+    'When the code changed to fix the problem, resolve the discussion as above',
+  );
+  assert.ok(unchecked !== -1 && fixed > unchecked);
+  assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /keep a discussion open when the code changed to fix the problem/);
 });

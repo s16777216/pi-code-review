@@ -29,9 +29,9 @@ Decide each declaration:
 - "resolve": the current code no longer has the problem of that discussion.
 - "keep_open": the problem is still in the code, or you cannot decide. When you are not sure, use "keep_open".
 
-The reason of a declaration and its evidence line are hints. Check them in the current code. Do not resolve a discussion when you keep a finding that relates to it.
+The reason of a declaration is a hint. Check it in the current code. Do not resolve a discussion when you keep a finding that relates to it.
 
-Use "keep_open" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code that the note describes did not change. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies. When the code changed to fix the problem, resolve the discussion as above.
+Use "keep_open" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code that the note describes did not change. A decision to leave the problem for a later change is also a decision that the problem stays. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies. Use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read, for example a statement about the behavior of another repository. When the code changed to fix the problem, resolve the discussion as above.
 
 In each "reason", write one sentence, and quote the code or the note that shows your decision.
 
@@ -50,18 +50,13 @@ export function buildVerifyAgentSystemPrompt(instructions?: string): string {
   return `${VERIFY_AGENT_SYSTEM_PROMPT}\n\n${VERIFY_AGENT_INSTRUCTIONS_STATEMENT}\n\n${instructions}`;
 }
 
-/** A declaration of the judge, with the evidence line of its judgment. */
-export interface DeclarationInput extends ResolvedDiscussion {
-  evidence?: string;
-}
-
 /** What one verify agent run decides: a file with its findings, its
  * declarations, and all its discussions. The number of an item in a run is its
  * position here, starting at 1. */
 export interface VerifyGroup {
   file: string;
   findings: Finding[];
-  declarations: DeclarationInput[];
+  declarations: ResolvedDiscussion[];
   discussions: ReviewDiscussion[];
 }
 
@@ -71,7 +66,7 @@ export interface VerifyGroup {
  * are in the order of the first discussion of each file. */
 export function groupForVerifyAgent(
   findings: readonly Finding[],
-  declarations: readonly DeclarationInput[],
+  declarations: readonly ResolvedDiscussion[],
   discussions: readonly ReviewDiscussion[],
 ): VerifyGroup[] {
   const byId = new Map(discussions.map((discussion) => [discussion.id, discussion]));
@@ -116,7 +111,6 @@ export function buildVerifyAgentPrompt(
     number: index + 1,
     discussion: numberOf.get(declaration.discussionId) ?? NOT_KNOWN,
     reason: declaration.reason,
-    ...(declaration.evidence === undefined ? {} : { evidenceLine: declaration.evidence }),
   }));
   const discussions = group.discussions.map((discussion, index) => ({
     number: index + 1,
