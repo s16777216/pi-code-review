@@ -117,6 +117,21 @@ test('the system prompt gives not_fixed for a reply that keeps the problem by de
   assert.match(JUDGE_SYSTEM_PROMPT, /"not_fixed"[^]*by decision[^]*code is unchanged/);
 });
 
+test('the system prompt gives not_fixed for a decision to leave the problem for a later change', () => {
+  assert.match(JUDGE_SYSTEM_PROMPT, /leave the problem for a later change is also a decision that the problem stays/);
+});
+
+test('the system prompt gives uncertain when the only support for a fix is a statement that cannot be checked', () => {
+  assert.match(
+    JUDGE_SYSTEM_PROMPT,
+    /"uncertain"[^]*only support for a fix is a statement in a reply that you cannot check/,
+  );
+});
+
+test('the system prompt still gives fixed when the code changed to fix the problem', () => {
+  assert.match(JUDGE_SYSTEM_PROMPT, /When the code changed to fix the problem, use "fixed"/);
+});
+
 test('the system prompt asks for a reason that quotes the code', () => {
   assert.match(JUDGE_SYSTEM_PROMPT, /quote the code/);
 });

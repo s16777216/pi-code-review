@@ -22,8 +22,8 @@ Read the diff of the file. In the diff, the number before "|" is the line's numb
 
 For each discussion, decide a judgment:
 - "fixed": the current code no longer has the problem of the discussion.
-- "not_fixed": the current code still has the problem. Also use "not_fixed" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code is unchanged. Resolving such a discussion is a decision for a person.
-- "uncertain": you read the code and still cannot decide.
+- "not_fixed": the current code still has the problem. Also use "not_fixed" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code is unchanged. A decision to leave the problem for a later change is also a decision that the problem stays. Resolving such a discussion is a decision for a person.
+- "uncertain": you read the code and still cannot decide. Also use "uncertain" when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read, for example a statement about the behavior of another repository or about a build that you cannot run. When the code changed to fix the problem, use "fixed".
 
 The current code decides each judgment. In the "reason", quote the code that shows your judgment.
 
