@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Run the steps on the merged output
-The system SHALL merge the outputs of all agents before it runs the checks on `relatesTo`, the diff line check, the anchor, the deduplication step, the verification step, and the fixed declarations, in this order. The discussion judgment step does not wait for this order. The requirement "Judge each open discussion of this tool" says when it starts, and the check on fixed declarations MUST wait for its result. The merge SHALL keep the findings in the order of the run scopes, and in each run scope in the order of the review focuses. In the check on fixed declarations, "the same output" MUST mean the merged output of the review.
+The system SHALL merge the outputs of all agents before it runs the checks on `relatesTo`, the diff line check, the anchor, the deduplication step, the verification step, the verify agent step, and the code check of the resolved discussions, in this order. The discussion judgment step does not wait for this order. The requirement "Judge each open discussion of this tool" says when it starts, and the verify agent step MUST wait for its result. The merge SHALL keep the findings in the order of the run scopes, and in each run scope in the order of the review focuses. In the code check, "the same output" MUST mean the merged output of the review.
 
 #### Scenario: Order of the merged findings
 - **WHEN** a run scope has findings from the agent for security and from the agent for logic correctness
 - **THEN** the merged findings list the findings of the agent for logic correctness first
 
-#### Scenario: The check waits for the judgment step
+#### Scenario: The verify agent step waits for the judgment step
 - **WHEN** the verification step ends before the discussion judgment step
-- **THEN** the check on fixed declarations starts after the discussion judgment step ends
+- **THEN** the verify agent step starts after the discussion judgment step ends
 
 #### Scenario: The verification step does not change the selection
 - **WHEN** the verification step drops the only finding that has `relatesTo` equal to `d1`
@@ -17,7 +17,7 @@ The system SHALL merge the outputs of all agents before it runs the checks on `r
 
 #### Scenario: A finding in another batch links to the discussion
 - **WHEN** batch 2 has a finding with `relatesTo` equal to `d1`, and the judge gave `fixed` for `d1`
-- **THEN** the system drops the declaration of `d1` and logs the reason
+- **THEN** the verify agent gets the finding and the declaration of `d1` in one run and decides both
 
 ### Requirement: Stop the judge when the review fails
 The system SHALL start no new judge run after the review fails. A judge run that already started MAY end by itself. The failure of the review MUST NOT leave an unhandled error from a judge run.
@@ -33,7 +33,7 @@ The system SHALL start no new judge run after the review fails. A judge run that
 ## MODIFIED Requirements
 
 ### Requirement: Judge each open discussion of this tool
-The system SHALL start the discussion judgment step when the review starts, at the same time as the agents for the review focuses, and the check on fixed declarations MUST wait for the result of the step. The step MUST select a discussion only when all of these are true. This tool started the discussion. It is not resolved. It has an anchor and a file. The selection MUST NOT read the findings. The system SHALL start one judge run for each file that has at least one selected discussion. The judge SHALL give each selected discussion of that file one judgment: `fixed`, `not_fixed`, or `uncertain`. The system MUST NOT call the model for this step when no discussion is selected.
+The system SHALL start the discussion judgment step when the review starts, at the same time as the agents for the review focuses, and the verify agent step MUST wait for the result of the step. The step MUST select a discussion only when all of these are true. This tool started the discussion. It is not resolved. It has an anchor and a file. The selection MUST NOT read the findings. The system SHALL start one judge run for each file that has at least one selected discussion. The judge SHALL give each selected discussion of that file one judgment: `fixed`, `not_fixed`, or `uncertain`. The system MUST NOT call the model for this step when no discussion is selected.
 
 #### Scenario: The step starts with the review agents
 - **WHEN** a review starts with one open discussion from this tool
@@ -72,7 +72,7 @@ The system SHALL start the discussion judgment step when the review starts, at t
 - **THEN** the system does not call the model for the discussion judgment step
 
 ### Requirement: Limit parallel runs
-The system SHALL run at most 3 agent runs at the same time. All agents of all run scopes use this one limit, and the limit covers runs of different steps that are active at the same time. The other runs SHALL wait in this order: by run scope, and then by review focus. The verifier runs of the verification step use the same limit of 3 runs, and they wait in the order of their files. The judge runs of the discussion judgment step use the same limit of 3 runs, and they wait in the order of their files. They wait behind the runs of the agents for the review focuses.
+The system SHALL run at most 3 agent runs at the same time. All agents of all run scopes use this one limit, and the limit covers runs of different steps that are active at the same time. The other runs SHALL wait in this order: by run scope, and then by review focus. The verifier runs of the verification step use the same limit of 3 runs, and they wait in the order of their files. The judge runs of the discussion judgment step use the same limit of 3 runs, and they wait in the order of their files. They wait behind the runs of the agents for the review focuses. The verify agent runs of the verify agent step use the same limit of 3 runs, and they wait in the order of their files.
 
 #### Scenario: Parallel runs are limited
 - **WHEN** a review has 5 batches, and so 15 agent runs
@@ -94,8 +94,12 @@ The system SHALL run at most 3 agent runs at the same time. All agents of all ru
 - **WHEN** a review has 6 agent runs and the discussion judgment step has 2 judge runs
 - **THEN** at most 3 of the 8 runs are active at the same time
 
+#### Scenario: Verify agent runs are limited
+- **WHEN** the verify agent step has 5 files with a discussion and a finding
+- **THEN** at most 3 verify agent runs are active at the same time
+
 ## REMOVED Requirements
 
 ### Requirement: Run the checks in order on the merged output
 **Reason**: The requirement puts the discussion judgment step in one order with the other steps. The judge starts with the review agents now.
-**Migration**: Use "Run the steps on the merged output". The scenario "The discussion judgment step runs after the verification step" is replaced by "The check waits for the judgment step" and "The verification step does not change the selection".
+**Migration**: Use "Run the steps on the merged output". The scenario "The discussion judgment step runs after the verification step" is replaced by "The verify agent step waits for the judgment step" and "The verification step does not change the selection".

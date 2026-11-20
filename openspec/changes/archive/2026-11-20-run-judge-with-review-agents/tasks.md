@@ -15,6 +15,6 @@
 
 ## 4. Check and document
 
-- [ ] 4.1 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`. Verify that build, test, and lint pass. If `format:check` fails, compare with `master` and name each failure that already exists there.
-- [ ] 4.2 Archive `add-verify-agent` first. Rebuild the delta of this change from the main spec. Run `openspec-sync-specs` for this change, and update `docs/how-it-works.md`. Verify with `openspec validate run-judge-with-review-agents --strict`.
-- [ ] 4.3 Smoke test: run `picr review` with `--debug` on merge request 60, and do not run `publish`. Record the time of the whole review and the time at which the judgment summary line appears. This task is not an acceptance gate, because the model answers differ between runs.
+- [x] 4.1 Run `npm run build`, `npm test`, `npm run lint`, and `npm run format:check`. Verify that build, test, and lint pass. If `format:check` fails, compare with `master` and name each failure that already exists there.
+- [x] 4.2 Archive `add-verify-agent` first. Rebuild the delta of this change from the main spec. Run `openspec-sync-specs` for this change, and update `docs/how-it-works.md`. Verify with `openspec validate run-judge-with-review-agents --strict`.
+- [x] 4.3 Smoke test: run `picr review` with `--debug` on merge request 60, and do not run `publish`. Record the time of the whole review and the time at which the judgment summary line appears. This task is not an acceptance gate, because the model answers differ between runs.

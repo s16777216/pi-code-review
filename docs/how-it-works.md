@@ -10,7 +10,7 @@
 
 A change that is too large for one request is split first. See [Large merge requests](#large-merge-requests).
 
-> A review makes about three times more model calls than a review with one agent, plus at most one call for deduplication, one for each file with findings, and one for each file with open discussions from this tool. It costs more, and for a change in many batches it takes more time. For a change that fits one request, the three agents run at the same time.
+> A review makes about three times more model calls than a review with one agent, plus at most one call for deduplication, one for each file with findings, one for each file with open discussions from this tool, and one for each file that has a discussion and a finding or a declaration (the verify agent). It costs more, and for a change in many batches it takes more time. For a change that fits one request, the three agents run at the same time.
 
 ## Review agents
 
@@ -77,7 +77,7 @@ The `info` log shows how many files the agent decided, how many findings it kept
 - Files are sorted by path and packed into batches, so files in one directory usually share a batch. A file that is too large for one batch is split at its hunks, shown as `<path> (part k of n)`, with the real line numbers.
 - Each batch sees the title, the description, a list of every changed file, and only its own diffs. It can still read any changed file.
 - A finding from a batch counts only on a line of that batch's own diffs. The outputs of all agents are merged, and the checks, the deduplication step, the verification step, and the discussion judgment step run once on the merged output.
-- At most 20 batches, and at most 3 agent runs at the same time for all batches and focuses together. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
+- At most 20 batches, and at most 3 agent runs at the same time for all batches, focuses, and steps together. The judge starts with the review agents and uses the free slots, so its time overlaps the time of the review agents. A review that needs more batches, or that has one hunk too large for a batch, fails before the first model call.
 
 **Room for the answer.** A run can answer with at most the context window minus its input minus 4,096 tokens, which `pi-ai` keeps free. So set `--context-window` to the real window of the model, and to at least about twice `4096 + --max-tokens`. The defaults (`128000` and `32000`) meet this. With a smaller window, a run can stop at the token limit. `review` then tries the run once more with twice `--max-tokens`. If the run stops again, `review` fails with an error that names `--max-tokens` and `--context-window`. A large batch with many findings can also stop at the default `--max-tokens`. For a merge request with about 90 changed files, `--max-tokens 48000` worked.
 
