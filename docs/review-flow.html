@@ -92,13 +92,13 @@
 <body>
 <main>
   <h1>審查與討論自動 resolve 流程</h1>
-  <p class="sub">由上而下是執行順序，箭頭是依賴：箭頭起點的產物，是終點的輸入。這是設計中的流程，不是目前的實作。</p>
+  <p class="sub">由上而下是執行順序，箭頭是依賴：箭頭起點的產物，是終點的輸入。這是目前實作的流程。</p>
 
   <div class="note" style="margin:0 0 16px">
     <ul style="margin:0;padding-left:20px">
       <li>judge agent 與 review agent 在同一高度，表示兩者互不依賴：judge agent 只讀討論、diff 與檔案內容。</li>
-      <li>4. verify agent 同時接受 finding verifier（3.）的 finding 與 judge agent（2.）的宣告，由它判斷最終輸出的 open issue 與 resolved issue。它負責 finding 與舊討論的對應，可以讀人的回覆，並單獨決定是否 resolve，沒有程式端的確定性把關。</li>
-      <li>下方的表格與「失敗時的處理」描述的是目前的實作，還沒有改成這個流程。</li>
+      <li>5. verify agent 同時接受 finding verifier（4.）的 finding 與 judge agent（2.）的宣告，由它判斷最終輸出的 open issue 與 resolved issue。它負責 finding 與舊討論的對應，可以讀人的回覆，並單獨決定是否 resolve，沒有程式端的確定性把關。</li>
+      <li>3. 整理與 4. 驗證是兩個獨立的步驟：整理只比較 finding 的文字，驗證才讀程式碼。</li>
     </ul>
   </div>
 
@@ -107,12 +107,14 @@ flowchart TD
   R["1#46; review agent ×3（並行）"]
   J["2#46; judge agent（逐檔一次）"]
   C["程式碼：移除不在 MR diff 內的 finding"]
-  F["3#46; finding verifier：整理並驗證"]
-  V["4#46; verify agent"]
+  D["3#46; 整理：移除重複的 finding"]
+  F["4#46; finding verifier：逐檔驗證"]
+  V["5#46; verify agent"]
   O["輸出"]
   R -->|"合併後的 finding"| C
-  C -->|"在 diff 內的 finding"| F
-  F -->|"整理後的 finding"| V
+  C -->|"在 diff 內的 finding"| D
+  D -->|"整理後的 finding"| F
+  F -->|"驗證後的 finding"| V
   J ---->|"fixed 的宣告"| V
   V -->|"open issue、resolved issue"| O
   classDef old stroke-width:2px
@@ -121,7 +123,7 @@ flowchart TD
   classDef final stroke-width:2px
   classDef code stroke-width:2px
   class C code
-  class R,F old
+  class R,D,F old
   class J judge
   class V guard
   class O final
@@ -137,9 +139,10 @@ flowchart TD
         <tr><td>1. review agent ×3（並行）</td><td style="text-align:left">diff。與討論無關</td><td style="text-align:left">找新問題，產生 finding</td></tr>
         <tr><td>2. judge agent（逐檔一次）</td><td style="text-align:left">現有討論、diff、檔案內容。不看任何 finding</td><td style="text-align:left">判斷本工具開的未解決討論：<code>fixed</code> / <code>not_fixed</code> / <code>uncertain</code></td></tr>
         <tr><td>程式碼：移除不在 MR diff 內的 finding</td><td style="text-align:left">1. 合併後的 finding、MR 的 diff</td><td style="text-align:left">不用模型。丟掉檔案不在變更內、行號不在 diff 內，或 diff 被省略的 finding，並寫一行 <code>warn</code></td></tr>
-        <tr><td>3. finding verifier</td><td style="text-align:left">上一步留下的 finding</td><td style="text-align:left">整理：同一問題被重複報告時只留一個。驗證：逐檔複核，刪掉被判 <code>rejected</code> 的</td></tr>
-        <tr><td>4. verify agent</td><td style="text-align:left">現有討論（含人的回覆）、diff、檔案內容；3. 的 finding；2. 的宣告</td><td style="text-align:left">對每個 finding 判斷：新問題，或重複了開著的討論（丟掉），或關聯到已 resolve 的討論（回覆並重開），或人已說明是刻意設計（丟掉）。對每個 2. 的宣告判斷是否 resolve。輸出 open issue 與 resolved issue</td></tr>
-        <tr><td>輸出</td><td style="text-align:left">4. 的 open issue 與 resolved issue</td><td style="text-align:left"><code>findings.json</code>（finding、resolved、warnings）→ <code>publish</code></td></tr>
+        <tr><td>3. 整理（deduplication）</td><td style="text-align:left">上一步留下的 finding 的檔案、行號、嚴重度與摘要。一次模型呼叫，只在某檔案有 2 個以上 finding 時才呼叫</td><td style="text-align:left">同一問題被重複報告時只留一個（留嚴重度最高的）</td></tr>
+        <tr><td>4. finding verifier</td><td style="text-align:left">3. 留下的 finding，逐檔處理</td><td style="text-align:left">複核每個 finding，刪掉被判 <code>rejected</code> 的，並給出嚴重度</td></tr>
+        <tr><td>5. verify agent</td><td style="text-align:left">現有討論（含人的回覆）、diff、檔案內容；4. 的 finding；2. 的宣告</td><td style="text-align:left">對每個 finding 判斷：新問題，或重複了開著的討論（丟掉），或關聯到已 resolve 的討論（回覆並重開），或人已說明是刻意設計（丟掉）。對每個 2. 的宣告判斷是否 resolve。輸出 open issue 與 resolved issue</td></tr>
+        <tr><td>輸出</td><td style="text-align:left">5. 的 open issue 與 resolved issue</td><td style="text-align:left"><code>findings.json</code>（finding、resolved、warnings）→ <code>publish</code></td></tr>
       </tbody>
     </table>
   </div>
@@ -153,6 +156,7 @@ flowchart TD
       <tbody>
         <tr><td>review agent</td><td>自己找</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
         <tr><td>judge agent</td><td class="no">無</td><td class="yes">看</td><td class="yes">看</td><td class="no">無</td><td class="yes">看</td></tr>
+        <tr><td>整理（deduplication）</td><td class="yes">看（只看摘要）</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="no">無</td></tr>
         <tr><td>finding verifier</td><td class="yes">看</td><td class="no">無</td><td class="no">無</td><td class="no">無</td><td class="yes">看</td></tr>
         <tr><td>verify agent</td><td class="yes">看</td><td class="yes">看</td><td class="yes">看</td><td class="yes">看</td><td class="yes">看</td></tr>
       </tbody>
@@ -163,7 +167,9 @@ flowchart TD
   <div class="note">
     <ul style="margin:0;padding-left:20px">
       <li>judge agent（2.）某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：該檔案不 resolve，只寫 <code>warn</code> log，不讓審查失敗，也不新增 warning 代碼。</li>
-      <li>verify agent（4.）某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：該檔案的 finding 維持原樣、不 resolve，只寫 <code>warn</code> log，不讓審查失敗，也不新增 warning 代碼。</li>
+      <li>整理（3.）的模型呼叫失敗，或回傳的分組無效：保留所有 finding，寫 <code>warn</code> log，並記錄 warning <code>deduplication_failed</code>，不讓審查失敗。</li>
+      <li>finding verifier（4.）某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：保留該檔案的 finding，寫 <code>warn</code> log，並記錄 warning <code>verification_failed</code> 或 <code>verification_skipped</code>，不讓審查失敗。</li>
+      <li>verify agent（5.）某個檔案的模型呼叫失敗，或第一次請求超過 context window 的一半：該檔案的 finding 維持原樣、不 resolve，只寫 <code>warn</code> log，不讓審查失敗，也不新增 warning 代碼。</li>
     </ul>
   </div>
 </main>
