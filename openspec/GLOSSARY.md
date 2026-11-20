@@ -18,3 +18,4 @@
 - **discussion judgment step** — 三個 review focus 的輸出合併、驗證步驟之後,由獨立 judge 逐檔判斷本工具開的未解決討論是否已修好的步驟。Aliases: 討論判斷步驟、討論判斷。
 - **judge** — 執行討論判斷步驟的 agent,每次處理一個檔案的未解決討論。Aliases: 判斷 agent。
 - **judgment** — judge 對一則討論的判斷:`fixed`、`not_fixed`、`uncertain`。只有 `fixed` 會轉成已修正宣告。Aliases: 判斷結果。
+- **verify agent** — 最後一步的 agent：接受 finding、judge 的宣告與討論（含人的回覆），決定最終輸出的 open issue 與 resolved issue。和驗證步驟的 `verifier`（finding verifier）是不同的 agent。Aliases: 最終驗證 agent。

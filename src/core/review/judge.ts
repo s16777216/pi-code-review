@@ -5,7 +5,7 @@ import type { ReviewContext, ReviewDiscussion } from '../types.ts';
 import { MAX_SUBMIT_ATTEMPTS } from './agent.ts';
 import type { ChangedFile } from './changedFile.ts';
 import { ReviewFailureError } from './findings.ts';
-import { formatDiff, header } from './prompt.ts';
+import { describeFileDiff, header } from './prompt.ts';
 
 // The discussion judgment step (`judge-open-discussions` design). A judge agent
 // reads the open discussions of one file against the current code. The model
@@ -93,21 +93,11 @@ export function buildJudgePrompt(
     commit: discussion.positionCommit ?? NOT_KNOWN,
     notes: discussion.notes.map((note) => ({ author: note.author, body: note.body })),
   }));
-  let diff: string;
-  if (file === undefined) {
-    diff = `The change does not include ${path}. There is no diff. Read the file with the get_file_content tool.`;
-  } else if (file.omitted !== undefined) {
-    diff = `The diff of ${path} is omitted. Read the file with the get_file_content tool.`;
-  } else if (file.deleted) {
-    diff = `${formatDiff(file.path, file)}\n\nThe change deletes ${path}. The file no longer exists in the current code.`;
-  } else {
-    diff = formatDiff(file.path, file);
-  }
   return [
     ...header(context),
     '## Diff of the file',
     '',
-    diff,
+    describeFileDiff(path, file),
     '',
     '## Discussions to judge',
     '',

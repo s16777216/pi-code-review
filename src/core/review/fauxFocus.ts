@@ -53,6 +53,47 @@ export function uncertainAll(context: unknown) {
   return fauxAssistantMessage([fauxToolCall('submit_judgments', { judgments } as never)], { stopReason: 'toolUse' });
 }
 
+/** True when the call is a run of the verify agent step. */
+export function isVerifyAgentCall(context: unknown): boolean {
+  return JSON.stringify(context).includes('submit_decisions');
+}
+
+/** The numbered list under a heading of the prompt of a verify agent run. */
+function listUnder(text: string, title: string): Record<string, unknown>[] {
+  const section = text.split(/^## /m).find((part) => part.startsWith(`${title}\n`));
+  if (section === undefined) return [];
+  const lines = section.split('\n');
+  const start = lines.findIndex((line) => line === '[' || line === '[]');
+  return start === -1 ? [] : (JSON.parse(lines.slice(start).join('\n').trim()) as Record<string, unknown>[]);
+}
+
+/** A `submit_decisions` call that keeps each finding with the discussion that
+ * its hint names, and resolves each declaration, except one that a kept
+ * finding relates to. A test that does not care about the verify agent step
+ * keeps what the earlier steps gave. */
+export function keepAndResolve(context: unknown) {
+  const text = lastUserText(context);
+  const findings = listUnder(text, 'Findings');
+  const declarations = listUnder(text, 'Declarations');
+  const linked = new Set(
+    findings.flatMap((finding) => (typeof finding.linkedDiscussion === 'number' ? [finding.linkedDiscussion] : [])),
+  );
+  const call = {
+    findings: findings.map((finding) => ({
+      number: finding.number,
+      decision: 'keep',
+      relatesTo: typeof finding.linkedDiscussion === 'number' ? finding.linkedDiscussion : null,
+      reason: 'The code shows it.',
+    })),
+    declarations: declarations.map((declaration) => ({
+      number: declaration.number,
+      decision: linked.has(declaration.discussion as number) ? 'keep_open' : 'resolve',
+      reason: 'The code shows it.',
+    })),
+  };
+  return fauxAssistantMessage([fauxToolCall('submit_decisions', call as never)], { stopReason: 'toolUse' });
+}
+
 function lastUserText(context: unknown): string {
   const messages = (context as { messages?: { role: string; content: unknown }[] }).messages ?? [];
   const content = [...messages].reverse().find((message) => message.role === 'user')?.content;
@@ -102,6 +143,7 @@ function emptyReview() {
 export function logicOnly(faux: FauxProviderHandle, steps: FauxResponseStep[]): void {
   const queue = [...steps];
   const dispatch: FauxResponseFactory = (context, options, state, model) => {
+    if (isVerifyAgentCall(context)) return keepAndResolve(context);
     if (isJudgeCall(context)) return uncertainAll(context);
     if (isDedupCall(context)) return singletonGroups(context);
     if (isVerifyCall(context)) return confirmAll(context);
@@ -124,6 +166,7 @@ export function perFocus(
   dedup?: FauxResponseStep[],
   verify?: FauxResponseStep[],
   judge?: FauxResponseStep[],
+  decide?: FauxResponseStep[],
 ): void {
   const queues = new Map<number, FauxResponseStep[]>(
     REVIEW_FOCUSES.map((_, index) => [index, [...(scripts[index] ?? [])]]),
@@ -131,7 +174,14 @@ export function perFocus(
   const dedupQueue = [...(dedup ?? [])];
   const verifyQueue = verify === undefined ? undefined : [...verify];
   const judgeQueue = judge === undefined ? undefined : [...judge];
+  const decideQueue = decide === undefined ? undefined : [...decide];
   const dispatch: FauxResponseFactory = (context, options, state, model) => {
+    if (isVerifyAgentCall(context)) {
+      if (decideQueue === undefined) return keepAndResolve(context);
+      const next = decideQueue.shift();
+      if (next === undefined) throw new Error('The test script has no response for the verify agent step.');
+      return typeof next === 'function' ? next(context, options, state, model) : next;
+    }
     if (isJudgeCall(context)) {
       if (judgeQueue === undefined) return uncertainAll(context);
       const next = judgeQueue.shift();

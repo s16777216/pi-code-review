@@ -36,6 +36,14 @@ export function listUnreviewedFiles(changes: ChangeSet, logger: Logger): Unrevie
  * (`judge-evidence-line` design, Decision 5). It never reaches the result. */
 export type JudgedDeclaration = ResolvedDiscussion & { evidence?: string };
 
+/** The verify agent step: it gets the findings and the declarations of the
+ * judge, and returns the final findings and the resolved discussions
+ * (`add-verify-agent` design). */
+export type DecideFinal = (
+  findings: Finding[],
+  declarations: JudgedDeclaration[],
+) => Promise<{ findings: Finding[]; resolved: ResolvedDiscussion[] }>;
+
 export async function runChecks(
   output: ParsedReviewOutput,
   context: ReviewContext,
@@ -43,6 +51,7 @@ export async function runChecks(
   logger: Logger,
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
   judgeDiscussions?: () => Promise<JudgedDeclaration[]>,
+  decideFinal?: DecideFinal,
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = (await checkRelatesTo(output.findings, context, logger))
     .filter((finding) => {
@@ -74,8 +83,21 @@ export async function runChecks(
     evidenceById.set(declaration.discussionId, evidence);
     declarations.push(declaration);
   }
-  const resolved = await checkResolved(declarations, findings, context, changes, logger, evidenceById);
-  return { findings, resolved };
+  if (decideFinal === undefined) {
+    const resolved = await checkResolved(declarations, findings, context, changes, logger, evidenceById);
+    return { findings, resolved };
+  }
+  // The verify agent decides. The code check runs for the log only: it writes
+  // a `warn` line for each resolved discussion that it would reject
+  // (`add-verify-agent` design, Decision 7).
+  const decided = await decideFinal(
+    findings,
+    judged.filter((item, index) => judged.findIndex((other) => other.discussionId === item.discussionId) === index),
+  );
+  await checkResolved(decided.resolved, decided.findings, context, changes, logger, evidenceById, {
+    comparison: 'verify_agent_resolved',
+  });
+  return { findings: decided.findings, resolved: decided.resolved };
 }
 
 /** Keeps a finding's `relatesTo` only when it names a discussion that
@@ -160,6 +182,7 @@ async function checkResolved(
   changes: ChangeSet,
   logger: Logger,
   judged: ReadonlyMap<string, string | undefined>,
+  extraWarnFields: Record<string, unknown> = {},
 ): Promise<ResolvedDiscussion[]> {
   if (declarations.length === 0) return [];
 
@@ -224,6 +247,7 @@ async function checkResolved(
               }
             : {}),
           ...(judged.has(declaration.discussionId) ? { source: 'discussion_judgment' } : {}),
+          ...extraWarnFields,
         },
         'did not accept a fixed declaration',
       );

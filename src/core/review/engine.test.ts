@@ -337,7 +337,7 @@ test('AgentReviewEngine lets the agent call list_discussions and keeps a known r
   assert.deepEqual(withoutAnchors(findings), [
     { file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', relatesTo: 'd1' },
   ]);
-  assert.equal(faux.state.callCount, 5);
+  assert.equal(faux.state.callCount, 6);
   assert.equal(reads >= 1, true);
 });
 
@@ -474,7 +474,7 @@ test('SYSTEM_PROMPT has one field for submit_review and no sentence about declar
 
 test('AgentReviewEngine accepts a fixed judgment when every check passes', async () => {
   const { resolved, warnings } = await reviewWithDeclaration({ discussion: ownDiscussion() });
-  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The loop now uses i < n.' }]);
+  assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.deepEqual(warnings, []);
 });
 
@@ -491,10 +491,15 @@ for (const [name, options, reason] of [
     'anchor_still_present',
   ],
 ] as const) {
-  test(`AgentReviewEngine rejects a fixed judgment for ${name}`, async () => {
+  test(`AgentReviewEngine resolves with the verify agent and logs the code check for ${name}`, async () => {
     const { resolved, warnings } = await reviewWithDeclaration(options as Parameters<typeof reviewWithDeclaration>[0]);
-    assert.deepEqual(resolved, []);
-    assert.deepEqual(warnings.at(-1), { discussionId: 'd1', reason, source: 'discussion_judgment' });
+    assert.deepEqual(resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
+    assert.deepEqual(warnings.at(-1), {
+      discussionId: 'd1',
+      reason,
+      source: 'discussion_judgment',
+      comparison: 'verify_agent_resolved',
+    });
   });
 }
 

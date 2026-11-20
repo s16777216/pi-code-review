@@ -258,3 +258,50 @@ test('a judge declaration with an evidence line on a deleted file is accepted wi
   assert.deepEqual(result.resolved, [decl('d1', 'judge')]);
   assert.deepEqual(env.reads, []);
 });
+
+// --- verify agent (`add-verify-agent`) ---
+
+test('with a verify agent step, its result is the result, and the code check only logs a rejection', async () => {
+  const anchor = computeAnchor('a.ts', 'two');
+  const { context, logger, warns } = setup([discussion('d1', { anchor })]);
+  const result = await runChecks(
+    { findings: [finding] },
+    context,
+    changes,
+    logger,
+    undefined,
+    async () => [decl('d1', 'judge')],
+    async (findings, declarations) => ({
+      findings: findings.slice(0, 0),
+      resolved: declarations.map((declaration) => ({ discussionId: declaration.discussionId, reason: 'agent' })),
+    }),
+  );
+  assert.deepEqual(result.findings, []);
+  assert.deepEqual(result.resolved, [decl('d1', 'agent')]);
+  assert.deepEqual(warns, [
+    {
+      discussionId: 'd1',
+      reason: 'anchor_still_present',
+      source: 'discussion_judgment',
+      comparison: 'verify_agent_resolved',
+    },
+  ]);
+});
+
+test('the verify agent step gets the declarations of the judge with their evidence line', async () => {
+  const { context, logger } = setup([discussion('d1')]);
+  let seen: unknown;
+  await runChecks(
+    { findings: [] },
+    context,
+    changes,
+    logger,
+    undefined,
+    async () => [{ ...decl('d1', 'judge'), evidence: 'return guard(value);' }],
+    async (_findings, declarations) => {
+      seen = declarations;
+      return { findings: [], resolved: [] };
+    },
+  );
+  assert.deepEqual(seen, [{ discussionId: 'd1', reason: 'judge', evidence: 'return guard(value);' }]);
+});

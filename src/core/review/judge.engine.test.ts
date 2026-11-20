@@ -167,7 +167,7 @@ test('a discussion that a finding links to is still judged', async () => {
   assert.ok(judgePrompts.some((prompt) => prompt.includes('Note of d2.')));
 });
 
-test('a fixed judgment for a discussion that a finding links to resolves nothing and logs linked_by_finding', async () => {
+test('a fixed judgment for a discussion that a finding links to stays open when the verify agent keeps the finding', async () => {
   const faux = fauxProvider();
   perFocus(
     faux,
@@ -183,13 +183,9 @@ test('a fixed judgment for a discussion that a finding links to resolves nothing
   );
 
   assert.deepEqual(resolved, []);
-  assert.ok(
-    warnings.some(
-      (warning) =>
-        warning.discussionId === 'd1' &&
-        warning.reason === 'linked_by_finding' &&
-        warning.source === 'discussion_judgment',
-    ),
+  assert.equal(
+    warnings.some((warning) => warning.discussionId === 'd1'),
+    false,
   );
 });
 
@@ -378,13 +374,13 @@ test('the review result has no field for a judgment', async () => {
   const result = await engineFor(faux).review(contextFor(['a.ts'], [gone]));
 
   assert.deepEqual(Object.keys(result).sort(), ['findings', 'resolved', 'unreviewedFiles', 'warnings']);
-  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'Gone.' }]);
+  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.equal(JSON.stringify(result).includes('judgment'), false);
 });
 
 // --- End to end ---
 
-test('only a fixed judgment whose anchor is gone is resolved, and a fixed judgment with its anchor present is dropped', async () => {
+test('the verify agent resolves each fixed judgment, and the code check only logs the one with its anchor present', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([
@@ -404,10 +400,14 @@ test('only a fixed judgment whose anchor is gone is resolved, and a fixed judgme
 
   const result = await engineFor(faux, { logger }).review(contextFor(['a.ts'], discussions));
 
-  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The line is gone.' }]);
-  const dropped = warnings.find((fields) => fields.discussionId === 'd2');
-  assert.equal(dropped?.reason, 'anchor_still_present');
-  assert.equal(dropped?.source, 'discussion_judgment');
+  assert.deepEqual(
+    result.resolved.map((item) => item.discussionId),
+    ['d1', 'd2'],
+  );
+  const logged = warnings.find((fields) => fields.discussionId === 'd2');
+  assert.equal(logged?.reason, 'anchor_still_present');
+  assert.equal(logged?.source, 'discussion_judgment');
+  assert.equal(logged?.comparison, 'verify_agent_resolved');
   assert.equal(
     warnings.some((fields) => fields.discussionId === 'd3' || fields.discussionId === 'd4'),
     false,
@@ -431,7 +431,7 @@ test('a fixed judgment with a valid evidence line resolves a discussion whose an
 
   const result = await engineFor(faux, { logger }).review(evidenceContext([discussion('d1', 'a.ts', 'two')]));
 
-  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The guard is new.' }]);
+  assert.deepEqual(result.resolved, [{ discussionId: 'd1', reason: 'The code shows it.' }]);
   assert.equal(
     infos.some((fields) => fields.discussionId === 'd1' && fields.evidence === 'return guard(value);'),
     true,
@@ -449,7 +449,7 @@ test('the findings result has no field for the evidence line', async () => {
   assert.equal(JSON.stringify(result).includes('evidence'), false);
 });
 
-test('four fixed judgments: the anchor gone and a valid evidence line resolve, the others are dropped', async () => {
+test('four fixed judgments: the verify agent resolves all, and the code check logs the two that it rejects', async () => {
   const faux = fauxProvider();
   perFocus(faux, {}, undefined, undefined, [
     submitJudgments([
@@ -471,7 +471,7 @@ test('four fixed judgments: the anchor gone and a valid evidence line resolve, t
 
   assert.deepEqual(
     result.resolved.map((item) => item.discussionId),
-    ['d1', 'd2'],
+    ['d1', 'd2', 'd3', 'd4'],
   );
   assert.equal(warnings.find((fields) => fields.discussionId === 'd3')?.reason, 'evidence_not_valid');
   assert.equal(warnings.find((fields) => fields.discussionId === 'd4')?.reason, 'anchor_still_present');

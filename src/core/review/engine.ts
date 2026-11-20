@@ -3,7 +3,7 @@ import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider } from '@earendil-works/pi-ai';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../errorMessage.ts';
-import type { Finding, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
+import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
 import { createGetFileContentTool, createListDiscussionsTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
@@ -37,6 +37,16 @@ import {
   type AppliedVerdict,
   type FindingVerdict,
 } from './verify.ts';
+import {
+  applyDecisions,
+  buildVerifyAgentPrompt,
+  buildVerifyAgentSystemPrompt,
+  createSubmitDecisionsTool,
+  groupForVerifyAgent,
+  shapeOf,
+  type Decisions,
+  type VerifyGroup,
+} from './verifyAgent.ts';
 
 export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
 
@@ -166,7 +176,13 @@ export class AgentReviewEngine implements ReviewEngine {
    * their outputs, runs the checks and the deduplication step once on the
    * merged output (Decision 6 of `review-large-changes-in-batches`, and
    * `add-multi-agent-review`). */
-  async review(context: ReviewContext): Promise<ReviewResult> {
+  async review(hostContext: ReviewContext): Promise<ReviewResult> {
+    // The steps ask for the discussions more than once. The review reads them one time.
+    let discussions: ReturnType<ReviewContext['listDiscussions']> | undefined;
+    const context: ReviewContext = {
+      ...hostContext,
+      listDiscussions: () => (discussions ??= hostContext.listDiscussions()),
+    };
     const logger = this.options.logger ?? silentLogger();
     // A missing built-in prompt template fails the review here, before any model call
     // (`move-review-prompt-to-templates`, Decision 4).
@@ -200,6 +216,7 @@ export class AgentReviewEngine implements ReviewEngine {
       async (checkedFindings) =>
         this.verify(await this.deduplicate(checkedFindings, logger, warnings), context, changes, logger, warnings),
       () => this.judgeDiscussions(context, changes, logger),
+      (remaining, declarations) => this.decideFinal(remaining, declarations, context, changes, logger),
     );
     return { ...checked, unreviewedFiles, warnings };
   }
@@ -587,6 +604,118 @@ export class AgentReviewEngine implements ReviewEngine {
         { file: group.file, error: error.message },
         'did not judge the discussions of a file: the run failed',
       );
+      return null;
+    }
+  }
+
+  /** The verify agent step (`add-verify-agent` design). One run for each file
+   * that has a discussion and at least one finding or declaration. The agent
+   * keeps or drops each finding and says which discussion it relates to, and it
+   * resolves or keeps open each declaration of the judge. A file whose run
+   * fails, or whose first request is too large, keeps its findings as they are
+   * and resolves nothing, with a `warn` line and no warning in the result. */
+  private async decideFinal(
+    findings: Finding[],
+    declarations: JudgedDeclaration[],
+    context: ReviewContext,
+    changes: ChangeSet,
+    logger: Logger,
+  ): Promise<{ findings: Finding[]; resolved: ResolvedDiscussion[] }> {
+    const discussions = await context.listDiscussions();
+    if (!Array.isArray(discussions)) return { findings, resolved: [] };
+    const groups = groupForVerifyAgent(findings, declarations, discussions);
+    if (groups.length === 0) return { findings, resolved: [] };
+
+    const decided: (Decisions | null)[] = groups.map(() => null);
+    await this.runPool(groups.length, async (i) => {
+      decided[i] = await this.decideFile(groups[i]!, context, changes, logger);
+    });
+
+    const replaced = new Map<Finding, Finding | null>();
+    const resolved: ResolvedDiscussion[] = [];
+    const counts = { files: 0, kept: 0, dropped: 0, resolved: 0, leftOpen: 0 };
+    groups.forEach((group, i) => {
+      const decisions = decided[i];
+      if (decisions === null || decisions === undefined) return;
+      const applied = applyDecisions(group, decisions);
+      counts.files += 1;
+      counts.kept += applied.kept;
+      counts.dropped += applied.dropped;
+      counts.resolved += applied.resolved.length;
+      counts.leftOpen += applied.leftOpen;
+      group.findings.forEach((finding, index) => replaced.set(finding, applied.findings[index] ?? null));
+      resolved.push(...applied.resolved);
+      for (const item of decisions.findings) {
+        const finding = group.findings[item.number - 1]!;
+        logger.debug(
+          { file: group.file, line: finding.line, decision: item.decision, reason: item.reason },
+          'verify agent decision on a finding',
+        );
+      }
+      for (const item of decisions.declarations) {
+        const declared = group.declarations[item.number - 1]!;
+        const discussion = group.discussions.find((candidate) => candidate.id === declared.discussionId);
+        logger.debug(
+          { file: group.file, line: discussion?.line ?? null, decision: item.decision, reason: item.reason },
+          'verify agent decision on a declaration',
+        );
+      }
+    });
+    logger.info(
+      { ...counts },
+      `Verify agent step: ${counts.files} file(s), ${counts.kept} finding(s) kept, ${counts.dropped} dropped, ${counts.resolved} discussion(s) resolved, ${counts.leftOpen} left open.`,
+    );
+    const finalFindings = findings.flatMap((finding) => {
+      if (!replaced.has(finding)) return [finding];
+      const kept = replaced.get(finding);
+      return kept === null || kept === undefined ? [] : [kept];
+    });
+    return { findings: finalFindings, resolved };
+  }
+
+  /** One verify agent run for one file. Returns `null` when the file gives no
+   * decisions. */
+  private async decideFile(
+    group: VerifyGroup,
+    context: ReviewContext,
+    changes: ChangeSet,
+    logger: Logger,
+  ): Promise<Decisions | null> {
+    const { instructions } = this.options;
+    // A deleted file has no new path, so look it up by the old path.
+    const changed = changes.file(group.file) ?? changes.files.find((f) => f.deleted && f.oldPath === group.file);
+    const prompt = buildVerifyAgentPrompt(context, group, changed);
+    const shape = shapeOf(group);
+    const createAgent = (onSubmit: (decisions: Decisions) => void, runModel: Model<Api>) =>
+      new Agent({
+        streamFn: this.streamFn(),
+        initialState: {
+          systemPrompt: buildVerifyAgentSystemPrompt(instructions),
+          model: runModel,
+          tools: [createGetFileContentTool(context), createSubmitDecisionsTool(shape, onSubmit, logger)],
+        },
+      });
+
+    const tokens = this.oversizedFirstRequest(createAgent, prompt);
+    if (tokens !== null) {
+      logger.warn(
+        { file: group.file, tokens },
+        'did not run the verify agent for a file: the first request is larger than half of the context window',
+      );
+      return null;
+    }
+
+    const spec: RunSpec<Decisions> = {
+      createAgent,
+      prompt,
+      toolName: 'submit_decisions',
+      logFields: { step: 'verify_agent', file: group.file },
+    };
+    try {
+      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
+    } catch (error) {
+      if (!(error instanceof ReviewFailureError)) throw error;
+      logger.warn({ file: group.file, error: error.message }, 'did not run the verify agent for a file: the run failed');
       return null;
     }
   }

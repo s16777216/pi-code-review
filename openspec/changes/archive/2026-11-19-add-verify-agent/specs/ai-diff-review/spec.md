@@ -132,7 +132,7 @@ The system SHALL keep the findings of a file as they are, with the `relatesTo` t
 - **THEN** the `warnings` of the review result are the same as without the failure
 
 ### Requirement: Log the verify agent step
-The system SHALL write one `info` log line for the verify agent step with the number of files that got a run, the number of findings kept, the number of findings dropped, the number of discussions resolved, and the number of declarations left open. A file whose run failed or did not start counts in no decision number. With `--debug`, the system SHALL write one `debug` log line for each decision, with the file, the line or the discussion line, the decision, and the reason. The system MUST NOT record the decisions in the findings file.
+The system SHALL write one `info` log line for the verify agent step with the number of files that the verify agent decided, the number of findings kept, the number of findings dropped, the number of discussions resolved, and the number of declarations left open. A file whose run failed or did not start counts in no number. With `--debug`, the system SHALL write one `debug` log line for each decision, with the file, the line or the discussion line, the decision, and the reason. The system MUST NOT record the decisions in the findings file.
 
 #### Scenario: The summary line
 - **WHEN** the step runs for 3 files, keeps 5 findings, drops 2, resolves 4 discussions, and leaves 1 declaration open
