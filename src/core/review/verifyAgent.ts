@@ -31,7 +31,7 @@ Decide each declaration:
 
 The reason of a declaration is a hint. Check it in the current code. Do not resolve a discussion when you keep a finding that relates to it.
 
-Use "keep_open" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code that the note describes did not change. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies. When the code changed to fix the problem, resolve the discussion as above.
+Use "keep_open" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code that the note describes did not change. A decision to leave the problem for a later change is also a decision that the problem stays. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies. Use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read, for example a statement about the behavior of another repository. When the code changed to fix the problem, resolve the discussion as above.
 
 In each "reason", write one sentence, and quote the code or the note that shows your decision.
 

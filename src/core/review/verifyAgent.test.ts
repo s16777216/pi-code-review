@@ -382,3 +382,28 @@ test('the rule of a declined discussion also covers a reason of the judge that s
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /also when the reason of the judge says that there is no problem/);
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /When the code changed to fix the problem, resolve the discussion as above/);
 });
+
+test('the rule of a declined discussion names a decision to leave the problem for a later change', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /A decision to leave the problem for a later change is also a decision that the problem stays/,
+  );
+});
+
+test('the system prompt tells the agent to keep a discussion open when a reply is the only support and it cannot be checked', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /Use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read/,
+  );
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /for example a statement about the behavior of another repository/);
+});
+
+test('the rule of an unchecked statement does not stop the agent from resolving a fix that the code shows', () => {
+  // The last sentence of the paragraph is still the rule for a fix, and it comes after the new rule.
+  const unchecked = VERIFY_AGENT_SYSTEM_PROMPT.indexOf('the only support for a fix is a statement in a reply');
+  const fixed = VERIFY_AGENT_SYSTEM_PROMPT.indexOf(
+    'When the code changed to fix the problem, resolve the discussion as above',
+  );
+  assert.ok(unchecked !== -1 && fixed > unchecked);
+  assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /keep a discussion open when the code changed to fix the problem/);
+});
