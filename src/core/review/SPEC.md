@@ -8,7 +8,8 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 
 ## Entry points
 
-- `engine.ts`: `AgentReviewEngine.review()`, `buildSystemPrompt()`. Plans the run scopes, runs three agents on each (one for each review focus) in one pool (`MAX_PARALLEL_RUNS`) with retries (`MAX_RUN_TRIES`) and one more try with a larger output limit when a run stops at the token limit, merges results, and runs the deduplication step, the verification step, the discussion judgment step, and the verify agent step.
+- `engine.ts`: `AgentReviewEngine.review()`, `buildSystemPrompt()`. Plans the run scopes, runs three agents on each (one for each review focus) in one pool (`MAX_PARALLEL_RUNS`) with retries (`MAX_RUN_TRIES`) and one more try with a larger output limit when a run stops at the token limit, merges results, and runs the deduplication step, the verification step, the discussion judgment step, and the verify agent step. The runs of the three steps for one file share one method.
+- `runPool.ts`: `RunLimit`, `runPool`, `MAX_PARALLEL_RUNS`, and the two priorities. The one limit of active agent runs for a review, and the pool that runs jobs under it.
 - `focus.ts`: `REVIEW_FOCUSES`, the three built-in review focuses and their system prompt paragraphs.
 - `dedup.ts`: the deduplication step: `selectForDedup`, `buildDedupPrompt`, `validateGroups`, `keepOnePerGroup`, and the `submit_groups` tool.
 - `verify.ts`: the verification step: the verifier prompts, `groupByFile`, the `submit_verdicts` tool, `validateVerdicts`, and `applyVerdicts`.
