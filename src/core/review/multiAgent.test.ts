@@ -3,17 +3,14 @@ import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Finding, ReviewContext } from '../types.ts';
-import {
-  AgentReviewEngine,
-  buildSystemPrompt,
-  INSTRUCTIONS_STATEMENT,
-  MAX_RUN_TRIES,
-  SYSTEM_PROMPT,
-} from './engine.ts';
+import { AgentReviewEngine, buildSystemPrompt, INSTRUCTIONS_STATEMENT, MAX_RUN_TRIES } from './engine.ts';
 import { focusOfCall, perFocus } from './fauxFocus.ts';
 import { REVIEW_FOCUSES } from './focus.ts';
 import { ReviewFailureError } from './findings.ts';
 import { Batch } from './scope.ts';
+import { systemPrompts } from './prompt.ts';
+
+const SYSTEM_PROMPT = systemPrompts().review;
 
 // Tests for `add-multi-agent-review`: one agent for each review focus on every
 // run scope, the merge, and the deduplication step. Most tests give a script to

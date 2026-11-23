@@ -1,0 +1,1 @@
+Your review focus is resources and concurrency. Look first for race conditions, shared state without protection, deadlocks, leaks of files, connections, or memory, missing cleanup, transactions and data that can become inconsistent, retries and timeouts, and growth without a bound.

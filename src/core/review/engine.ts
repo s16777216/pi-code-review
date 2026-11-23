@@ -8,13 +8,7 @@ import { createGetFileContentTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
 import { listUnreviewedFiles, runChecks } from './checks.ts';
-import {
-  buildDedupPrompt,
-  createSubmitGroupsTool,
-  DEDUP_SYSTEM_PROMPT,
-  keepOnePerGroup,
-  selectForDedup,
-} from './dedup.ts';
+import { buildDedupPrompt, createSubmitGroupsTool, keepOnePerGroup, selectForDedup } from './dedup.ts';
 import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { REVIEW_FOCUSES, type ReviewFocus } from './focus.ts';
 import {
@@ -26,7 +20,7 @@ import {
   type DiscussionGroup,
   type DiscussionJudgment,
 } from './judge.ts';
-import { promptTemplates } from './prompt.ts';
+import { promptTemplates, systemPrompts } from './prompt.ts';
 import { Batch, WholeChange, type RunScope } from './scope.ts';
 import {
   applyVerdicts,
@@ -47,20 +41,6 @@ import {
   type Decisions,
   type VerifyGroup,
 } from './verifyAgent.ts';
-
-export const SYSTEM_PROMPT = `You are an automated code reviewer for a single code change.
-
-Read the change's diff hunks. In each diff, the number before "|" is the line's number in the new version of the file; it is not part of the code. Lines with no number were removed. Call the get_file_content tool for any changed file when the diff hunks alone are not enough context. Do not guess about code you have not read.
-
-Report only genuine bugs or correctness problems, not style, formatting, or naming preferences on their own.
-
-For each problem, first check whether the change's own diff introduces it, or whether it already existed in code the diff did not modify. For a bug that predates the diff, use severity "pre_existing" no matter how serious it is. For a bug the diff introduces, decide a severity by impact:
-- "critical": breaks core functionality, causes data loss or corruption, or is a security issue.
-- "high": causes clearly incorrect behavior on the common path.
-- "medium": a real bug, but limited to edge cases or of modest impact.
-- "low": a minor issue worth a comment but not worth blocking on (for example, style or naming).
-
-When you are done, call the submit_review tool once with one field: "findings" (an array of findings). Each finding is an object with exactly these fields: "file" (the changed file's path), "line" (the number shown before "|" on that line of the diff), "severity" (one of "critical", "high", "medium", "low", "pre_existing"), and "summary" (one sentence). Report in "line" the line that holds the problem. When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it. When the problem is in code that the diff does not change, report the line of that code that holds the problem. Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem. Call submit_review with an empty "findings" array when you have nothing to report.`;
 
 /** At most this many agent runs are active at the same time
  * (`review-large-changes-in-batches` design, Decision 7). */
@@ -96,7 +76,7 @@ export function buildSystemPrompt(
   instructions?: string,
   focus?: ReviewFocus,
 ): string {
-  let prompt = SYSTEM_PROMPT;
+  let prompt = systemPrompts().review;
   const paragraph = scope.systemPromptParagraph();
   if (paragraph !== null) {
     prompt += `\n\n${paragraph}`;
@@ -260,6 +240,8 @@ export class AgentReviewEngine implements ReviewEngine {
     // A missing built-in prompt template fails the review here, before any model call
     // (`move-review-prompt-to-templates`, Decision 4).
     promptTemplates();
+    // The same for the built-in system prompts (`move-system-prompts-to-templates`, Decision 2).
+    systemPrompts();
     // The host's data, parsed once for the whole review (`model-diffs-and-run-scopes`, Decision 2).
     const changes = ChangeSet.from(context.changedFiles);
     const unreviewedFiles = listUnreviewedFiles(changes, logger);
@@ -823,7 +805,7 @@ export class AgentReviewEngine implements ReviewEngine {
         new Agent({
           streamFn: this.streamFn(),
           initialState: {
-            systemPrompt: DEDUP_SYSTEM_PROMPT,
+            systemPrompt: systemPrompts().dedup,
             model,
             tools: [createSubmitGroupsTool(sent, onSubmit, logger)],
           },

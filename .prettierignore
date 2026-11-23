@@ -6,3 +6,4 @@ openspec/
 .agents/
 skills-lock.json
 docs/
+src/template/system/

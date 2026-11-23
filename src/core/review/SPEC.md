@@ -8,7 +8,7 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 
 ## Entry points
 
-- `engine.ts`: `AgentReviewEngine.review()`, `SYSTEM_PROMPT`, `buildSystemPrompt()`. Plans the run scopes, runs three agents on each (one for each review focus) in one pool (`MAX_PARALLEL_RUNS`) with retries (`MAX_RUN_TRIES`) and one more try with a larger output limit when a run stops at the token limit, merges results, and runs the deduplication step, the verification step, the discussion judgment step, and the verify agent step.
+- `engine.ts`: `AgentReviewEngine.review()`, `buildSystemPrompt()`. Plans the run scopes, runs three agents on each (one for each review focus) in one pool (`MAX_PARALLEL_RUNS`) with retries (`MAX_RUN_TRIES`) and one more try with a larger output limit when a run stops at the token limit, merges results, and runs the deduplication step, the verification step, the discussion judgment step, and the verify agent step.
 - `focus.ts`: `REVIEW_FOCUSES`, the three built-in review focuses and their system prompt paragraphs.
 - `dedup.ts`: the deduplication step: `selectForDedup`, `buildDedupPrompt`, `validateGroups`, `keepOnePerGroup`, and the `submit_groups` tool.
 - `verify.ts`: the verification step: the verifier prompts, `groupByFile`, the `submit_verdicts` tool, `validateVerdicts`, and `applyVerdicts`.
@@ -17,7 +17,7 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 - `agent.ts`: the agent's tools: `createGetFileContentTool`, `createSubmitReviewTool` (the only way the agent reports findings).
 - `findings.ts`: `validateFinding`, `validateResolvedDiscussion`, `ReviewFailureError` (it has a failure `category`). Also used by `src/findingsFile.ts`. `Severity` values are `critical`, `high`, `medium`, `low`, `pre_existing`.
 - `scope.ts`: `RunScope`, `WholeChange`, `Batch` (what one agent run sees and which findings it may report).
-- `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `checks.ts`: `runChecks` (the diff line check and the anchor, then the optional steps: deduplication, judge, and verify agent), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
+- `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `systemPrompts()` reads the system prompts from `src/template/system/`. `checks.ts`: `runChecks` (the diff line check and the anchor, then the optional steps: deduplication, judge, and verify agent), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
 - `fauxFocus.ts`: test helpers that route faux provider responses by review focus, and answer the deduplication, verification, and judgment steps.
 
 ## Interfaces and dependencies

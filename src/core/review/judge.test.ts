@@ -10,11 +10,13 @@ import {
   createSubmitJudgmentsTool,
   groupDiscussionsByFile,
   JUDGE_INSTRUCTIONS_STATEMENT,
-  JUDGE_SYSTEM_PROMPT,
   selectDiscussions,
   validateJudgments,
   type DiscussionJudgment,
 } from './judge.ts';
+import { systemPrompts } from './prompt.ts';
+
+const JUDGE_SYSTEM_PROMPT = systemPrompts().judge;
 
 function discussion(id: string, file: string | null, extra: Partial<ReviewDiscussion> = {}): ReviewDiscussion {
   return {

@@ -6,13 +6,16 @@ import type { Finding, ReviewDiscussion } from '../types.ts';
 import { computeAnchor } from './anchor.ts';
 import type { ReviewContext } from '../types.ts';
 import { decidePassFail } from '../passFail.ts';
-import { AgentReviewEngine, buildSystemPrompt, INSTRUCTIONS_STATEMENT, SYSTEM_PROMPT } from './engine.ts';
+import { AgentReviewEngine, buildSystemPrompt, INSTRUCTIONS_STATEMENT } from './engine.ts';
 import { ReviewFailureError } from './findings.ts';
 import { ChangeSet } from './changedFile.ts';
 import { buildWholePrompt } from './prompt.ts';
 import { Batch } from './scope.ts';
 import { logicOnly, perFocus } from './fauxFocus.ts';
 import { REVIEW_FOCUSES } from './focus.ts';
+import { systemPrompts } from './prompt.ts';
+
+const SYSTEM_PROMPT = systemPrompts().review;
 
 /** The prompt of a context, with its files parsed as the engine does. */
 function buildReviewPrompt(context: ReviewContext): string {

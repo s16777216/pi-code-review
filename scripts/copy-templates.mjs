@@ -8,12 +8,27 @@ import { copyFile, mkdir } from 'node:fs/promises';
 import { stdout } from 'node:process';
 import { URL, fileURLToPath } from 'node:url';
 
-const FILES = ['FINDING.md', 'RESOLVED.md', 'BATCH_PROMPT.md', 'WHOLE_PROMPT.md'];
+const FILES = [
+  'FINDING.md',
+  'RESOLVED.md',
+  'BATCH_PROMPT.md',
+  'WHOLE_PROMPT.md',
+  // The system prompts (`move-system-prompts-to-templates`).
+  'system/REVIEW.md',
+  'system/FOCUS_LOGIC.md',
+  'system/FOCUS_SECURITY.md',
+  'system/FOCUS_RESOURCES.md',
+  'system/FOCUS_COMMON.md',
+  'system/DEDUP.md',
+  'system/VERIFY.md',
+  'system/JUDGE.md',
+  'system/VERIFY_AGENT.md',
+];
 
 const from = new URL('../src/template/', import.meta.url);
 const to = new URL('../dist/template/', import.meta.url);
 
-await mkdir(to, { recursive: true });
+await mkdir(new URL('system/', to), { recursive: true });
 for (const file of FILES) {
   await copyFile(new URL(file, from), new URL(file, to));
 }
