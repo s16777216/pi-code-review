@@ -18,3 +18,4 @@
 - **judge** — 執行討論判斷步驟的 agent,每次處理一個檔案的未解決討論。Aliases: 判斷 agent。
 - **judgment** — judge 對一則討論的判斷:`fixed`、`not_fixed`、`uncertain`。只有 `fixed` 會轉成已修正宣告。Aliases: 判斷結果。
 - **verify agent** — 最後一步的 agent：接受 finding、judge 的宣告與討論（含人的回覆），決定最終輸出的 open issue 與 resolved issue。和驗證步驟的 `verifier`（finding verifier）是不同的 agent。Aliases: 最終驗證 agent。
+- **last statement** — 討論中，由人（不是本工具）所寫、表明「問題依決定保留」或「問題已修正」的最後一則筆記。只是提問或道謝的筆記不算。judge 與 verify agent 依它決定討論的結果。Aliases: 最後一次表態。
