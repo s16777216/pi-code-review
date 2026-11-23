@@ -11,10 +11,12 @@ import {
   shapeOf,
   validateDecisions,
   VERIFY_AGENT_INSTRUCTIONS_STATEMENT,
-  VERIFY_AGENT_SYSTEM_PROMPT,
   type Decisions,
   type VerifyGroup,
 } from './verifyAgent.ts';
+import { systemPrompts } from './prompt.ts';
+
+const VERIFY_AGENT_SYSTEM_PROMPT = systemPrompts().verifyAgent;
 
 const context: ReviewContext = {
   title: 'A change',

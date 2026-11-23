@@ -12,9 +12,11 @@ import {
   groupByFile,
   validateVerdicts,
   VERIFY_INSTRUCTIONS_STATEMENT,
-  VERIFY_SYSTEM_PROMPT,
   type FindingVerdict,
 } from './verify.ts';
+import { systemPrompts } from './prompt.ts';
+
+const VERIFY_SYSTEM_PROMPT = systemPrompts().verify;
 
 function finding(
   file: string,

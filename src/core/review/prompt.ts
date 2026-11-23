@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { OmittedReason, ReviewContext } from '../types.ts';
 import type { BatchItem } from './batch.ts';
 import type { ChangedFile, ChangeSet } from './changedFile.ts';
@@ -43,6 +44,69 @@ export function promptTemplates(): PromptTemplates {
 /** The description of the change, or the fixed text when it is empty. */
 function describeChange(context: ReviewContext): string {
   return context.description.trim() || '(no description provided)';
+}
+
+/** The built-in text of the system prompts (`move-system-prompts-to-templates`
+ * design). The files are in the folder `system` of the template folder. */
+export interface SystemPrompts {
+  /** The system prompt of a review run. */
+  review: string;
+  /** The text of the review focus "logic correctness", with no shared sentence. */
+  focusLogic: string;
+  /** The text of the review focus "security", with no shared sentence. */
+  focusSecurity: string;
+  /** The text of the review focus "resources and concurrency", with no shared sentence. */
+  focusResources: string;
+  /** The sentence that ends the paragraph of every review focus. */
+  focusCommon: string;
+  /** The system prompt of the deduplication step. */
+  dedup: string;
+  /** The system prompt of the verifier of the verification step. */
+  verify: string;
+  /** The system prompt of the judge. */
+  judge: string;
+  /** The system prompt of the verify agent. */
+  verifyAgent: string;
+}
+
+const SYSTEM_FILES: Record<keyof SystemPrompts, string> = {
+  review: 'REVIEW.md',
+  focusLogic: 'FOCUS_LOGIC.md',
+  focusSecurity: 'FOCUS_SECURITY.md',
+  focusResources: 'FOCUS_RESOURCES.md',
+  focusCommon: 'FOCUS_COMMON.md',
+  dedup: 'DEDUP.md',
+  verify: 'VERIFY.md',
+  judge: 'JUDGE.md',
+  verifyAgent: 'VERIFY_AGENT.md',
+};
+
+/** Reads the system prompts from the folder `system` in `dir`. A file that is
+ * missing is a defect of the package, so this throws `TemplateError` that names
+ * the file, and never uses other text. */
+export function readSystemPrompts(dir: string = BUILTIN_DIR): SystemPrompts {
+  const systemDir = join(dir, 'system');
+  const prompts = {} as SystemPrompts;
+  for (const [key, file] of Object.entries(SYSTEM_FILES) as [keyof SystemPrompts, string][]) {
+    const text = readTemplateFile(systemDir, file);
+    if (text === undefined) {
+      throw new TemplateError(
+        `The built-in template system/${file} is missing from the package (${systemDir}). This is a defect of the package.`,
+      );
+    }
+    prompts[key] = text;
+  }
+  return prompts;
+}
+
+let cachedSystemPrompts: SystemPrompts | undefined;
+
+/** The built-in system prompts, read once. `AgentReviewEngine.review()` calls it
+ * before the first run, so a missing file fails the review before any model
+ * call. */
+export function systemPrompts(): SystemPrompts {
+  cachedSystemPrompts ??= readSystemPrompts();
+  return cachedSystemPrompts;
 }
 
 /** The title and the description, which the prompt of the verifier starts

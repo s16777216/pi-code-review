@@ -2,10 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from '@earendil-works/pi-ai';
 import type { ReviewContext } from '../types.ts';
-import { AgentReviewEngine, buildSystemPrompt, SYSTEM_PROMPT } from './engine.ts';
+import { AgentReviewEngine, buildSystemPrompt } from './engine.ts';
 import { logicOnly, perFocus } from './fauxFocus.ts';
 import { REVIEW_FOCUSES } from './focus.ts';
-import { buildVerifySystemPrompt, validateVerdicts, VERIFY_SYSTEM_PROMPT } from './verify.ts';
+import { buildVerifySystemPrompt, validateVerdicts } from './verify.ts';
+import { systemPrompts } from './prompt.ts';
+
+const SYSTEM_PROMPT = systemPrompts().review;
+const VERIFY_SYSTEM_PROMPT = systemPrompts().verify;
 
 // Tests for `fix-finding-line-accuracy`: the rule for the line in the prompt
 // of the review agents, the evidence rules in the prompt of the verifier, and

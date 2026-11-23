@@ -1,0 +1,1 @@
+This focus is your main area, not a limit: when you see another genuine bug, report it too. The rule to report only genuine bugs still applies, so this focus does not make style or naming findings valid.

@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import type { ReviewContext } from '../types.ts';
 import { ChangeSet, ChangedFile } from './changedFile.ts';
 import type { BatchItem } from './batch.ts';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { placeholderNames, TemplateError } from '../template.ts';
-import { buildBatchPrompt, buildWholePrompt, readPromptTemplates } from './prompt.ts';
+import { BUILTIN_DIR, placeholderNames, TemplateError } from '../template.ts';
+import { buildBatchPrompt, buildWholePrompt, readPromptTemplates, readSystemPrompts, systemPrompts } from './prompt.ts';
 
 /** A batch, as the planner gives it. */
 interface TestBatch {
@@ -198,4 +198,55 @@ test('readPromptTemplates throws a TemplateError that names a missing file', asy
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test('readSystemPrompts throws a TemplateError that names a missing file', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'system-prompts-'));
+  try {
+    assert.throws(
+      () => readSystemPrompts(dir),
+      (error) => error instanceof TemplateError && error.message.includes('system/REVIEW.md'),
+    );
+    await mkdir(join(dir, 'system'));
+    const names = [
+      'REVIEW.md',
+      'FOCUS_LOGIC.md',
+      'FOCUS_SECURITY.md',
+      'FOCUS_RESOURCES.md',
+      'FOCUS_COMMON.md',
+      'DEDUP.md',
+      'VERIFY.md',
+      'JUDGE.md',
+    ];
+    for (const name of names) await writeFile(join(dir, 'system', name), `text of ${name}\r\n`);
+    assert.throws(
+      () => readSystemPrompts(dir),
+      (error) => error instanceof TemplateError && error.message.includes('system/VERIFY_AGENT.md'),
+    );
+    await writeFile(join(dir, 'system', 'VERIFY_AGENT.md'), 'text of VERIFY_AGENT.md\n\n');
+    const read = readSystemPrompts(dir);
+    assert.equal(read.review, 'text of REVIEW.md');
+    assert.equal(read.verifyAgent, 'text of VERIFY_AGENT.md');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('the built-in system prompts are all read, and none is empty', () => {
+  const prompts = systemPrompts();
+  for (const [key, text] of Object.entries(prompts)) assert.ok(text.length > 20, `${key} is empty`);
+  assert.equal(systemPrompts(), prompts);
+});
+
+test('the copy step of the build names every file of the system folder, and no other', async () => {
+  const script = await readFile(new URL('../../../scripts/copy-templates.mjs', import.meta.url), 'utf8');
+  const named = script
+    .split("'system/")
+    .slice(1)
+    .map((part) => part.slice(0, part.indexOf("'")))
+    .filter((name) => name.endsWith('.md'))
+    .sort();
+  const files = (await readdir(join(BUILTIN_DIR, 'system'))).sort();
+  assert.deepEqual(named, files);
+  assert.equal(files.length, Object.keys(systemPrompts()).length);
 });

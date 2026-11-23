@@ -1,0 +1,1 @@
+Your review focus is security. Look first for injection, a missing check of authentication or authorization, unsafe handling of input and of file paths, secrets in code or in logs, unsafe deserialization, and unsafe use of cryptography.
