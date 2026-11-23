@@ -72,7 +72,16 @@ async function render(window: number, label: string): Promise<string> {
   out.push(`=== ${label} (calls=${faux.state.callCount}) ===`);
   out.push(JSON.stringify({ findings: r.findings, resolved: r.resolved, unreviewedFiles: r.unreviewedFiles }, null, 1));
   out.push('WARNS ' + JSON.stringify(warns, null, 1));
-  out.push('INFOS ' + JSON.stringify(infos));
+  // Sorted: the judge runs at the same time as the review agents, so the order of these lines follows the timing.
+  out.push(
+    'INFOS ' +
+      JSON.stringify(
+        infos
+          .map((i) => JSON.stringify(i))
+          .sort()
+          .map((i) => JSON.parse(i)),
+      ),
+  );
   // Three agents for each scope: sort by batch and then by system prompt, so the record does not depend on timing.
   const logged = (
     debugs.filter((d) => 'prompt' in d) as { batch?: number; prompt: string; systemPrompt: string }[]
