@@ -372,15 +372,22 @@ test('shapeOf gives the sizes and the discussion number of each declaration', ()
   assert.deepEqual(shapeOf(group()), { findings: 2, declarations: 1, discussions: 3, declaredDiscussion: [3] });
 });
 
-test('the system prompt tells the agent to keep a declined discussion open', () => {
-  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /Use "keep_open" when a person replied that the problem stays by decision/);
-  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /the code that the note describes did not change/);
+test('the system prompt tells the agent to keep a discussion open when the last statement keeps the problem by decision', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /last statement of a person about the problem says that the problem stays by decision[^]*"keep_open"/,
+  );
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /Stop there/);
+  // The agent finds the last statement before it decides from the code.
+  const statement = VERIFY_AGENT_SYSTEM_PROMPT.indexOf('Before you decide a declaration, find the last statement');
+  const fromCode = VERIFY_AGENT_SYSTEM_PROMPT.indexOf('For each other declaration, decide from the current code');
+  assert.ok(statement !== -1 && fromCode > statement);
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /for example the author does not accept the finding/);
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /Resolving such a discussion is a decision for a person/);
 });
 
 test('the rule of a declined discussion also covers a reason of the judge that says there is no problem', () => {
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /also when the reason of the judge says that there is no problem/);
-  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /When the code changed to fix the problem, resolve the discussion as above/);
 });
 
 test('the rule of a declined discussion names a decision to leave the problem for a later change', () => {
@@ -390,20 +397,39 @@ test('the rule of a declined discussion names a decision to leave the problem fo
   );
 });
 
-test('the system prompt tells the agent to keep a discussion open when a reply is the only support and it cannot be checked', () => {
+test('the rule of a declined discussion does not judge the reason and holds when the code changed', () => {
   assert.match(
     VERIFY_AGENT_SYSTEM_PROMPT,
-    /Use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read/,
+    /also when the code changed after the decision, when the reason of the person is right, and when you cannot check the reason/,
+  );
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /Do not judge the reason/);
+  assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /did not change./);
+});
+
+test('the system prompt says that a later statement of a fix replaces an earlier decision', () => {
+  assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /To find the last statement of a person/);
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /A later statement that the problem is fixed replaces an earlier decision that the problem stays/,
+  );
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /A note that says neither, for example a question or a thanks, is not a statement/,
+  );
+});
+
+test('the system prompt tells the agent to keep a discussion open when no person decided and a reply cannot be checked', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /When no person decided that the problem stays, use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read/,
   );
   assert.match(VERIFY_AGENT_SYSTEM_PROMPT, /for example a statement about the behavior of another repository/);
 });
 
-test('the rule of an unchecked statement does not stop the agent from resolving a fix that the code shows', () => {
-  // The last sentence of the paragraph is still the rule for a fix, and it comes after the new rule.
-  const unchecked = VERIFY_AGENT_SYSTEM_PROMPT.indexOf('the only support for a fix is a statement in a reply');
-  const fixed = VERIFY_AGENT_SYSTEM_PROMPT.indexOf(
-    'When the code changed to fix the problem, resolve the discussion as above',
+test('the rule of the last statement still lets the agent resolve a fix that the code shows', () => {
+  assert.match(
+    VERIFY_AGENT_SYSTEM_PROMPT,
+    /When the last statement says that the problem is fixed and the code changed to fix the problem, resolve the discussion as above/,
   );
-  assert.ok(unchecked !== -1 && fixed > unchecked);
   assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /keep a discussion open when the code changed to fix the problem/);
 });

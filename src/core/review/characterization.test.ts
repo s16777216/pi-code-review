@@ -137,6 +137,8 @@ test('the single run asks for the whole change, and the batches split it in four
   // Three agents for each scope, one for each review focus, and one call for
   // the deduplication step: the fixed output has more than one finding in a file. One more call is the judge run for the discussion that a finding links to.
   assert.match(text, /=== SINGLE RUN \(calls=9\) ===/);
-  assert.match(text, /=== BATCHES \(calls=17\) ===/);
+  // The window of the four-part run is so small that the first request of the judge is larger than half of it.
+  // That run makes no judge call and writes a warn line, so it has one call less.
+  assert.match(text, /=== BATCHES \(calls=16\) ===/);
   assert.match(text, /INFOS \[\{"batches":4\},/);
 });

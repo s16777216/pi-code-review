@@ -113,23 +113,55 @@ test('the system prompt says the current code decides', () => {
   assert.match(JUDGE_SYSTEM_PROMPT, /code decides/);
 });
 
-test('the system prompt gives not_fixed for a reply that keeps the problem by decision', () => {
-  assert.match(JUDGE_SYSTEM_PROMPT, /"not_fixed"[^]*by decision[^]*code is unchanged/);
+test('the system prompt gives not_fixed when the last statement of a person keeps the problem by decision', () => {
+  assert.match(
+    JUDGE_SYSTEM_PROMPT,
+    /last statement of a person about the problem says that the problem stays by decision[^]*"not_fixed"/,
+  );
+  assert.match(JUDGE_SYSTEM_PROMPT, /Stop there/);
+  // The judge finds the last statement before it decides from the code.
+  const statement = JUDGE_SYSTEM_PROMPT.indexOf('Before you check the code of a discussion, find the last statement');
+  const fromCode = JUDGE_SYSTEM_PROMPT.indexOf('For each other discussion, decide a judgment from the current code');
+  assert.ok(statement !== -1 && fromCode > statement);
+  assert.match(JUDGE_SYSTEM_PROMPT, /for example the author does not accept the finding/);
+  assert.match(JUDGE_SYSTEM_PROMPT, /Resolving such a discussion is a decision for a person/);
 });
 
 test('the system prompt gives not_fixed for a decision to leave the problem for a later change', () => {
   assert.match(JUDGE_SYSTEM_PROMPT, /leave the problem for a later change is also a decision that the problem stays/);
 });
 
-test('the system prompt gives uncertain when the only support for a fix is a statement that cannot be checked', () => {
+test('the system prompt does not judge the reason and holds when the code changed', () => {
   assert.match(
     JUDGE_SYSTEM_PROMPT,
-    /"uncertain"[^]*only support for a fix is a statement in a reply that you cannot check/,
+    /also when the code changed, when the reason of the person is right, and when you cannot check the reason/,
+  );
+  assert.match(JUDGE_SYSTEM_PROMPT, /Do not judge the reason/);
+  // The rule no longer depends on an unchanged code.
+  assert.doesNotMatch(JUDGE_SYSTEM_PROMPT, /code is unchanged/);
+});
+
+test('the system prompt says that a later statement of a fix replaces an earlier decision', () => {
+  assert.match(JUDGE_SYSTEM_PROMPT, /find the last statement|To find the last statement of a person/);
+  assert.match(
+    JUDGE_SYSTEM_PROMPT,
+    /A later statement that the problem is fixed replaces an earlier decision that the problem stays/,
+  );
+  assert.match(JUDGE_SYSTEM_PROMPT, /A note that says neither, for example a question or a thanks, is not a statement/);
+});
+
+test('the system prompt gives uncertain when no person decided and the only support for a fix cannot be checked', () => {
+  assert.match(
+    JUDGE_SYSTEM_PROMPT,
+    /"uncertain"[^]*no person decided that the problem stays, and the only support for a fix is a statement in a reply that you cannot check/,
   );
 });
 
-test('the system prompt still gives fixed when the code changed to fix the problem', () => {
-  assert.match(JUDGE_SYSTEM_PROMPT, /When the code changed to fix the problem, use "fixed"/);
+test('the system prompt still gives fixed when the last statement says fixed and the code changed', () => {
+  assert.match(
+    JUDGE_SYSTEM_PROMPT,
+    /When the last statement says that the problem is fixed and the code changed to fix the problem, use "fixed"/,
+  );
 });
 
 test('the system prompt asks for a reason that quotes the code', () => {

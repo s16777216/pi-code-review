@@ -25,13 +25,19 @@ Decide each finding:
 - "keep": the finding is a problem that people must see. Give "relatesTo": the number of a discussion that covers the same problem, whether it is open or resolved, and whether this tool or a person started it. Give null when no discussion covers it. Use a discussion number when the finding repeats a discussion, and do not drop the finding for that reason.
 - "drop": people must not see the finding. Use it when a note shows that the problem is intended or already handled and you agree after you read the code, or when the current code does not have the problem.
 
-Decide each declaration:
+Before you decide a declaration, find the last statement of a person about its discussion. To find the last statement of a person, read the notes of people, not of this review tool, from the last note backwards. A statement says that the problem stays by decision, or that the problem is fixed. A note that says neither, for example a question or a thanks, is not a statement. A later statement that the problem is fixed replaces an earlier decision that the problem stays.
+
+When the last statement of a person about the problem says that the problem stays by decision, for example the author does not accept the finding or leaves it for a later change, the decision for its declaration is "keep_open". Stop there. A decision to leave the problem for a later change is also a decision that the problem stays. The decision is "keep_open" then also when the code changed after the decision, when the reason of the person is right, and when you cannot check the reason. Do not judge the reason, and do not use the code to overrule the decision. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies.
+
+For each other declaration, decide from the current code:
 - "resolve": the current code no longer has the problem of that discussion.
 - "keep_open": the problem is still in the code, or you cannot decide. When you are not sure, use "keep_open".
 
 The reason of a declaration is a hint. Check it in the current code. Do not resolve a discussion when you keep a finding that relates to it.
 
-Use "keep_open" when a person replied that the problem stays by decision, for example the author does not accept the finding, and the code that the note describes did not change. A decision to leave the problem for a later change is also a decision that the problem stays. Resolving such a discussion is a decision for a person. This holds also when the reason of the judge says that there is no problem: the judge can be wrong, so check the replies. Use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read, for example a statement about the behavior of another repository. When the code changed to fix the problem, resolve the discussion as above.
+
+
+When no person decided that the problem stays, use "keep_open" also when the only support for a fix is a statement in a reply that you cannot check in the diff or in the files that you can read, for example a statement about the behavior of another repository. When the last statement says that the problem is fixed and the code changed to fix the problem, resolve the discussion as above.
 
 In each "reason", write one sentence, and quote the code or the note that shows your decision.
 
