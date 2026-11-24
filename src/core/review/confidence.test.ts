@@ -154,9 +154,13 @@ test('deriveConfidence follows the table of the spec', () => {
   assert.equal(deriveConfidence(1, 'uncertain'), 'low');
 });
 
-test('deriveConfidence treats a missing verdict as uncertain', () => {
-  assert.equal(deriveConfidence(2, undefined), 'medium');
-  assert.equal(deriveConfidence(1, undefined), 'low');
+test('deriveConfidence treats a missing verdict and the verdict unverified as uncertain', () => {
+  for (const verdict of [undefined, 'unverified'] as const) {
+    assert.equal(deriveConfidence(2, verdict), deriveConfidence(2, 'uncertain'));
+    assert.equal(deriveConfidence(1, verdict), deriveConfidence(1, 'uncertain'));
+  }
+  assert.equal(deriveConfidence(2, 'unverified'), 'medium');
+  assert.equal(deriveConfidence(1, 'unverified'), 'low');
 });
 
 // --- the verification step (task 3.2) ---
@@ -211,7 +215,7 @@ test('the confidence does not change the severity that the verifier gives', asyn
   );
 });
 
-test('a file whose verification fails keeps its findings with the verdict uncertain for the confidence, and no verdict', async () => {
+test('a file whose verification fails keeps its findings with the verdict unverified', async () => {
   const faux = fauxProvider();
   const failing = () => fauxAssistantMessage('no tool call');
   perFocus(
@@ -228,7 +232,20 @@ test('a file whose verification fails keeps its findings with the verdict uncert
   assert.equal(result.findings.length, 1);
   assert.equal(result.findings[0]!.corroboration, 2);
   assert.equal(result.findings[0]!.confidence, 'medium');
-  assert.equal('verdict' in result.findings[0]!, false);
+  assert.equal(result.findings[0]!.verdict, 'unverified');
+});
+
+test('a file that the verification step does not verify keeps its findings with the verdict unverified', async () => {
+  const faux = fauxProvider();
+  perFocus(faux, { [LOGIC]: [submitReview([finding(1)])] });
+  const engine = engineWith(faux);
+  // The skipped path (the first request is too large) and the failed path both give null.
+  (engine as unknown as { verifyFile: () => Promise<null> }).verifyFile = async () => null;
+  const result = await engine.review(context());
+  assert.deepEqual(
+    result.findings.map((f) => [f.corroboration, f.verdict, f.confidence]),
+    [[1, 'unverified', 'low']],
+  );
 });
 
 test('confidence, corroboration and verdict stay on a finding through the verify agent step', async () => {

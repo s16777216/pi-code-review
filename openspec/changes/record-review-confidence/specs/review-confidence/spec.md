@@ -42,7 +42,7 @@ The system SHALL assign each finding exactly one confidence: `high`, `medium`, o
 | 2 or more     | `high`              | `medium`            |
 | 1             | `medium`            | `low`               |
 
-When no verdict exists for a finding because verification failed or was skipped for its file, the system SHALL treat the verdict as `uncertain`. A finding the verifier rejects is dropped and has no confidence.
+When verification failed or was skipped for the file of a finding, the system SHALL give the finding the verdict `unverified`, and SHALL treat that verdict as `uncertain` when it derives the confidence. The verdict `unverified` is set by the program. A model MUST NOT be able to give it. A finding the verifier rejects is dropped and has no confidence.
 
 #### Scenario: Corroborated and confirmed
 - **WHEN** a finding has corroboration `2` and the verifier confirms it
@@ -58,22 +58,26 @@ When no verdict exists for a finding because verification failed or was skipped 
 
 #### Scenario: Verification did not run for the file
 - **WHEN** verification fails or is skipped for a finding's file, and the finding has corroboration `2`
-- **THEN** the system treats the verdict as `uncertain`, and the finding's confidence is `medium`
+- **THEN** the finding's verdict is `unverified`, and its confidence is `medium`, the same as for the verdict `uncertain`
+
+#### Scenario: A model gives the verdict unverified
+- **WHEN** the verifier calls `submit_verdicts` with the verdict `unverified`
+- **THEN** the system rejects the call as not valid
 
 ### Requirement: Write confidence data to the findings file
-The system SHALL write, for each finding, its `confidence` and its `corroboration` to the findings file. The system MUST also write the verifier's verdict (`confirmed` or `uncertain`) for each finding that has one, and MUST leave the field out when verification failed or was skipped for the file of the finding. The findings file MUST NOT hold the review focus that reported a finding.
+The system SHALL write, for each finding, its `confidence` and its `corroboration` to the findings file. The system MUST also write a `verdict` for each finding: `confirmed` or `uncertain` when the verifier gave it, and `unverified` when verification failed or was skipped for the file of the finding. The findings file MUST NOT hold the review focus that reported a finding.
 
 #### Scenario: Findings file holds the new fields
 - **WHEN** `review` finishes and writes the findings file
 - **THEN** each finding has `confidence` and `corroboration`
 
-#### Scenario: No verdict exists
-- **WHEN** verification fails for the file of a finding
-- **THEN** the finding has `confidence` and `corroboration` and has no `verdict`
+#### Scenario: Verification did not give a verdict
+- **WHEN** verification fails, or is skipped, for the file of a finding
+- **THEN** the finding has `confidence`, `corroboration`, and the `verdict` `unverified`
 
 #### Scenario: Findings file from an older version
 - **WHEN** `publish` reads a findings file whose findings have no `confidence`
-- **THEN** `publish` does not report an error, and the result of `publish` is the same as before
+- **THEN** `publish` does not report an error, and the result of `publish` is the same as before. A finding with no `verdict` is also valid.
 
 ### Requirement: Show the confidence in the comment
 The system SHALL show a finding's confidence in the comment that `publish` posts. The built-in finding template SHALL show it, and a custom template SHALL be able to read it with a placeholder. When a finding has no confidence, the placeholder SHALL fill with `unknown`.

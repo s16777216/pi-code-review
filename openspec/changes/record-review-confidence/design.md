@@ -41,7 +41,7 @@ The model makes the groups, and a wrong group changes the count. `validateGroups
 
 ### Decision 3: Confidence is derived in the verification step from a table
 
-`applyVerdicts` sets `verdict` (`confirmed` or `uncertain`) and `confidence` on each kept finding. The table is the one in the spec. A file with no verdict (failed or skipped verification) uses the verdict `uncertain` for the table, and the finding has no `verdict` field, so a reader can tell a real `uncertain` from a missing verdict.
+`applyVerdicts` sets `verdict` (`confirmed` or `uncertain`) and `confidence` on each kept finding. The table is the one in the spec. A file with no verdict (failed or skipped verification) gets the verdict `unverified`, and the table treats it as `uncertain` (Decision 6).
 
 The confidence is set where the verdict exists. The verify agent step runs later and keeps the field, because it copies findings with a spread. A test makes this a rule.
 
@@ -59,7 +59,17 @@ A new capability `review-confidence` holds the new rules. One requirement of `re
 
 `review-cli` needs no change, because `publish` still decides pass or fail from severity alone. The change folder was named `add-confidence-gate` in the first draft. It is now `record-review-confidence`, because the gate is out of scope.
 
-### Decision 6: Delay the gate
+### Decision 6: A finding that was not verified has the verdict `unverified`
+
+The first version left the `verdict` out when verification failed or was skipped. This gave two problems. A reader of the findings file had to handle a finding with a `confidence` and no `verdict`. A calibration could not tell "the verifier said `uncertain`" from "the verifier did not run", and these two are not the same evidence.
+
+The verdict now has three values: `confirmed`, `uncertain`, and `unverified`. The program sets `unverified` for a finding of a file whose verification failed or was skipped (the warnings `verification_failed` and `verification_skipped`, and a file that is not in the change). The table treats `unverified` as `uncertain`, so no confidence changes and no pass or fail result changes. A model cannot give it: the tool `submit_verdicts` still accepts `confirmed`, `rejected`, and `uncertain` only, and the check of agent output keeps no verdict.
+
+A findings file of an older version has no `verdict` and no `confidence`. It reads with no error, and the placeholder gives `unknown` (Decision 4). The reader accepts a finding with no `verdict`, because only the engine writes the field, and the engine always writes it.
+
+Alternative: leave the field out, as in the first version. It keeps the type smaller, but it loses the difference above, and it keeps the risk for a reader that expects both fields.
+
+### Decision 7: Delay the gate
 
 The first draft of this change added a setting `FAIL_ON_CONFIDENCE` and a gate that fails only when a finding meets the severity threshold and the confidence threshold. This change does not do that, for these reasons:
 
@@ -74,7 +84,7 @@ So the gate would have a setting that nobody can set with confidence. This chang
 - Most findings may get the same confidence, so the line in the comment gives little information → The line is small, and the findings file keeps the inputs for a better rule.
 - A wrong deduplication group changes the corroboration → Groups are limited to one file by existing code. A line distance check is deferred.
 - The built-in comment grows by one line for every finding, and a team with a golden test of its own comments sees a change → A team can keep its own template, which does not change.
-- The `verdict` field is a MUST for a calibration that has not started → It is one field, and the data cannot be rebuilt later.
+- The `verdict` field is a MUST for a calibration that has not started → It is one field, and the data cannot be rebuilt later. It is on every finding, so a reader does not need a rule for a missing field.
 
 ## Migration Plan
 
@@ -85,7 +95,7 @@ Local `SPEC.md` files to refresh with `openspec-sync-specs`: `src/core/review/SP
 ## Open Questions
 
 1. **Condition to add the gate.** Collect findings files from real reviews and the choice of a person for each finding (accept or decline). Check whether the confidence tells the two apart, in particular for security findings. Add `FAIL_ON_CONFIDENCE` only if it does. The gate rule of the first draft (fail when a finding meets both thresholds, default `low`) can be the start.
-2. **Limits of the table.** The focus partition and the single verifier (Decision 6) set a ceiling for this table. A change to the table needs the data of question 1.
+2. **Limits of the table.** The focus partition and the single verifier (Decision 7) set a ceiling for this table. A change to the table needs the data of question 1.
 3. **Several verifiers with scores.** A later change can replace the table. Several verifiers each give a score from 1 to 5, with a written anchor for each value. The system takes the median and records the lowest score and the spread, and maps the median to `low`, `medium`, and `high` with thresholds from real data. The gate rules would not change, only the source of the confidence. Run it as a separate change, after question 1.
 4. **Mark for `low` confidence.** A request to a person to check a finding of low confidence needs a condition that a template does not have. One way is a second placeholder with an empty value for the other two levels. It has a cost: an empty value leaves an empty line in the comment.
 5. **Posting policy.** A later change could drop findings that are both low severity and low confidence. It is out of scope.

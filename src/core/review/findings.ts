@@ -52,7 +52,7 @@ export function validateFinding(item: unknown, index: number): Finding {
   return finding;
 }
 
-const VALID_VERDICTS: readonly StoredVerdict[] = ['confirmed', 'uncertain'];
+const VALID_VERDICTS: readonly StoredVerdict[] = ['confirmed', 'uncertain', 'unverified'];
 const VALID_CONFIDENCES: readonly Confidence[] = ['high', 'medium', 'low'];
 
 /** Checks a finding of the findings file: `validateFinding`, and the fields that only the engine

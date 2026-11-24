@@ -748,6 +748,7 @@ Pins the prompts.
    "summary": "in b first hunk",
    "anchor": "5ffbec37d2ff7e9d",
    "corroboration": 1,
+   "verdict": "unverified",
    "confidence": "low"
   },
   {
@@ -757,6 +758,7 @@ Pins the prompts.
    "summary": "in b second hunk",
    "anchor": "ed754a6a73cfe51e",
    "corroboration": 1,
+   "verdict": "unverified",
    "confidence": "low"
   },
   {

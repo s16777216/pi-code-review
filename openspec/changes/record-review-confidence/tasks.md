@@ -22,10 +22,15 @@
 - [x] 4.1 Add the placeholder `${confidence}` to the template filler. A finding with no confidence fills it with `unknown`. Write tests for a custom template and for an older finding.
 - [x] 4.2 Add the line `**Confidence**: ${confidence}` to `src/template/FINDING.md`, between the severity and the reason. Update the golden file and the test of the default comment.
 
-## 5. Check and document
+## 5. Mark a finding that was not verified
 
-- [x] 5.1 Run `npm run build`, `npm test`, `npm run lint`, and `npx tsc --noEmit`. Verify that all pass.
-- [x] 5.2 Run `review` on merge request 60 with `--debug`, and do not run `publish`. Verify that every finding in the findings file has `confidence` and `corroboration`, that no finding has `focus`, and that no prompt in the debug log names a focus in a finding.
-- [ ] 5.3 Run `openspec-sync-specs` to refresh `src/core/review/SPEC.md` and `src/template/SPEC.md`. Ask the user to approve each file first. Verify with `openspec validate record-review-confidence --strict`.
+- [x] 5.1 Add the verdict `unverified` to `StoredVerdict`. Write the tests first: a failed verification, a skipped verification (the golden file), a findings file with no verdict, and a model that sends `unverified` to `submit_verdicts` or in a finding.
+- [x] 5.2 Set `verdict: 'unverified'` on the findings of a file that was not verified in `engine.ts`. Keep each confidence value as it was. Update the golden file: only the two findings of `src/b.ts` in the batch case change.
+
+## 6. Check and document
+
+- [x] 6.1 Run `npm run build`, `npm test`, `npm run lint`, and `npx tsc --noEmit`. Verify that all pass.
+- [x] 6.2 Run `review` on merge request 60 with `--debug`, and do not run `publish`. Verify that every finding in the findings file has `confidence` and `corroboration`, that no finding has `focus`, and that no prompt in the debug log names a focus in a finding.
+- [ ] 6.3 Run `openspec-sync-specs` to refresh `src/core/review/SPEC.md` and `src/template/SPEC.md`. Ask the user to approve each file first. Verify with `openspec validate record-review-confidence --strict`.
 
 Tasks 1 and 2 are in one commit, because the focus must be removed before the golden file and the tests of the findings are stable. Order: 1 before 2, 2 and 3.1 before 3.2, 3.2 before 3.3, 3.4 before 4, 4.1 before 4.2, and 5 last. Group 4 can go in a separate pull request after group 3.

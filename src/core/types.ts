@@ -92,14 +92,17 @@ export interface Finding {
   focus?: string;
   /** How many distinct review focuses reported this problem (the deduplication group of the kept finding). */
   corroboration?: number;
-  /** The verdict of the verifier. Left out when the verification of the file failed or was skipped. */
+  /** What the verification step knew about the finding. The engine always sets it. A findings file of an
+   * older version has none. */
   verdict?: StoredVerdict;
   /** How sure the tool is that the problem is real, from `corroboration` and `verdict`. It never changes the severity. */
   confidence?: Confidence;
 }
 
-/** The verdicts that stay on a finding: a `rejected` finding is dropped. */
-export type StoredVerdict = 'confirmed' | 'uncertain';
+/** The verdicts that stay on a finding: a `rejected` finding is dropped. `unverified` is set by the program,
+ * never by a model: the verification of the file of the finding failed or was skipped
+ * (`record-review-confidence` design, Decision 7). */
+export type StoredVerdict = 'confirmed' | 'uncertain' | 'unverified';
 
 export type Confidence = 'high' | 'medium' | 'low';
 

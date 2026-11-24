@@ -342,6 +342,22 @@ test('a findings file keeps the corroboration, the verdict and the confidence of
   }
 });
 
+test('a findings file keeps the verdict unverified', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
+  const path = join(dir, 'findings.json');
+  const finding = { ...validFinding, corroboration: 1, verdict: 'unverified', confidence: 'low' } as const;
+  try {
+    await writeFile(
+      path,
+      JSON.stringify({ diffRefs: validRefs, source: validSource, findings: [finding], resolved: [] }),
+    );
+    const file = await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
+    assert.deepEqual(file.findings, [finding]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('a findings file from an older version, with no confidence, reads with no error', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
   const path = join(dir, 'findings.json');

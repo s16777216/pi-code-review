@@ -46,6 +46,19 @@ test('validateStoredFinding does not keep the focus', () => {
   assert.deepEqual(validateStoredFinding({ ...BASE, focus: 'security' }, 0), BASE);
 });
 
+test('validateStoredFinding accepts the verdict unverified, and a finding with no verdict', () => {
+  assert.deepEqual(validateStoredFinding({ ...BASE, verdict: 'unverified', confidence: 'low' }, 0), {
+    ...BASE,
+    verdict: 'unverified',
+    confidence: 'low',
+  });
+  assert.equal('verdict' in validateStoredFinding({ ...BASE, confidence: 'high' }, 0), false);
+});
+
+test('validateFinding (agent output) does not let a model set the verdict unverified', () => {
+  assert.deepEqual(validateFinding({ ...BASE, verdict: 'unverified' }, 0), BASE);
+});
+
 test('validateStoredFinding rejects an invalid corroboration, verdict or confidence', () => {
   assert.throws(() => validateStoredFinding({ ...BASE, corroboration: 0 }, 0), /"corroboration"/);
   assert.throws(() => validateStoredFinding({ ...BASE, corroboration: 1.5 }, 0), /"corroboration"/);

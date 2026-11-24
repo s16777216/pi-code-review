@@ -2,7 +2,7 @@
 
 A finding has a severity (the impact of the problem if it is real) and nothing else. The tool has no way to say how sure it is that the problem is real. A finding that one agent reports and the verifier doubts looks the same as a finding that all agents report and the verifier confirms.
 
-The tool already has the data for a first answer: how many review focuses found the same problem, and the verdict of the verifier. This change keeps that data, derives a **confidence** from it, and shows it. It does not use the confidence to decide pass or fail. Today no value of a confidence threshold is safe to set (see `design.md`, Decision 6). The data that this change records is what a later change needs to find a safe value.
+The tool already has the data for a first answer: how many review focuses found the same problem, and the verdict of the verifier. This change keeps that data, derives a **confidence** from it, and shows it. It does not use the confidence to decide pass or fail. Today no value of a confidence threshold is safe to set (see `design.md`, Decision 7). The data that this change records is what a later change needs to find a safe value.
 
 ## What Changes
 

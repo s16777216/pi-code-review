@@ -126,6 +126,13 @@ test('validateVerdicts rejects a missing number and names it', () => {
   assert.throws(() => validateVerdicts([verdict(1, 'confirmed', 'high')], 2), /no verdict: 2/);
 });
 
+test('validateVerdicts rejects the verdict unverified: only the program sets it', () => {
+  assert.throws(
+    () => validateVerdicts([{ ...verdict(1, 'confirmed', 'high'), verdict: 'unverified' as never }], 1),
+    /not "confirmed", "rejected", or "uncertain"/,
+  );
+});
+
 test('validateVerdicts rejects a number with two verdicts', () => {
   assert.throws(
     () => validateVerdicts([verdict(1, 'confirmed', 'high'), verdict(1, 'rejected', 'high')], 1),

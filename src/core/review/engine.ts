@@ -413,10 +413,14 @@ export class AgentReviewEngine implements ReviewEngine {
       );
     }
     const kept = findings.flatMap((finding) => {
-      // A file with no verdict keeps its findings, with the verdict `uncertain` for the confidence only.
+      // A file with no verdict (its verification failed or was skipped) keeps its findings, marked `unverified`.
       const value = result.has(finding)
         ? result.get(finding)!
-        : { ...finding, confidence: deriveConfidence(finding.corroboration ?? 1, undefined) };
+        : {
+            ...finding,
+            verdict: 'unverified' as const,
+            confidence: deriveConfidence(finding.corroboration ?? 1, 'unverified'),
+          };
       return value === null ? [] : [value];
     });
     logger.info(
