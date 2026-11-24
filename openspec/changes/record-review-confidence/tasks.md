@@ -19,8 +19,8 @@
 
 ## 4. Comments
 
-- [ ] 4.1 Add the placeholder `${confidence}` to the template filler. A finding with no confidence fills it with `unknown`. Write tests for a custom template and for an older finding.
-- [ ] 4.2 Add the line `**Confidence**: ${confidence}` to `src/template/FINDING.md`, between the severity and the reason. Update the golden file and the test of the default comment.
+- [x] 4.1 Add the placeholder `${confidence}` to the template filler. A finding with no confidence fills it with `unknown`. Write tests for a custom template and for an older finding.
+- [x] 4.2 Add the line `**Confidence**: ${confidence}` to `src/template/FINDING.md`, between the severity and the reason. Update the golden file and the test of the default comment.
 
 ## 5. Check and document
 

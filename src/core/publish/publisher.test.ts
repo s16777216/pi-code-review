@@ -74,6 +74,16 @@ test('publish posts one discussion per finding at its file and line', async () =
   assert.equal(writer.calls[0]!.body.startsWith('<!-- pi-code-review -->\n**Severity**: high'), true);
 });
 
+test('publish shows the confidence of a finding, and unknown when a finding has none', async () => {
+  const writer = new FakeGateway();
+  await new Publisher(writer).publish([
+    { file: 'a.ts', line: 3, severity: 'high', summary: 'Bug A.', confidence: 'low' },
+    { file: 'b.ts', line: 5, severity: 'low', summary: 'Bug B.' },
+  ]);
+  assert.match(writer.calls[0]!.body, /\*\*Confidence\*\*: low/);
+  assert.match(writer.calls[1]!.body, /\*\*Confidence\*\*: unknown/);
+});
+
 test('publish isolates a failed discussion: the other finding still posts', async () => {
   const writer = new FakeGateway((position) => position.file === 'a.ts');
   const errors: Finding[] = [];
@@ -102,8 +112,9 @@ const ANCHOR = '3f9a1c0b2d4e5f60';
 
 /** The paragraph that the built-in finding template gives for `bugA` and `bugA2`
  * (the files in `src/template`). */
-const BUG_A_PARAGRAPH = '**Severity**: high\n  \n**Reason**: Bug A.\n\n---';
-const NAMING_PARAGRAPH = '**Severity**: low\n  \n**Reason**: Also a naming problem.\n\n---';
+const BUG_A_PARAGRAPH = '**Severity**: high\n  \n**Confidence**: unknown\n  \n**Reason**: Bug A.\n\n---';
+const NAMING_PARAGRAPH =
+  '**Severity**: low\n  \n**Confidence**: unknown\n  \n**Reason**: Also a naming problem.\n\n---';
 
 function existingDiscussion(
   id: string,
@@ -304,7 +315,7 @@ test('publish keeps findings file order inside a merged comment', async () => {
 
   assert.match(
     writer.calls[0]!.body,
-    /^<!-- [^\n]+ -->\n\*\*Severity\*\*: low\n {2}\n\*\*Reason\*\*: Also a naming problem\.\n\n---\n\n\*\*Severity\*\*: high\n {2}\n\*\*Reason\*\*: Bug A\.\n\n---$/,
+    /^<!-- [^\n]+ -->\n\*\*Severity\*\*: low\n {2}\n\*\*Confidence\*\*: unknown\n {2}\n\*\*Reason\*\*: Also a naming problem\.\n\n---\n\n\*\*Severity\*\*: high\n {2}\n\*\*Confidence\*\*: unknown\n {2}\n\*\*Reason\*\*: Bug A\.\n\n---$/,
   );
 });
 
@@ -346,7 +357,7 @@ test('publish sends one reply and one reopen for two findings that reply to the 
   assert.deepEqual(writer.replies, [
     {
       discussionId: 'd1',
-      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}\n\n**Severity**: low\n  \n**Reason**: Second.\n\n---`,
+      body: `<!-- pi-code-review anchor=${ANCHOR} -->\n${BUG_A_PARAGRAPH}\n\n**Severity**: low\n  \n**Confidence**: unknown\n  \n**Reason**: Second.\n\n---`,
     },
   ]);
   assert.deepEqual(writer.resolvedChanges, [{ discussionId: 'd1', resolved: false }]);

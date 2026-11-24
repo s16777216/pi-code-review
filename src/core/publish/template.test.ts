@@ -11,7 +11,7 @@ import { builtinTemplates, fillTemplate, loadTemplates, readBuiltinTemplates, Te
 /** The built-in template files that the package ships. */
 const BUILTIN_DIR = fileURLToPath(new URL('../../template/', import.meta.url));
 
-const FINDING = { severity: 'high', summary: 'Null check missing', file: 'src/a.ts', line: '12' };
+const FINDING = { severity: 'high', confidence: 'medium', summary: 'Null check missing', file: 'src/a.ts', line: '12' };
 
 /** A logger that keeps what it writes, so a test can read the `warn` lines. */
 function capturingLogger(): { logger: pino.Logger; lines: Record<string, unknown>[] } {
@@ -33,7 +33,7 @@ async function withDir(files: Record<string, string | Buffer>, run: (dir: string
 test('the built-in templates give the default comment text', () => {
   assert.equal(
     fillTemplate(builtinTemplates().finding, FINDING),
-    '**Severity**: high\n  \n**Reason**: Null check missing\n\n---',
+    '**Severity**: high\n  \n**Confidence**: medium\n  \n**Reason**: Null check missing\n\n---',
   );
   assert.equal(
     fillTemplate(builtinTemplates().resolved, { reason: 'The check was added' }),
@@ -45,6 +45,22 @@ test('the built-in templates are the text of the files in src/template', () => {
   const fileText = (name: string) =>
     readFileSync(join(BUILTIN_DIR, name), 'utf8').replace(/\r\n/g, '\n').replace(/\n+$/, '');
   assert.deepEqual(builtinTemplates(), { finding: fileText('FINDING.md'), resolved: fileText('RESOLVED.md') });
+});
+
+test('a custom template can read the confidence, and the built-in template has the placeholder', () => {
+  assert.equal(fillTemplate('${confidence}: ${summary}', { ...FINDING, confidence: 'low' }), 'low: Null check missing');
+  assert.match(builtinTemplates().finding, /\*\*Confidence\*\*: \$\{confidence\}/);
+});
+
+test('loadTemplates does not warn about ${confidence} in FINDING.md', async () => {
+  const { logger, lines } = capturingLogger();
+  await withDir({ 'FINDING.md': '${confidence} ${summary}' }, async (dir) => {
+    await loadTemplates(dir, logger);
+  });
+  assert.deepEqual(
+    lines.filter((line) => line.level === 40),
+    [],
+  );
 });
 
 // --- the check (task 1.2) ---

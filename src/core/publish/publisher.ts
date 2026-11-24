@@ -318,6 +318,8 @@ function formatDiscussionBody(findings: Finding[], findingTemplate: string): str
   const paragraphs = findings.map((finding) =>
     fillTemplate(findingTemplate, {
       severity: finding.severity,
+      // A finding from an older findings file has no confidence (`record-review-confidence` design, Decision 4).
+      confidence: finding.confidence ?? 'unknown',
       summary: finding.summary,
       file: finding.file,
       line: String(finding.line),
