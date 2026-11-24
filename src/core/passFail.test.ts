@@ -34,3 +34,12 @@ test('a critical finding fails every threshold below it', () => {
 test('no findings always passes', () => {
   assert.equal(decidePassFail([], 'high'), true);
 });
+
+// `record-review-confidence`: the confidence never changes the result of the gate.
+test('the confidence of a finding does not change the pass or fail result', () => {
+  for (const confidence of ['high', 'medium', 'low'] as const) {
+    assert.equal(decidePassFail([{ ...finding('high'), confidence }], 'high'), false);
+    assert.equal(decidePassFail([{ ...finding('medium'), confidence }], 'high'), true);
+  }
+  assert.equal(decidePassFail([finding('high')], 'high'), false);
+});

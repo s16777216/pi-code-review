@@ -19,7 +19,7 @@ export interface CommentTemplates {
 /** What each template file may fill, and the one placeholder it MUST hold
  * (Decision 3: a comment without it loses the content). */
 const TEMPLATE_FILES = {
-  finding: { file: 'FINDING.md', names: ['severity', 'summary', 'file', 'line'], main: 'summary' },
+  finding: { file: 'FINDING.md', names: ['severity', 'confidence', 'summary', 'file', 'line'], main: 'summary' },
   resolved: { file: 'RESOLVED.md', names: ['reason'], main: 'reason' },
 } as const;
 

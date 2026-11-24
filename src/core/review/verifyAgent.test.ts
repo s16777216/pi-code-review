@@ -435,3 +435,16 @@ test('the rule of the last statement still lets the agent resolve a fix that the
   );
   assert.doesNotMatch(VERIFY_AGENT_SYSTEM_PROMPT, /keep a discussion open when the code changed to fix the problem/);
 });
+
+test('the prompt does not show the review focus or the confidence fields of a finding', () => {
+  const g = group();
+  g.findings = g.findings.map((item) => ({
+    ...item,
+    focus: 'security',
+    corroboration: 2,
+    verdict: 'confirmed' as const,
+    confidence: 'high' as const,
+  }));
+  const prompt = buildVerifyAgentPrompt(context, g, undefined);
+  assert.doesNotMatch(prompt, /"focus"|corroboration|"verdict"|"confidence"/);
+});

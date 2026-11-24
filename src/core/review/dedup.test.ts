@@ -2,7 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Finding } from '../types.ts';
 import { MAX_SUBMIT_ATTEMPTS } from './agent.ts';
-import { buildDedupPrompt, createSubmitGroupsTool, keepOnePerGroup, selectForDedup, validateGroups } from './dedup.ts';
+import {
+  buildDedupPrompt,
+  createSubmitGroupsTool,
+  keepOnePerGroup,
+  selectForDedup,
+  settleGroups,
+  validateGroups,
+} from './dedup.ts';
 import { ReviewFailureError } from './findings.ts';
 
 function finding(
@@ -169,4 +176,63 @@ test('submit_groups stops accepting calls after the limit', async () => {
   for (let i = 0; i < MAX_SUBMIT_ATTEMPTS; i += 1) last = await call(tool, [[9]]);
   assert.equal(last!.isError, true);
   assert.equal(last!.terminate, true);
+});
+
+test('buildDedupPrompt does not show the review focus or the confidence fields of a finding', () => {
+  const extra = { focus: 'security', corroboration: 2, verdict: 'confirmed', confidence: 'high' } as const;
+  const prompt = buildDedupPrompt([{ number: 1, finding: finding('a.ts', 1, 'low', 'A', extra) }]);
+  assert.doesNotMatch(prompt, /security|focus|corroboration|verdict|confidence/);
+});
+
+// --- corroboration (`record-review-confidence`) ---
+
+const withFocus = (line: number, focus: string, severity: Finding['severity'] = 'low') =>
+  finding('a.ts', line, severity, `S${line}`, { focus });
+
+test('settleGroups gives the kept finding the number of distinct focuses in its group', () => {
+  const findings = [withFocus(1, 'logic'), withFocus(1, 'security', 'high'), withFocus(5, 'resources')];
+  assert.deepEqual(
+    settleGroups(findings, [[1, 2], [3]]).map((f) => [f.line, f.severity, f.corroboration]),
+    [
+      [1, 'high', 2],
+      [5, 'low', 1],
+    ],
+  );
+});
+
+test('settleGroups counts two findings of one focus in one group once', () => {
+  const findings = [withFocus(1, 'logic'), withFocus(2, 'logic'), withFocus(3, 'logic')];
+  assert.deepEqual(
+    settleGroups(findings, [[1, 2, 3]]).map((f) => f.corroboration),
+    [1],
+  );
+});
+
+test('settleGroups counts the three focuses of a group as 3', () => {
+  const findings = [withFocus(1, 'logic'), withFocus(1, 'security'), withFocus(1, 'resources')];
+  assert.deepEqual(
+    settleGroups(findings, [[1, 2, 3]]).map((f) => f.corroboration),
+    [3],
+  );
+});
+
+test('settleGroups gives corroboration 1 to a finding that no group holds, and to every finding when there is no group', () => {
+  const findings = [withFocus(1, 'logic'), withFocus(2, 'security')];
+  assert.deepEqual(
+    settleGroups(findings, []).map((f) => f.corroboration),
+    [1, 1],
+  );
+});
+
+test('settleGroups removes the focus of every finding', () => {
+  const findings = [withFocus(1, 'logic'), withFocus(1, 'security'), withFocus(2, 'resources')];
+  for (const f of settleGroups(findings, [[1, 2]])) assert.equal('focus' in f, false);
+});
+
+test('settleGroups keeps the finding that keepOnePerGroup keeps, with its relatesTo', () => {
+  const findings = [withFocus(1, 'logic', 'high'), { ...withFocus(1, 'security'), relatesTo: 'd1' }];
+  const [kept] = settleGroups(findings, [[1, 2]]);
+  assert.equal(kept?.severity, 'high');
+  assert.equal(kept?.relatesTo, 'd1');
+  assert.equal(kept?.corroboration, 2);
 });

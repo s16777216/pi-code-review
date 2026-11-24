@@ -81,6 +81,19 @@ const SEVERITY_ORDER: readonly Severity[] = ['critical', 'high', 'medium', 'low'
  * one that another finding of its group has. The kept findings keep their
  * order. `groups` holds the numbers of `validateGroups`. */
 export function keepOnePerGroup(findings: readonly Finding[], groups: readonly (readonly number[])[]): Finding[] {
+  return settle(findings, groups, false);
+}
+
+/** `keepOnePerGroup`, and then the end of the step (`record-review-confidence`, Decisions 1 and 2). Each
+ * kept finding gets its corroboration: the number of distinct review focuses in its group, or `1` when
+ * no group holds it. The `focus` of every finding is removed, so it never reaches a prompt or the file.
+ * `groups` can be empty: the step made no model call, or it failed. */
+export function settleGroups(findings: readonly Finding[], groups: readonly (readonly number[])[]): Finding[] {
+  return settle(findings, groups, true);
+}
+
+function settle(findings: readonly Finding[], groups: readonly (readonly number[])[], annotate: boolean): Finding[] {
+  const corroboration = new Map<number, number>();
   const replaced = new Map<number, Finding>();
   const dropped = new Set<number>();
   for (const group of groups) {
@@ -92,6 +105,7 @@ export function keepOnePerGroup(findings: readonly Finding[], groups: readonly (
         : best,
     );
     for (const number of ordered) if (number !== kept) dropped.add(number);
+    corroboration.set(kept, new Set(ordered.map((number) => findings[number - 1]!.focus)).size);
 
     const keptFinding = findings[kept - 1]!;
     if (keptFinding.relatesTo === undefined) {
@@ -99,7 +113,13 @@ export function keepOnePerGroup(findings: readonly Finding[], groups: readonly (
       if (donor !== undefined) replaced.set(kept, { ...keptFinding, relatesTo: findings[donor - 1]!.relatesTo! });
     }
   }
-  return findings.flatMap((finding, index) => (dropped.has(index + 1) ? [] : [replaced.get(index + 1) ?? finding]));
+  return findings.flatMap((finding, index) => {
+    if (dropped.has(index + 1)) return [];
+    const result = replaced.get(index + 1) ?? finding;
+    if (!annotate) return [result];
+    const { focus: _focus, ...rest } = result;
+    return [{ ...rest, corroboration: Math.max(1, corroboration.get(index + 1) ?? 1) }];
+  });
 }
 
 const SubmitGroupsParams = Type.Object({

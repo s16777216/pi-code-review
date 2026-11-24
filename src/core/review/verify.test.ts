@@ -126,6 +126,13 @@ test('validateVerdicts rejects a missing number and names it', () => {
   assert.throws(() => validateVerdicts([verdict(1, 'confirmed', 'high')], 2), /no verdict: 2/);
 });
 
+test('validateVerdicts rejects the verdict unverified: only the program sets it', () => {
+  assert.throws(
+    () => validateVerdicts([{ ...verdict(1, 'confirmed', 'high'), verdict: 'unverified' as never }], 1),
+    /not "confirmed", "rejected", or "uncertain"/,
+  );
+});
+
 test('validateVerdicts rejects a number with two verdicts', () => {
   assert.throws(
     () => validateVerdicts([verdict(1, 'confirmed', 'high'), verdict(1, 'rejected', 'high')], 1),
@@ -203,7 +210,7 @@ test('applyVerdicts drops a rejected finding', () => {
   const applied = applyVerdicts(findings, [verdict(1, 'rejected', 'high'), verdict(2, 'confirmed', 'low')]);
   assert.deepEqual(
     applied.map((item) => item.result),
-    [null, findings[1]],
+    [null, { ...findings[1]!, verdict: 'confirmed', confidence: 'medium' }],
   );
 });
 
@@ -225,10 +232,34 @@ test('applyVerdicts reports no change when the reviewed severity is the same', (
   assert.equal(applied!.severityChanged, false);
 });
 
-test('applyVerdicts changes only the severity', () => {
+test('applyVerdicts changes only the severity, and adds the verdict and the confidence', () => {
   const original = finding('a.ts', 3, 'high', 'Text.', { relatesTo: 'd1', anchor: '0123456789abcdef' });
   const [applied] = applyVerdicts([original], [verdict(1, 'confirmed', 'low')]);
-  assert.deepEqual(applied!.result, { ...original, severity: 'low' });
+  assert.deepEqual(applied!.result, { ...original, severity: 'low', verdict: 'confirmed', confidence: 'medium' });
+});
+
+test('applyVerdicts derives the confidence from the corroboration and the verdict', () => {
+  const findings = [
+    finding('a.ts', 1, 'low', 'A.', { corroboration: 2 }),
+    finding('a.ts', 2, 'low', 'B.', { corroboration: 2 }),
+    finding('a.ts', 3, 'low', 'C.', { corroboration: 1 }),
+    finding('a.ts', 4, 'low', 'D.', { corroboration: 1 }),
+  ];
+  const applied = applyVerdicts(findings, [
+    verdict(1, 'confirmed', 'low'),
+    verdict(2, 'uncertain', 'low'),
+    verdict(3, 'confirmed', 'low'),
+    verdict(4, 'uncertain', 'low'),
+  ]);
+  assert.deepEqual(
+    applied.map((item) => [item.result?.verdict, item.result?.confidence]),
+    [
+      ['confirmed', 'high'],
+      ['uncertain', 'medium'],
+      ['confirmed', 'medium'],
+      ['uncertain', 'low'],
+    ],
+  );
 });
 
 test('applyVerdicts keeps the order of the findings and gives the original finding of each entry', () => {
@@ -238,4 +269,17 @@ test('applyVerdicts keeps the order of the findings and gives the original findi
     applied.map((item) => item.original),
     findings,
   );
+});
+
+test('buildVerifyPrompt does not show the review focus or the confidence fields of a finding', () => {
+  const prompt = buildVerifyPrompt(context, fileOf('a.ts'), [
+    finding('a.ts', 1, 'low', 'First.', {
+      focus: 'security',
+      corroboration: 2,
+      verdict: 'confirmed',
+      confidence: 'high',
+    }),
+  ]);
+  assert.doesNotMatch(prompt, /"focus"|corroboration|"verdict"|"confidence"/);
+  assert.doesNotMatch(prompt, /security/);
 });

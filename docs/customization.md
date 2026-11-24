@@ -52,10 +52,12 @@ This feature trusts the author of the merge request. In a CI job, the working di
 
 `publish` writes the text of its comments from two optional template files. Put them in a directory, and give the directory to `publish` with `--template-dir` or `PUBLISH_TEMPLATE_DIR`:
 
-| File          | Text                                                                              | Placeholders                                      |
-| ------------- | --------------------------------------------------------------------------------- | ------------------------------------------------- |
-| `FINDING.md`  | One finding. It must contain `${summary}`.                                        | `${severity}`, `${summary}`, `${file}`, `${line}` |
-| `RESOLVED.md` | The reply that explains a discussion declared fixed. It must contain `${reason}`. | `${reason}`                                       |
+| File          | Text                                                                              | Placeholders                                                          |
+| ------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `FINDING.md`  | One finding. It must contain `${summary}`.                                        | `${severity}`, `${confidence}`, `${summary}`, `${file}`, `${line}` |
+| `RESOLVED.md` | The reply that explains a discussion declared fixed. It must contain `${reason}`. | `${reason}`                                                           |
+
+`${confidence}` is `high`, `medium`, or `low`: how sure the review is that the problem is real. It comes from the number of review focuses that found the problem and from the verdict of the verifier. It does not change the severity or the pass or fail result. A finding from a findings file that an older `review` wrote has no confidence, and the placeholder gives `unknown`.
 
 The file names use upper case. A case-sensitive file system, such as the one on Linux, finds only these names.
 
@@ -63,6 +65,8 @@ The package ships a default for each file (`src/template/FINDING.md` and `src/te
 
 ```text
 **Severity**: ${severity}
+  
+**Confidence**: ${confidence}
   
 **Reason**: ${summary}
 
