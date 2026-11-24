@@ -86,7 +86,22 @@ export interface Finding {
   /** Set by the engine, never by the agent: a hash of the file and the text of
    * the finding's line (see `core/review/anchor.ts`). */
   anchor?: string;
+  /** The name of the review focus that reported the finding. Set by the engine when it merges the
+   * outputs, read by the deduplication step, and removed there. It never reaches a prompt or the
+   * findings file (`record-review-confidence` design, Decision 1). */
+  focus?: string;
+  /** How many distinct review focuses reported this problem (the deduplication group of the kept finding). */
+  corroboration?: number;
+  /** The verdict of the verifier. Left out when the verification of the file failed or was skipped. */
+  verdict?: StoredVerdict;
+  /** How sure the tool is that the problem is real, from `corroboration` and `verdict`. It never changes the severity. */
+  confidence?: Confidence;
 }
+
+/** The verdicts that stay on a finding: a `rejected` finding is dropped. */
+export type StoredVerdict = 'confirmed' | 'uncertain';
+
+export type Confidence = 'high' | 'medium' | 'low';
 
 /** The agent's claim that an existing discussion from this tool is fixed. */
 export interface ResolvedDiscussion {

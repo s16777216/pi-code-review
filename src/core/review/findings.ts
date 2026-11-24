@@ -1,4 +1,4 @@
-import type { FailureCategory, Finding, ResolvedDiscussion, Severity } from '../types.ts';
+import type { Confidence, FailureCategory, Finding, ResolvedDiscussion, Severity, StoredVerdict } from '../types.ts';
 
 /** A review failure. The `category` is what `review` writes to the findings
  * file, so `publish` can tell the failure without the text of the error. */
@@ -49,6 +49,41 @@ export function validateFinding(item: unknown, index: number): Finding {
   const finding: Finding = { file, line, severity: severity as Severity, summary };
   if (relatesTo !== undefined) finding.relatesTo = relatesTo;
   if (anchor !== undefined) finding.anchor = anchor;
+  return finding;
+}
+
+const VALID_VERDICTS: readonly StoredVerdict[] = ['confirmed', 'uncertain'];
+const VALID_CONFIDENCES: readonly Confidence[] = ['high', 'medium', 'low'];
+
+/** Checks a finding of the findings file: `validateFinding`, and the fields that only the engine
+ * writes (`corroboration`, `verdict`, `confidence`). Agent output goes through `validateFinding`
+ * and so can never set them. A file from an older `review` has none of them. The review focus is
+ * never kept (`record-review-confidence` design, Decision 1). */
+export function validateStoredFinding(item: unknown, index: number): Finding {
+  const finding = validateFinding(item, index);
+  const { corroboration, verdict, confidence } = item as Record<string, unknown>;
+  if (corroboration !== undefined) {
+    if (typeof corroboration !== 'number' || !Number.isInteger(corroboration) || corroboration < 1) {
+      throw new ReviewFailureError(`Finding at index ${index} has a "corroboration" that is not a positive integer.`);
+    }
+    finding.corroboration = corroboration;
+  }
+  if (verdict !== undefined) {
+    if (typeof verdict !== 'string' || !VALID_VERDICTS.includes(verdict as StoredVerdict)) {
+      throw new ReviewFailureError(
+        `Finding at index ${index} has an invalid "verdict": ${JSON.stringify(verdict)}. Must be one of ${VALID_VERDICTS.join(', ')}.`,
+      );
+    }
+    finding.verdict = verdict as StoredVerdict;
+  }
+  if (confidence !== undefined) {
+    if (typeof confidence !== 'string' || !VALID_CONFIDENCES.includes(confidence as Confidence)) {
+      throw new ReviewFailureError(
+        `Finding at index ${index} has an invalid "confidence": ${JSON.stringify(confidence)}. Must be one of ${VALID_CONFIDENCES.join(', ')}.`,
+      );
+    }
+    finding.confidence = confidence as Confidence;
+  }
   return finding;
 }
 

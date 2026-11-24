@@ -239,3 +239,16 @@ test('applyVerdicts keeps the order of the findings and gives the original findi
     findings,
   );
 });
+
+test('buildVerifyPrompt does not show the review focus or the confidence fields of a finding', () => {
+  const prompt = buildVerifyPrompt(context, fileOf('a.ts'), [
+    finding('a.ts', 1, 'low', 'First.', {
+      focus: 'security',
+      corroboration: 2,
+      verdict: 'confirmed',
+      confidence: 'high',
+    }),
+  ]);
+  assert.doesNotMatch(prompt, /"focus"|corroboration|"verdict"|"confidence"/);
+  assert.doesNotMatch(prompt, /security/);
+});

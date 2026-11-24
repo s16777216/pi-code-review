@@ -113,7 +113,14 @@ test('runReview returns findings and the snapshot, and never posts anything', as
   assert.deepEqual(findingsFile.diffRefs, { baseSha: 'base', startSha: 'start', headSha: 'head' });
   assert.deepEqual(findingsFile.source, SOURCE);
   assert.deepEqual(findingsFile.findings, [
-    { file: 'a.ts', line: 1, severity: 'high', summary: 'Off-by-one.', anchor: computeAnchor('a.ts', 'new') },
+    {
+      file: 'a.ts',
+      line: 1,
+      severity: 'high',
+      summary: 'Off-by-one.',
+      anchor: computeAnchor('a.ts', 'new'),
+      corroboration: 1,
+    },
   ]);
   // runReview gets only the read side; createDiscussion is only ever called by runPublish.
   assert.equal(client.discussions.length, 0);

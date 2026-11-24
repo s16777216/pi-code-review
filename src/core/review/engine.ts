@@ -8,7 +8,7 @@ import { createGetFileContentTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
 import { listUnreviewedFiles, runChecks } from './checks.ts';
-import { buildDedupPrompt, createSubmitGroupsTool, keepOnePerGroup, selectForDedup } from './dedup.ts';
+import { buildDedupPrompt, createSubmitGroupsTool, selectForDedup, settleGroups } from './dedup.ts';
 import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
 import { REVIEW_FOCUSES, type ReviewFocus } from './focus.ts';
 import {
@@ -189,7 +189,8 @@ export class AgentReviewEngine implements ReviewEngine {
       outputs.forEach((output, i) => {
         const run = runs[i]!;
         const kept = run.scope.filterFindings(output.findings, changes, logger);
-        findings.push(...kept);
+        // The deduplication step counts the review focuses of a group (`record-review-confidence`, Decision 1).
+        findings.push(...kept.map((finding) => ({ ...finding, focus: run.focus.name })));
         perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
       });
       for (const [focus, count] of perFocus) {
@@ -729,7 +730,7 @@ export class AgentReviewEngine implements ReviewEngine {
    * `deduplication_failed` (`harden-run-failures` design, Decision 3). */
   private async deduplicate(findings: Finding[], logger: Logger, warnings: ReviewWarning[]): Promise<Finding[]> {
     const sent = selectForDedup(findings);
-    if (sent.length === 0) return findings;
+    if (sent.length === 0) return settleGroups(findings, []);
 
     const spec: RunSpec<number[][]> = {
       createAgent: (onSubmit, model) =>
@@ -755,10 +756,10 @@ export class AgentReviewEngine implements ReviewEngine {
         'the deduplication step failed; the findings stay as they were',
       );
       warnings.push({ code: 'deduplication_failed' });
-      return findings;
+      return settleGroups(findings, []);
     }
 
-    const kept = keepOnePerGroup(findings, groups);
+    const kept = settleGroups(findings, groups);
     logger.info(
       { before: findings.length, after: kept.length },
       `Deduplication step: ${findings.length} finding(s) before, ${kept.length} after.`,

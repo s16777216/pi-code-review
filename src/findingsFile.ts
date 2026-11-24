@@ -7,7 +7,7 @@ import type {
   UnreviewedFile,
   WarningCode,
 } from './core/types.ts';
-import { validateFinding, validateResolvedDiscussion } from './core/review/findings.ts';
+import { validateResolvedDiscussion, validateStoredFinding } from './core/review/findings.ts';
 import { errorMessage } from './core/errorMessage.ts';
 
 /** What `review` writes and `publish` reads. `diffRefs` and `source` are the
@@ -112,7 +112,7 @@ function validateFindingsFile<DiffRefs, Source>(
   return {
     diffRefs,
     source,
-    findings: findings.map((item, index) => validateFinding(item, index)),
+    findings: findings.map((item, index) => validateStoredFinding(item, index)),
     resolved: resolved.map((item, index) => validateResolvedDiscussion(item, index)),
     unreviewedFiles: unreviewedFiles.map((item, index) => validateUnreviewedFile(item, index)),
     warnings: warnings.map((item, index) => validateWarning(item, index)),
