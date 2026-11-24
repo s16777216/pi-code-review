@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FindingsFileError, readFindingsFile, writeFindingsFile, type FindingsFile } from './findingsFile.ts';
@@ -313,6 +313,61 @@ test('writeFindingsFile then readFindingsFile round-trips a failed review', asyn
   try {
     await writeFindingsFile(path, data);
     assert.deepEqual(await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource), data);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// --- record-review-confidence ---
+
+test('a findings file keeps the corroboration, the verdict and the confidence of a finding', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
+  const path = join(dir, 'findings.json');
+  const data: FindingsFile<GitLabDiffRefs, GitLabSource> = {
+    unreviewedFiles: [],
+    warnings: [],
+    resolved: [],
+    diffRefs: { baseSha: 'base', startSha: 'start', headSha: 'head' },
+    source: validSource,
+    findings: [
+      { ...validFinding, severity: 'high', corroboration: 2, verdict: 'confirmed', confidence: 'high' },
+      { ...validFinding, line: 4, severity: 'low', corroboration: 1, confidence: 'low' },
+    ],
+  };
+  try {
+    await writeFindingsFile(path, data);
+    assert.deepEqual(await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource), data);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a findings file from an older version, with no confidence, reads with no error', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
+  const path = join(dir, 'findings.json');
+  try {
+    await writeFile(
+      path,
+      JSON.stringify({ diffRefs: validRefs, source: validSource, findings: [validFinding], resolved: [] }),
+    );
+    const file = await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
+    assert.deepEqual(file.findings, [validFinding]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a findings file with an invalid confidence is rejected, and the focus is not kept', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'findings-file-test-'));
+  const path = join(dir, 'findings.json');
+  const write = (finding: object) =>
+    writeFile(path, JSON.stringify({ diffRefs: validRefs, source: validSource, findings: [finding], resolved: [] }));
+  try {
+    await write({ ...validFinding, confidence: 'certain' });
+    await assert.rejects(readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource), /"confidence"/);
+    await write({ ...validFinding, focus: 'security' });
+    const file = await readFindingsFile(path, parseGitLabDiffRefs, parseGitLabSource);
+    assert.deepEqual(file.findings, [validFinding]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

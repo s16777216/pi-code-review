@@ -11,11 +11,11 @@
 
 ## 3. Confidence
 
-- [ ] 3.1 Add a function that derives the confidence from the corroboration and the verdict, as the table in the spec says. Write a test for all 4 cells and for a missing verdict.
-- [ ] 3.2 In `verify.ts`, set `verdict` and `confidence` on each kept finding in `applyVerdicts`. For a file whose verification failed or was skipped, set `confidence` with the verdict `uncertain` and leave `verdict` out. Write tests for both.
-- [ ] 3.3 Check that `confidence`, `corroboration`, and `verdict` stay on a finding through the verify agent step (`applyDecisions`) and `runChecks`. Write a test.
-- [ ] 3.4 Write `confidence`, `corroboration`, and `verdict` to the findings file, and read them in `findingsFile.ts`. A findings file with no `confidence` reads with no error. Write tests for both.
-- [ ] 3.5 Check that `decidePassFail` gives the same result for a finding with any confidence. Write a test with severity `high`, threshold `high`, and the three confidences.
+- [x] 3.1 Add a function that derives the confidence from the corroboration and the verdict, as the table in the spec says. Write a test for all 4 cells and for a missing verdict.
+- [x] 3.2 In `verify.ts`, set `verdict` and `confidence` on each kept finding in `applyVerdicts`. For a file whose verification failed or was skipped, set `confidence` with the verdict `uncertain` and leave `verdict` out. Write tests for both.
+- [x] 3.3 Check that `confidence`, `corroboration`, and `verdict` stay on a finding through the verify agent step (`applyDecisions`) and `runChecks`. Write a test.
+- [x] 3.4 Write `confidence`, `corroboration`, and `verdict` to the findings file, and read them in `findingsFile.ts`. A findings file with no `confidence` reads with no error. Write tests for both.
+- [x] 3.5 Check that `decidePassFail` gives the same result for a finding with any confidence. Write a test with severity `high`, threshold `high`, and the three confidences.
 
 ## 4. Comments
 

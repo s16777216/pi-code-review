@@ -4,6 +4,7 @@ import { silentLogger, type Logger } from '../../logger.ts';
 import type { Finding, ReviewContext, Severity } from '../types.ts';
 import { MAX_SUBMIT_ATTEMPTS } from './agent.ts';
 import type { ChangedFile } from './changedFile.ts';
+import { deriveConfidence } from './confidence.ts';
 import { ReviewFailureError } from './findings.ts';
 import { formatDiff, header, systemPrompts } from './prompt.ts';
 
@@ -181,7 +182,15 @@ export function applyVerdicts(findings: readonly Finding[], verdicts: readonly F
   return findings.map((original, index) => {
     const verdict = byNumber.get(index + 1)!;
     const severityChanged = verdict.severity !== original.severity;
-    const result = verdict.verdict === 'rejected' ? null : { ...original, severity: verdict.severity };
+    const result =
+      verdict.verdict === 'rejected'
+        ? null
+        : {
+            ...original,
+            severity: verdict.severity,
+            verdict: verdict.verdict,
+            confidence: deriveConfidence(original.corroboration ?? 1, verdict.verdict),
+          };
     return { original, result, verdict, severityChanged };
   });
 }

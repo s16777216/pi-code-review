@@ -7,7 +7,9 @@
    "severity": "high",
    "summary": "ok line",
    "anchor": "7245d82fa6677b40",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/a.ts",
@@ -15,7 +17,9 @@
    "severity": "low",
    "summary": "ok line in part 2",
    "anchor": "f33ac683e7cf24b2",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/a.ts",
@@ -23,7 +27,9 @@
    "severity": "low",
    "summary": "a third line",
    "anchor": "03d02f5ba60712e4",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/b.ts",
@@ -31,7 +37,9 @@
    "severity": "low",
    "summary": "in b first hunk",
    "anchor": "5ffbec37d2ff7e9d",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/b.ts",
@@ -39,7 +47,9 @@
    "severity": "low",
    "summary": "in b second hunk",
    "anchor": "ed754a6a73cfe51e",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/new-name.ts",
@@ -47,7 +57,9 @@
    "severity": "high",
    "summary": "renamed file",
    "anchor": "031dd4ccc2dad25e",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/a.ts",
@@ -55,7 +67,9 @@
    "severity": "low",
    "summary": "context line",
    "anchor": "02c16c1b214c6428",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   }
  ],
  "resolved": [],
@@ -693,7 +707,9 @@ Pins the prompts.
    "severity": "high",
    "summary": "ok line",
    "anchor": "7245d82fa6677b40",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/a.ts",
@@ -701,7 +717,9 @@ Pins the prompts.
    "severity": "low",
    "summary": "ok line in part 2",
    "anchor": "f33ac683e7cf24b2",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/a.ts",
@@ -709,7 +727,9 @@ Pins the prompts.
    "severity": "low",
    "summary": "a third line",
    "anchor": "03d02f5ba60712e4",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/a.ts",
@@ -717,7 +737,9 @@ Pins the prompts.
    "severity": "low",
    "summary": "context line",
    "anchor": "02c16c1b214c6428",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   },
   {
    "file": "src/b.ts",
@@ -725,7 +747,8 @@ Pins the prompts.
    "severity": "low",
    "summary": "in b first hunk",
    "anchor": "5ffbec37d2ff7e9d",
-   "corroboration": 1
+   "corroboration": 1,
+   "confidence": "low"
   },
   {
    "file": "src/b.ts",
@@ -733,7 +756,8 @@ Pins the prompts.
    "severity": "low",
    "summary": "in b second hunk",
    "anchor": "ed754a6a73cfe51e",
-   "corroboration": 1
+   "corroboration": 1,
+   "confidence": "low"
   },
   {
    "file": "src/new-name.ts",
@@ -741,7 +765,9 @@ Pins the prompts.
    "severity": "high",
    "summary": "renamed file",
    "anchor": "031dd4ccc2dad25e",
-   "corroboration": 1
+   "corroboration": 1,
+   "verdict": "confirmed",
+   "confidence": "medium"
   }
  ],
  "resolved": [],

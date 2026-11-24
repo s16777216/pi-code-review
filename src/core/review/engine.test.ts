@@ -71,7 +71,15 @@ test('AgentReviewEngine reviews a hand-built ReviewContext with no GitLab API in
   const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [
-    { file: 'a.ts', line: 2, severity: 'high', summary: 'Off-by-one bug introduced by the diff.', corroboration: 1 },
+    {
+      file: 'a.ts',
+      line: 2,
+      severity: 'high',
+      summary: 'Off-by-one bug introduced by the diff.',
+      corroboration: 1,
+      verdict: 'confirmed',
+      confidence: 'medium',
+    },
   ]);
   assert.equal(fileContentRequested, 'a.ts');
   assert.equal(faux.state.callCount, 5);
@@ -351,7 +359,15 @@ test('a relatesTo that a review agent sends does not reach the result', async ()
   const { findings } = await engine.review(context);
 
   assert.deepEqual(withoutAnchors(findings), [
-    { file: 'a.ts', line: 1, severity: 'high', summary: 'Still broken.', corroboration: 1 },
+    {
+      file: 'a.ts',
+      line: 1,
+      severity: 'high',
+      summary: 'Still broken.',
+      corroboration: 1,
+      verdict: 'confirmed',
+      confidence: 'medium',
+    },
   ]);
 });
 

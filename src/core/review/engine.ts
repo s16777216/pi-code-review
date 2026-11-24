@@ -7,6 +7,7 @@ import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWa
 import { createGetFileContentTool, createSubmitReviewTool } from './agent.ts';
 import { MAX_BATCHES, planBatches, type BatchItem } from './batch.ts';
 import { ChangeSet } from './changedFile.ts';
+import { deriveConfidence } from './confidence.ts';
 import { listUnreviewedFiles, runChecks } from './checks.ts';
 import { buildDedupPrompt, createSubmitGroupsTool, selectForDedup, settleGroups } from './dedup.ts';
 import { ReviewFailureError, type ParsedReviewOutput } from './findings.ts';
@@ -412,7 +413,10 @@ export class AgentReviewEngine implements ReviewEngine {
       );
     }
     const kept = findings.flatMap((finding) => {
-      const value = result.has(finding) ? result.get(finding)! : finding;
+      // A file with no verdict keeps its findings, with the verdict `uncertain` for the confidence only.
+      const value = result.has(finding)
+        ? result.get(finding)!
+        : { ...finding, confidence: deriveConfidence(finding.corroboration ?? 1, undefined) };
       return value === null ? [] : [value];
     });
     logger.info(

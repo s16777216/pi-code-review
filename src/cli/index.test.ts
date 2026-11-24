@@ -120,6 +120,8 @@ test('runReview returns findings and the snapshot, and never posts anything', as
       summary: 'Off-by-one.',
       anchor: computeAnchor('a.ts', 'new'),
       corroboration: 1,
+      verdict: 'confirmed',
+      confidence: 'medium',
     },
   ]);
   // runReview gets only the read side; createDiscussion is only ever called by runPublish.
