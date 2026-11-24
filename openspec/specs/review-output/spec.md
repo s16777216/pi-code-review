@@ -190,14 +190,23 @@ The body ends with the sentence "Every changed file was reviewed in the latest r
 #### Scenario: The comment has no error text
 - **WHEN** the review failed with an error whose text names an internal host name
 - **THEN** the body of the comment does not hold that text
+
 ### Requirement: Render comments from templates
 The system SHALL build the text of a finding and the text of a resolved reply from a template. A template is a plain-text file in the template directory: `FINDING.md` for one finding, and `RESOLVED.md` for a resolved reply. The built-in templates are the files `FINDING.md` and `RESOLVED.md` that the package ships. A file with the same name in the template directory replaces the built-in file. When a built-in file is missing or not valid, the system MUST stop with an error that names the file, and MUST NOT use other text.
 
-A template SHALL fill these placeholders: `${severity}`, `${summary}`, `${file}`, and `${line}` in `FINDING.md`, and `${reason}` in `RESOLVED.md`. The text `\${` stands for a literal `${`. All other text is plain text and the system MUST NOT change it. This includes any other `${name}`, `$name`, a lone `$`, `{`, `}`, and a backslash that is not followed by `${`. A placeholder reads only the value of the finding or of the fixed declaration, and MUST NOT read an environment variable. The system SHALL read a template file as UTF-8 text, convert each CRLF line break to LF, and remove the line breaks at its end.
+A template SHALL fill these placeholders: `${severity}`, `${confidence}`, `${summary}`, `${file}`, and `${line}` in `FINDING.md`, and `${reason}` in `RESOLVED.md`. The text `\${` stands for a literal `${`. All other text is plain text and the system MUST NOT change it. This includes any other `${name}`, `$name`, a lone `$`, `{`, `}`, and a backslash that is not followed by `${`. A placeholder reads only the value of the finding or of the fixed declaration, and MUST NOT read an environment variable. The system SHALL read a template file as UTF-8 text, convert each CRLF line break to LF, and remove the line breaks at its end.
 
 #### Scenario: No template directory
-- **WHEN** no template directory is set, and a finding has severity `high` and summary `Null check missing`
-- **THEN** the paragraph for that finding is `**Severity**: high`, a line break, a line with two spaces, a line break, `**Reason**: Null check missing`, a line break, an empty line, a line break, and `---`
+- **WHEN** no template directory is set, and a finding has severity `high`, confidence `medium`, and summary `Null check missing`
+- **THEN** the paragraph for that finding is `**Severity**: high`, a line break, a line with two spaces, a line break, `**Confidence**: medium`, a line break, a line with two spaces, a line break, `**Reason**: Null check missing`, a line break, an empty line, a line break, and `---`
+
+#### Scenario: Custom template with the confidence
+- **WHEN** `FINDING.md` contains `${confidence}: ${summary}`, and a finding has confidence `low` and summary `Null check missing`
+- **THEN** the paragraph for that finding is `low: Null check missing`
+
+#### Scenario: Finding with no confidence
+- **WHEN** `FINDING.md` contains `${confidence}: ${summary}`, and a finding from an older findings file has no confidence and summary `Null check missing`
+- **THEN** the paragraph for that finding is `unknown: Null check missing`
 
 #### Scenario: Default resolved reply
 - **WHEN** no template directory is set, and a fixed declaration has the reason `The check was added`
