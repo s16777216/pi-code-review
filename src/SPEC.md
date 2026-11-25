@@ -18,7 +18,8 @@ settings that they read, and the code that they share.
   owns.
 - `settings.ts`: reads one setting, and `ConfigError`.
 - `findingsFile.ts`: writes and reads the findings file that connects
-  `review` and `publish`: findings, warnings, and `failed` for a failed review.
+  `review` and `publish`: findings (each with its corroboration, verdict,
+  and confidence), warnings, and `failed` for a failed review.
 - `reviewInstructions.ts`: picks the review instructions from the
   instructions sources, and finds a changed instructions file.
 - `logger.ts`: the logger, with secrets redacted.

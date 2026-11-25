@@ -92,6 +92,8 @@ No data migration. An older findings file reads with no error, and the placehold
 
 Local `SPEC.md` files to refresh with `openspec-sync-specs`: `src/core/review/SPEC.md` and `src/template/SPEC.md`, and `src/SPEC.md` if it lists the findings file. Ask the user to approve each file first.
 
+The sync of the specs found a clash that the first draft did not see. The main requirement "Log the verification step" of `ai-diff-review` said "The system MUST NOT record the verdicts in the findings file", with a scenario that the findings file has no field for the verdict or a confidence value. The new capability `review-confidence` says the opposite. The change fixes this with a MODIFIED requirement. It also changes "Keep the findings of a file when its verification fails", so that it names the verdict `unverified`. Both are in `specs/ai-diff-review/spec.md`.
+
 ## Open Questions
 
 1. **Condition to add the gate.** Collect findings files from real reviews and the choice of a person for each finding (accept or decline). Check whether the confidence tells the two apart, in particular for security findings. Add `FAIL_ON_CONFIDENCE` only if it does. The gate rule of the first draft (fail when a finding meets both thresholds, default `low`) can be the start.

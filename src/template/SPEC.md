@@ -8,7 +8,8 @@ review agents. The build copies the files to `dist/template`.
 
 ## Contents
 
-- `FINDING.md`: the default text of one finding in a comment.
+- `FINDING.md`: the default text of one finding in a comment, with its
+  severity, confidence, and reason.
 - `RESOLVED.md`: the default text of the reply to a discussion
   declared fixed.
 - `BATCH_PROMPT.md`: the user prompt of a batch run.
@@ -22,4 +23,5 @@ review agents. The build copies the files to `dist/template`.
 ## Capabilities
 
 - `review-output`: `openspec/specs/review-output/spec.md`
+- `review-confidence`: `openspec/specs/review-confidence/spec.md`
 - `ai-diff-review`: `openspec/specs/ai-diff-review/spec.md`

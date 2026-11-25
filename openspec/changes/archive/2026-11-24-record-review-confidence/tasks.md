@@ -31,6 +31,7 @@
 
 - [x] 6.1 Run `npm run build`, `npm test`, `npm run lint`, and `npx tsc --noEmit`. Verify that all pass.
 - [x] 6.2 Run `review` on merge request 60 with `--debug`, and do not run `publish`. Verify that every finding in the findings file has `confidence` and `corroboration`, that no finding has `focus`, and that no prompt in the debug log names a focus in a finding.
-- [ ] 6.3 Run `openspec-sync-specs` to refresh `src/core/review/SPEC.md` and `src/template/SPEC.md`. Ask the user to approve each file first. Verify with `openspec validate record-review-confidence --strict`.
+- [x] 6.3 Run `openspec-sync-specs` to refresh `src/core/review/SPEC.md` and `src/template/SPEC.md`. Ask the user to approve each file first. Verify with `openspec validate record-review-confidence --strict`.
+- [x] 6.4 The sync found two requirements of `ai-diff-review` that clash with the new fields: "Log the verification step" said that the findings file must not hold the verdicts, and "Keep the findings of a file when its verification fails" did not say that the findings get the verdict `unverified`. Write both as MODIFIED requirements in `specs/ai-diff-review/spec.md`, and apply them to the main spec.
 
 Tasks 1 and 2 are in one commit, because the focus must be removed before the golden file and the tests of the findings are stable. Order: 1 before 2, 2 and 3.1 before 3.2, 3.2 before 3.3, 3.4 before 4, 4.1 before 4.2, and 5 last. Group 4 can go in a separate pull request after group 3.
