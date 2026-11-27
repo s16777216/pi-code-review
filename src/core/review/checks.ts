@@ -4,6 +4,7 @@ import { computeAnchor } from './anchor.ts';
 import type { ChangeSet } from './changedFile.ts';
 import { compareCodePoints } from './diff.ts';
 import type { ParsedReviewOutput } from './findings.ts';
+import type { OnDropped } from './telemetry.ts';
 
 // The fixed checks that run after the agent runs, in code, not in the model.
 // Nothing here names GitLab.
@@ -51,6 +52,8 @@ export async function runChecks(
   betweenSteps: (findings: Finding[]) => Promise<Finding[]> = async (findings) => findings,
   judgeDiscussions?: () => Promise<ResolvedDiscussion[]>,
   decideFinal?: DecideFinal,
+  /** Records each dropped finding in the trace (`export-review-traces`). */
+  onDropped: OnDropped = () => {},
 ): Promise<Omit<ReviewResult, 'unreviewedFiles' | 'warnings'>> {
   const checked = output.findings
     .filter((finding) => {
@@ -71,6 +74,7 @@ export async function runChecks(
         },
         'discarded a finding that cannot be placed on the diff',
       );
+      onDropped(finding, reason);
       return false;
     })
     .map((finding) => {

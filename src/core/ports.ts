@@ -1,3 +1,4 @@
+import type { TelemetrySpan } from '@earendil-works/pi-telemetry';
 import type { Logger } from '../logger.ts';
 import type { HostDiscussion } from './publish/discussion.ts';
 import type { ReviewContext } from './types.ts';
@@ -46,9 +47,19 @@ export interface CodeHost<Snapshot, Source, ReviewSettings = unknown, PublishSet
   openChangeRequest(
     settings: ReviewSettings,
     logger: Logger,
+    telemetry?: TelemetrySpan,
   ): Promise<{ changeRequest: ChangeRequest<Snapshot>; source: Source }>;
   /** Connects for `publish` to the change request that `source` names. Calls no API. */
-  restore(settings: PublishSettings, source: Source, snapshot: Snapshot, logger: Logger): Promise<DiscussionGateway>;
+  restore(
+    settings: PublishSettings,
+    source: Source,
+    snapshot: Snapshot,
+    logger: Logger,
+    telemetry?: TelemetrySpan,
+  ): Promise<DiscussionGateway>;
+  /** The values in the settings that a trace must never hold, for example a
+   * token (`export-review-traces` design, Decision 5). */
+  secretsOf?(settings: ReviewSettings | PublishSettings): string[];
   /** Checks the snapshot from a findings file, or throws an `Error` that names
    * the field. Pure: calls no API. */
   parseSnapshot(value: unknown): Snapshot;

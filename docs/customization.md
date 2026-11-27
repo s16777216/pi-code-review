@@ -1,6 +1,6 @@
 # Customization
 
-You can change what `review` looks for with [review instructions](#review-instructions), and the text of what `publish` posts with [comment templates](#comment-templates).
+You can change what `review` looks for with [review instructions](#review-instructions), and the text of what `publish` posts with [comment templates](#comment-templates). You can send a trace of each run to an OpenTelemetry endpoint with [tracing](#tracing).
 
 ## Review instructions
 
@@ -102,3 +102,37 @@ And this is the whole of `RESOLVED.md`:
 ```text
 ✅ 已修正:${reason}
 ```
+
+## Tracing
+
+`review` and `publish` can send one trace for each run with OTLP over HTTP. Tracing is off until you set an endpoint. The commands send traces only, no logs and no metrics.
+
+| Variable | Meaning |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | The base URL of the receiver, for example `http://collector:4318`. The traces go to `/v1/traces` under it. |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | The full URL for traces. Use it in place of the base URL. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Headers for the receiver, for example `authorization=Bearer abc`. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | The time limit of one export, in milliseconds. Without it, the limit is 5000. |
+| `OTEL_SDK_DISABLED` | `true` turns tracing off, also when an endpoint is set. |
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` once as a GitLab CI/CD variable at the instance or group level. Every pipeline then gets it, and no project or job needs its own setting. Do not write the address of the receiver in a project file.
+
+Each trace has the resource attributes `service.name` (`pi-code-review`) and `service.version`.
+
+### What a trace holds
+
+- `picr.review`: the root span of `review`, with the source, the head commit, the model, the language, and the counts of the result. Under it:
+  - `picr.step.read_change`, `picr.step.review_agents`, `picr.step.deduplication`, `picr.step.verification`, `picr.step.discussion_judgment`, `picr.step.verify_agent`. A step that makes no model call has no span. A step that changes the findings has `picr.findings.before` and `picr.findings.after`.
+  - `picr.agent_run` under its step: the kind, the review focus or the file, the batch, the try number, the system prompt, the user prompt, and one `picr.response` event for each model response.
+  - `picr.model_request` under its agent run: the provider, the model, `usage.input`, `usage.output`, `usage.cache_read`, `usage.cache_write`, `cost.total`, and `stop`.
+  - `picr.tool_call` under its agent run: the tool name, the path of `get_file_content`, and the result.
+  - `picr.host_request`: one span for each request to GitLab, with the method, the URL path, and the status.
+  - A `picr.finding.dropped` event for each finding that a check drops, with the file, the line, the end line, and the reason.
+  - A `picr.log` event on the root span for each `info` and `warn` log line.
+- `picr.publish`: the root span of `publish`, with one span for each created, replied, resolved, or reopened discussion and for the status comment. It links to the trace of `review` through `trace.traceparent` in the findings file.
+
+### Limits
+
+- Each prompt, response, and tool result is cut at 100,000 characters. A cut text has `<name>.truncated` and `<name>.length`.
+- The trace never holds the GitLab token, the OpenAI API key, or a request header. The tool replaces these known values with `[REDACTED]` in every text. Other secrets in the reviewed code, for example a password in a changed file, are sent as they are.
+- A failed or slow export never changes the exit code, the findings file, or the comments. The command waits at most 5 seconds at its end, and writes one `warn` line when the export failed.

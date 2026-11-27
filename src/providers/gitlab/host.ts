@@ -62,12 +62,13 @@ export const gitlabHost: CodeHost<GitLabDiffRefs, GitLabSource, GitlabConnection
     return loadGitlabPublishConfig(toOverrides(flags, PUBLISH_FLAGS));
   },
 
-  async openChangeRequest(settings, logger) {
+  async openChangeRequest(settings, logger, telemetry) {
     const client = await GitLabClient.create({
       apiUrl: settings.apiUrl,
       projectId: settings.projectId,
       token: settings.token,
       logger,
+      ...(telemetry === undefined ? {} : { telemetry }),
     });
     return {
       changeRequest: new GitLabMergeRequest(client, settings.mergeRequestIid),
@@ -75,14 +76,19 @@ export const gitlabHost: CodeHost<GitLabDiffRefs, GitLabSource, GitlabConnection
     };
   },
 
-  async restore(settings, source, snapshot, logger) {
+  async restore(settings, source, snapshot, logger, telemetry) {
     const client = await GitLabClient.create({
       apiUrl: settings.apiUrl,
       projectId: source.projectId,
       token: settings.token,
       logger,
+      ...(telemetry === undefined ? {} : { telemetry }),
     });
     return new GitLabMergeRequest(client, source.mergeRequestIid, snapshot);
+  },
+
+  secretsOf(settings) {
+    return [settings.token];
   },
 
   parseSnapshot: parseGitLabDiffRefs,

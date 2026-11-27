@@ -5,6 +5,7 @@ import type { BatchItem } from './batch.ts';
 import type { ChangeSet } from './changedFile.ts';
 import { ReviewFailureError } from './findings.ts';
 import { buildBatchPrompt, buildWholePrompt } from './prompt.ts';
+import type { OnDropped } from './telemetry.ts';
 
 /** What one agent run covers: the whole change, or one batch of it
  * (`model-diffs-and-run-scopes` design, Decision 3). The engine runs a list of
@@ -17,8 +18,9 @@ export interface RunScope {
   prompt(context: ReviewContext, changes: ChangeSet): string;
   /** Fields for the debug and retry log lines of the run. */
   logFields(): { batch?: number };
-  /** Drops the findings that are outside what this run covers. */
-  filterFindings(findings: Finding[], changes: ChangeSet, logger: Logger): Finding[];
+  /** Drops the findings that are outside what this run covers, and records
+   * each dropped finding with `onDropped`. */
+  filterFindings(findings: Finding[], changes: ChangeSet, logger: Logger, onDropped?: OnDropped): Finding[];
   /** The error to report when the run fails for good. */
   describeFailure(error: unknown): unknown;
 }
@@ -75,7 +77,7 @@ export class Batch implements RunScope {
    * reason. A file can have more than one item in a batch (its parts), so a
    * line is the batch's own when any item of that path has it. A range that
    * starts on this batch's lines and ends on another part is kept. */
-  filterFindings(findings: Finding[], changes: ChangeSet, logger: Logger): Finding[] {
+  filterFindings(findings: Finding[], changes: ChangeSet, logger: Logger, onDropped: OnDropped = () => {}): Finding[] {
     const ownItems = (path: string) => this.items.filter((item) => item.file.newPath === path);
 
     return findings.filter((finding) => {
@@ -96,6 +98,7 @@ export class Batch implements RunScope {
         },
         'discarded a finding that is outside its batch',
       );
+      onDropped(finding, 'outside_batch', { 'picr.batch': this.index });
       return false;
     });
   }

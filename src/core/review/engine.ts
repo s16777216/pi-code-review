@@ -1,6 +1,7 @@
 import { Agent } from '@earendil-works/pi-agent-core';
 import { estimateContextTokens } from '@earendil-works/pi-ai/utils/estimate';
 import type { Api, AssistantMessage, Message, Model, Provider } from '@earendil-works/pi-ai';
+import type { TelemetrySpan } from '@earendil-works/pi-telemetry';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../errorMessage.ts';
 import type { Finding, ResolvedDiscussion, ReviewContext, ReviewResult, ReviewWarning } from '../types.ts';
@@ -43,6 +44,14 @@ import {
   type Decisions,
   type VerifyGroup,
 } from './verifyAgent.ts';
+import {
+  dropRecorder,
+  NOOP_SPAN,
+  recordModelRequest,
+  recordResponses,
+  textAttributes,
+  traceTools,
+} from './telemetry.ts';
 
 /** A run that ends with an error is tried at most this many times in total
  * (Decision 8). */
@@ -122,6 +131,10 @@ export interface AgentReviewEngineOptions {
    * timeout, so the default of the model client applies
    * (`harden-run-failures` design, Decision 1). */
   timeoutMs?: number;
+  /** The span of the run, from the caller. The engine starts its step spans
+   * under it. Defaults to a span that records nothing (`export-review-traces`
+   * design, Decision 3). */
+  telemetry?: TelemetrySpan;
 }
 
 /** One agent run: a run scope and a review focus
@@ -137,7 +150,7 @@ interface PlannedRun {
 interface RunSpec<T> {
   /** `model` is the model of the try: the retry for the token limit passes a
    * model with a larger `maxTokens` (`harden-run-failures` design, Decision 2). */
-  createAgent: (onSubmit: (value: T) => void, model: Model<Api>) => Agent;
+  createAgent: (onSubmit: (value: T) => void, model: Model<Api>, span: TelemetrySpan) => Agent;
   prompt: string;
   /** The tool that gives the run's result, for the failure message. */
   toolName: string;
@@ -148,6 +161,17 @@ interface RunSpec<T> {
  * it only knows `ReviewContext` in and `Finding[]` out. */
 export class AgentReviewEngine implements ReviewEngine {
   constructor(private readonly options: AgentReviewEngineOptions) {}
+
+  /** The span of the run, or a span that records nothing. */
+  private get telemetry(): TelemetrySpan {
+    return this.options.telemetry ?? NOOP_SPAN;
+  }
+
+  /** Runs one step of the review in its own span under the run span
+   * (`export-review-traces` design, Decision 3). */
+  private step<T>(name: string, run: (span: TelemetrySpan) => Promise<T>): Promise<T> {
+    return this.telemetry.startSpan({ name: `picr.step.${name}`, attributes: { 'picr.step': name } }, run);
+  }
 
   /** Runs three agents on every run scope, one for each review focus, merges
    * their outputs, runs the checks and the deduplication step once on the
@@ -181,18 +205,21 @@ export class AgentReviewEngine implements ReviewEngine {
     // A review that fails first must leave no unhandled rejection. `runChecks` still gets the original error.
     judged.catch(() => {});
     try {
-      const outputs = await this.runAll(context, changes, runs, logger, limit, () => {
-        reviewFailed = true;
-      });
-
       const findings: Finding[] = [];
       const perFocus = new Map<string, number>(REVIEW_FOCUSES.map((focus) => [focus.name, 0]));
-      outputs.forEach((output, i) => {
-        const run = runs[i]!;
-        const kept = run.scope.filterFindings(output.findings, changes, logger);
-        // The deduplication step counts the review focuses of a group (`record-review-confidence`, Decision 1).
-        findings.push(...kept.map((finding) => ({ ...finding, focus: run.focus.name })));
-        perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
+      await this.step('review_agents', async (span) => {
+        const outputs = await this.runAll(context, changes, runs, logger, limit, span, () => {
+          reviewFailed = true;
+        });
+        const onDropped = dropRecorder(span);
+        outputs.forEach((output, i) => {
+          const run = runs[i]!;
+          const kept = run.scope.filterFindings(output.findings, changes, logger, onDropped);
+          // The deduplication step counts the review focuses of a group (`record-review-confidence`, Decision 1).
+          findings.push(...kept.map((finding) => ({ ...finding, focus: run.focus.name })));
+          perFocus.set(run.focus.name, (perFocus.get(run.focus.name) ?? 0) + kept.length);
+        });
+        span.setAttributes({ 'picr.findings.after': findings.length });
       });
       for (const [focus, count] of perFocus) {
         logger.info({ focus, findings: count }, `Review focus ${focus}: ${count} finding(s).`);
@@ -213,6 +240,7 @@ export class AgentReviewEngine implements ReviewEngine {
           ),
         () => judged,
         (remaining, declarations) => this.decideFinal(remaining, declarations, context, changes, logger, limit),
+        dropRecorder(this.telemetry),
       );
       return { ...checked, unreviewedFiles, warnings };
     } catch (error) {
@@ -272,15 +300,16 @@ export class AgentReviewEngine implements ReviewEngine {
     focus: ReviewFocus,
     onSubmit: (output: ParsedReviewOutput) => void = () => {},
     model: Model<Api> = this.options.model,
+    span: TelemetrySpan = NOOP_SPAN,
   ): Agent {
     const { language, instructions } = this.options;
     const logger = this.options.logger ?? silentLogger();
     return new Agent({
-      streamFn: this.streamFn(),
+      streamFn: this.streamFn(span),
       initialState: {
         systemPrompt: buildSystemPrompt(language, scope, instructions, focus),
         model,
-        tools: [createGetFileContentTool(context), createSubmitReviewTool(onSubmit, logger)],
+        tools: traceTools([createGetFileContentTool(context), createSubmitReviewTool(onSubmit, logger)], span),
       },
     });
   }
@@ -288,15 +317,32 @@ export class AgentReviewEngine implements ReviewEngine {
   /** The stream function of every agent: it adds the API key and, when set,
    * the request timeout. It never sets `maxRetries`, so the client does not
    * retry, and the tries of `runWithRetries` are the only tries
-   * (`harden-run-failures` design, Decision 1). */
-  private streamFn() {
+   * (`harden-run-failures` design, Decision 1). Each request gets a
+   * `picr.model_request` span under the agent run, with the usage of its
+   * final message (`export-review-traces` design, Decision 3). `pi-ai` makes
+   * its own request span only through its `Models` layer, which this engine
+   * does not use. */
+  private streamFn(span: TelemetrySpan = NOOP_SPAN) {
     const { provider, apiKey, timeoutMs } = this.options;
-    return (...[streamModel, streamContext, streamOptions]: Parameters<Provider['streamSimple']>) =>
-      provider.streamSimple(streamModel, streamContext, {
-        ...streamOptions,
-        apiKey,
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      });
+    return (...[streamModel, streamContext, streamOptions]: Parameters<Provider['streamSimple']>) => {
+      let stream: ReturnType<Provider['streamSimple']> | undefined;
+      // `startSpan` runs the callback at once, so `stream` is set before the return.
+      void span.startSpan(
+        {
+          name: 'picr.model_request',
+          attributes: { provider: streamModel.provider, api: streamModel.api, model: streamModel.id },
+        },
+        async (request) => {
+          stream = provider.streamSimple(streamModel, streamContext, {
+            ...streamOptions,
+            apiKey,
+            ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+          });
+          recordModelRequest(request, await stream.result());
+        },
+      );
+      return stream!;
+    };
   }
 
   /** Runs every run, at most `MAX_PARALLEL_RUNS` at a time, in order. When a
@@ -308,6 +354,7 @@ export class AgentReviewEngine implements ReviewEngine {
     runs: PlannedRun[],
     logger: Logger,
     limit: RunLimit,
+    span: TelemetrySpan,
     onFailure: () => void,
   ): Promise<ParsedReviewOutput[]> {
     const outputs: ParsedReviewOutput[] = [];
@@ -321,13 +368,13 @@ export class AgentReviewEngine implements ReviewEngine {
       async (i) => {
         const { scope, focus } = runs[i]!;
         const spec: RunSpec<ParsedReviewOutput> = {
-          createAgent: (onSubmit, model) => this.createAgent(context, scope, focus, onSubmit, model),
+          createAgent: (onSubmit, model, span) => this.createAgent(context, scope, focus, onSubmit, model, span),
           prompt: scope.prompt(context, changes),
           toolName: 'submit_review',
           logFields: { ...scope.logFields(), focus: focus.name },
         };
         try {
-          outputs[i] = await this.runWithRetries(spec, logger, active, () => failure !== null);
+          outputs[i] = await this.runWithRetries(spec, logger, active, () => failure !== null, span);
         } catch (error) {
           if (failure !== null) return; // aborted because another run failed
           // The failure names the batch (when there is one), the review focus, and the cause.
@@ -365,69 +412,72 @@ export class AgentReviewEngine implements ReviewEngine {
     const groups = groupByFile(findings);
     if (groups.length === 0) return findings;
 
-    const applied: (AppliedVerdict[] | null)[] = groups.map(() => null);
-    await runPool(limit, STEP_PRIORITY, groups.length, async (i) => {
-      applied[i] = await this.verifyFile(groups[i]!, context, changes, logger, warnings);
-    });
+    return this.step('verification', async (span) => {
+      const applied: (AppliedVerdict[] | null)[] = groups.map(() => null);
+      await runPool(limit, STEP_PRIORITY, groups.length, async (i) => {
+        applied[i] = await this.verifyFile(groups[i]!, context, changes, logger, warnings, span);
+      });
 
-    const result = new Map<Finding, Finding | null>();
-    const rejected: AppliedVerdict[] = [];
-    const uncertain: AppliedVerdict[] = [];
-    let severityChanged = 0;
-    for (const group of applied) {
-      for (const item of group ?? []) {
-        result.set(item.original, item.result);
-        logger.debug(
+      const result = new Map<Finding, Finding | null>();
+      const rejected: AppliedVerdict[] = [];
+      const uncertain: AppliedVerdict[] = [];
+      let severityChanged = 0;
+      for (const group of applied) {
+        for (const item of group ?? []) {
+          result.set(item.original, item.result);
+          logger.debug(
+            {
+              file: item.original.file,
+              line: item.original.line,
+              verdict: item.verdict.verdict,
+              severity: item.verdict.severity,
+              reason: item.verdict.reason,
+            },
+            'verification step verdict',
+          );
+          if (item.verdict.verdict === 'rejected') {
+            rejected.push(item);
+            continue;
+          }
+          if (item.verdict.verdict === 'uncertain') uncertain.push(item);
+          if (item.severityChanged) severityChanged += 1;
+        }
+      }
+      for (const item of rejected) {
+        logger.info(
           {
             file: item.original.file,
             line: item.original.line,
-            verdict: item.verdict.verdict,
-            severity: item.verdict.severity,
+            summary: item.original.summary,
             reason: item.verdict.reason,
           },
-          'verification step verdict',
+          'verification step rejected a finding',
         );
-        if (item.verdict.verdict === 'rejected') {
-          rejected.push(item);
-          continue;
-        }
-        if (item.verdict.verdict === 'uncertain') uncertain.push(item);
-        if (item.severityChanged) severityChanged += 1;
       }
-    }
-    for (const item of rejected) {
+      for (const item of uncertain) {
+        logger.info(
+          { file: item.original.file, line: item.original.line, reason: item.verdict.reason },
+          'verification step could not decide on a finding',
+        );
+      }
+      const kept = findings.flatMap((finding) => {
+        // A file with no verdict (its verification failed or was skipped) keeps its findings, marked `unverified`.
+        const value = result.has(finding)
+          ? result.get(finding)!
+          : {
+              ...finding,
+              verdict: 'unverified' as const,
+              confidence: deriveConfidence(finding.corroboration ?? 1, 'unverified'),
+            };
+        return value === null ? [] : [value];
+      });
       logger.info(
-        {
-          file: item.original.file,
-          line: item.original.line,
-          summary: item.original.summary,
-          reason: item.verdict.reason,
-        },
-        'verification step rejected a finding',
+        { before: findings.length, after: kept.length, rejected: rejected.length, severityChanged },
+        `Verification step: ${findings.length} finding(s) before, ${kept.length} after, ${rejected.length} rejected, ${severityChanged} with a changed severity.`,
       );
-    }
-    for (const item of uncertain) {
-      logger.info(
-        { file: item.original.file, line: item.original.line, reason: item.verdict.reason },
-        'verification step could not decide on a finding',
-      );
-    }
-    const kept = findings.flatMap((finding) => {
-      // A file with no verdict (its verification failed or was skipped) keeps its findings, marked `unverified`.
-      const value = result.has(finding)
-        ? result.get(finding)!
-        : {
-            ...finding,
-            verdict: 'unverified' as const,
-            confidence: deriveConfidence(finding.corroboration ?? 1, 'unverified'),
-          };
-      return value === null ? [] : [value];
+      span.setAttributes({ 'picr.findings.before': findings.length, 'picr.findings.after': kept.length });
+      return kept;
     });
-    logger.info(
-      { before: findings.length, after: kept.length, rejected: rejected.length, severityChanged },
-      `Verification step: ${findings.length} finding(s) before, ${kept.length} after, ${rejected.length} rejected, ${severityChanged} with a changed severity.`,
-    );
-    return kept;
   }
 
   /** One verifier run for one file. Returns `null` when the findings of the
@@ -438,6 +488,7 @@ export class AgentReviewEngine implements ReviewEngine {
     changes: ChangeSet,
     logger: Logger,
     warnings: ReviewWarning[],
+    span: TelemetrySpan,
   ): Promise<AppliedVerdict[] | null> {
     const { instructions } = this.options;
     const file = changes.file(group.file);
@@ -446,13 +497,20 @@ export class AgentReviewEngine implements ReviewEngine {
       return null;
     }
     const prompt = buildVerifyPrompt(context, file, group.findings);
-    const createAgent = (onSubmit: (verdicts: FindingVerdict[]) => void, runModel: Model<Api>) =>
+    const createAgent = (
+      onSubmit: (verdicts: FindingVerdict[]) => void,
+      runModel: Model<Api>,
+      span: TelemetrySpan = NOOP_SPAN,
+    ) =>
       new Agent({
-        streamFn: this.streamFn(),
+        streamFn: this.streamFn(span),
         initialState: {
           systemPrompt: buildVerifySystemPrompt(instructions),
           model: runModel,
-          tools: [createGetFileContentTool(context), createSubmitVerdictsTool(group.findings.length, onSubmit, logger)],
+          tools: traceTools(
+            [createGetFileContentTool(context), createSubmitVerdictsTool(group.findings.length, onSubmit, logger)],
+            span,
+          ),
         },
       });
 
@@ -468,6 +526,7 @@ export class AgentReviewEngine implements ReviewEngine {
         onFailed: () => warnings.push({ code: 'verification_failed', file: group.file }),
       },
       logger,
+      span,
     );
     return verdicts === null ? null : applyVerdicts(group.findings, verdicts);
   }
@@ -482,7 +541,7 @@ export class AgentReviewEngine implements ReviewEngine {
     run: {
       file: string;
       prompt: string;
-      createAgent: (onSubmit: (value: T) => void, model: Model<Api>) => Agent;
+      createAgent: (onSubmit: (value: T) => void, model: Model<Api>, span: TelemetrySpan) => Agent;
       toolName: string;
       /** The `step` field of the log lines of the run. */
       step: string;
@@ -492,6 +551,7 @@ export class AgentReviewEngine implements ReviewEngine {
       onFailed?: () => void;
     },
     logger: Logger,
+    span: TelemetrySpan,
   ): Promise<T | null> {
     const tokens = this.oversizedFirstRequest(run.createAgent, run.prompt);
     if (tokens !== null) {
@@ -510,7 +570,7 @@ export class AgentReviewEngine implements ReviewEngine {
       logFields: { step: run.step, file: run.file },
     };
     try {
-      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
+      return await this.runWithRetries(spec, logger, new Set<Agent>(), () => false, span);
     } catch (error) {
       if (!(error instanceof ReviewFailureError)) throw error;
       logger.warn({ file: run.file, error: error.message }, `${run.action}: the run failed`);
@@ -523,12 +583,12 @@ export class AgentReviewEngine implements ReviewEngine {
    * than half of the context window, otherwise `null`. A model with no known
    * window is not checked. The verification and the judgment steps share it. */
   private oversizedFirstRequest<T>(
-    createAgent: (onSubmit: (value: T) => void, model: Model<Api>) => Agent,
+    createAgent: (onSubmit: (value: T) => void, model: Model<Api>, span: TelemetrySpan) => Agent,
     prompt: string,
   ): number | null {
     const { model } = this.options;
     if (model.contextWindow <= 0) return null;
-    const probe = createAgent(() => {}, model);
+    const probe = createAgent(() => {}, model, NOOP_SPAN);
     const firstRequest: Message[] = [...probe.state.messages, { role: 'user', content: prompt, timestamp: Date.now() }];
     const tokens = estimateContextTokens(firstRequest).tokens;
     return tokens > Math.floor(model.contextWindow / 2) ? tokens : null;
@@ -553,41 +613,44 @@ export class AgentReviewEngine implements ReviewEngine {
     const groups = groupDiscussionsByFile(selected);
     if (groups.length === 0) return [];
 
-    const judged: (DiscussionJudgment[] | null)[] = groups.map(() => null);
-    await runPool(
-      limit,
-      STEP_PRIORITY,
-      groups.length,
-      async (i) => {
-        judged[i] = await this.judgeFile(groups[i]!, context, changes, logger);
-      },
-      stopped,
-    );
+    return this.step('discussion_judgment', async (span) => {
+      const judged: (DiscussionJudgment[] | null)[] = groups.map(() => null);
+      await runPool(
+        limit,
+        STEP_PRIORITY,
+        groups.length,
+        async (i) => {
+          judged[i] = await this.judgeFile(groups[i]!, context, changes, logger, span);
+        },
+        stopped,
+      );
 
-    const resolved: ResolvedDiscussion[] = [];
-    const counts = { fixed: 0, not_fixed: 0, uncertain: 0 };
-    groups.forEach((group, i) => {
-      const items = [...(judged[i] ?? [])].sort((a, b) => a.number - b.number);
-      for (const item of items) {
-        const discussion = group.discussions[item.number - 1]!;
-        counts[item.judgment] += 1;
-        logger.debug(
-          { file: group.file, line: discussion.line, judgment: item.judgment, reason: item.reason },
-          'discussion judgment',
-        );
-        if (item.judgment !== 'fixed') continue;
-        logger.info(
-          { file: group.file, line: discussion.line, discussionId: discussion.id, reason: item.reason },
-          'discussion judgment found a discussion fixed',
-        );
-        resolved.push({ discussionId: discussion.id, reason: item.reason });
-      }
+      const resolved: ResolvedDiscussion[] = [];
+      const counts = { fixed: 0, not_fixed: 0, uncertain: 0 };
+      groups.forEach((group, i) => {
+        const items = [...(judged[i] ?? [])].sort((a, b) => a.number - b.number);
+        for (const item of items) {
+          const discussion = group.discussions[item.number - 1]!;
+          counts[item.judgment] += 1;
+          logger.debug(
+            { file: group.file, line: discussion.line, judgment: item.judgment, reason: item.reason },
+            'discussion judgment',
+          );
+          if (item.judgment !== 'fixed') continue;
+          logger.info(
+            { file: group.file, line: discussion.line, discussionId: discussion.id, reason: item.reason },
+            'discussion judgment found a discussion fixed',
+          );
+          resolved.push({ discussionId: discussion.id, reason: item.reason });
+        }
+      });
+      logger.info(
+        { selected: selected.length, fixed: counts.fixed, notFixed: counts.not_fixed, uncertain: counts.uncertain },
+        `Discussion judgment step: ${selected.length} discussion(s) selected, ${counts.fixed} fixed, ${counts.not_fixed} not fixed, ${counts.uncertain} uncertain.`,
+      );
+      span.setAttributes({ 'picr.discussions.selected': selected.length, 'picr.discussions.fixed': counts.fixed });
+      return resolved;
     });
-    logger.info(
-      { selected: selected.length, fixed: counts.fixed, notFixed: counts.not_fixed, uncertain: counts.uncertain },
-      `Discussion judgment step: ${selected.length} discussion(s) selected, ${counts.fixed} fixed, ${counts.not_fixed} not fixed, ${counts.uncertain} uncertain.`,
-    );
-    return resolved;
   }
 
   /** One judge run for one file. Returns `null` when the file gives no
@@ -597,21 +660,26 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
+    span: TelemetrySpan,
   ): Promise<DiscussionJudgment[] | null> {
     const { instructions } = this.options;
     // A deleted file has no new path, so look it up by the old path.
     const changed = changes.file(group.file) ?? changes.files.find((f) => f.deleted && f.oldPath === group.file);
     const prompt = buildJudgePrompt(context, group.file, changed, group.discussions);
-    const createAgent = (onSubmit: (judgments: DiscussionJudgment[]) => void, runModel: Model<Api>) =>
+    const createAgent = (
+      onSubmit: (judgments: DiscussionJudgment[]) => void,
+      runModel: Model<Api>,
+      span: TelemetrySpan = NOOP_SPAN,
+    ) =>
       new Agent({
-        streamFn: this.streamFn(),
+        streamFn: this.streamFn(span),
         initialState: {
           systemPrompt: buildJudgeSystemPrompt(instructions),
           model: runModel,
-          tools: [
-            createGetFileContentTool(context),
-            createSubmitJudgmentsTool(group.discussions.length, onSubmit, logger),
-          ],
+          tools: traceTools(
+            [createGetFileContentTool(context), createSubmitJudgmentsTool(group.discussions.length, onSubmit, logger)],
+            span,
+          ),
         },
       });
 
@@ -625,6 +693,7 @@ export class AgentReviewEngine implements ReviewEngine {
         action: 'did not judge the discussions of a file',
       },
       logger,
+      span,
     );
   }
 
@@ -647,51 +716,58 @@ export class AgentReviewEngine implements ReviewEngine {
     const groups = groupForVerifyAgent(findings, declarations, discussions);
     if (groups.length === 0) return { findings, resolved: [] };
 
-    const decided: (Decisions | null)[] = groups.map(() => null);
-    await runPool(limit, STEP_PRIORITY, groups.length, async (i) => {
-      decided[i] = await this.decideFile(groups[i]!, context, changes, logger);
-    });
+    return this.step('verify_agent', async (span) => {
+      const decided: (Decisions | null)[] = groups.map(() => null);
+      await runPool(limit, STEP_PRIORITY, groups.length, async (i) => {
+        decided[i] = await this.decideFile(groups[i]!, context, changes, logger, span);
+      });
 
-    const replaced = new Map<Finding, Finding | null>();
-    const resolved: ResolvedDiscussion[] = [];
-    const counts = { files: 0, kept: 0, dropped: 0, resolved: 0, leftOpen: 0 };
-    groups.forEach((group, i) => {
-      const decisions = decided[i];
-      if (decisions === null || decisions === undefined) return;
-      const applied = applyDecisions(group, decisions);
-      counts.files += 1;
-      counts.kept += applied.kept;
-      counts.dropped += applied.dropped;
-      counts.resolved += applied.resolved.length;
-      counts.leftOpen += applied.leftOpen;
-      group.findings.forEach((finding, index) => replaced.set(finding, applied.findings[index] ?? null));
-      resolved.push(...applied.resolved);
-      for (const item of decisions.findings) {
-        const finding = group.findings[item.number - 1]!;
-        logger.debug(
-          { file: group.file, line: finding.line, decision: item.decision, reason: item.reason },
-          'verify agent decision on a finding',
-        );
-      }
-      for (const item of decisions.declarations) {
-        const declared = group.declarations[item.number - 1]!;
-        const discussion = group.discussions.find((candidate) => candidate.id === declared.discussionId);
-        logger.debug(
-          { file: group.file, line: discussion?.line ?? null, decision: item.decision, reason: item.reason },
-          'verify agent decision on a declaration',
-        );
-      }
+      const replaced = new Map<Finding, Finding | null>();
+      const resolved: ResolvedDiscussion[] = [];
+      const counts = { files: 0, kept: 0, dropped: 0, resolved: 0, leftOpen: 0 };
+      groups.forEach((group, i) => {
+        const decisions = decided[i];
+        if (decisions === null || decisions === undefined) return;
+        const applied = applyDecisions(group, decisions);
+        counts.files += 1;
+        counts.kept += applied.kept;
+        counts.dropped += applied.dropped;
+        counts.resolved += applied.resolved.length;
+        counts.leftOpen += applied.leftOpen;
+        group.findings.forEach((finding, index) => replaced.set(finding, applied.findings[index] ?? null));
+        resolved.push(...applied.resolved);
+        for (const item of decisions.findings) {
+          const finding = group.findings[item.number - 1]!;
+          logger.debug(
+            { file: group.file, line: finding.line, decision: item.decision, reason: item.reason },
+            'verify agent decision on a finding',
+          );
+        }
+        for (const item of decisions.declarations) {
+          const declared = group.declarations[item.number - 1]!;
+          const discussion = group.discussions.find((candidate) => candidate.id === declared.discussionId);
+          logger.debug(
+            { file: group.file, line: discussion?.line ?? null, decision: item.decision, reason: item.reason },
+            'verify agent decision on a declaration',
+          );
+        }
+      });
+      logger.info(
+        { ...counts },
+        `Verify agent step: ${counts.files} file(s), ${counts.kept} finding(s) kept, ${counts.dropped} dropped, ${counts.resolved} discussion(s) resolved, ${counts.leftOpen} left open.`,
+      );
+      const finalFindings = findings.flatMap((finding) => {
+        if (!replaced.has(finding)) return [finding];
+        const kept = replaced.get(finding);
+        return kept === null || kept === undefined ? [] : [kept];
+      });
+      span.setAttributes({
+        'picr.findings.before': findings.length,
+        'picr.findings.after': finalFindings.length,
+        'picr.discussions.resolved': resolved.length,
+      });
+      return { findings: finalFindings, resolved };
     });
-    logger.info(
-      { ...counts },
-      `Verify agent step: ${counts.files} file(s), ${counts.kept} finding(s) kept, ${counts.dropped} dropped, ${counts.resolved} discussion(s) resolved, ${counts.leftOpen} left open.`,
-    );
-    const finalFindings = findings.flatMap((finding) => {
-      if (!replaced.has(finding)) return [finding];
-      const kept = replaced.get(finding);
-      return kept === null || kept === undefined ? [] : [kept];
-    });
-    return { findings: finalFindings, resolved };
   }
 
   /** One verify agent run for one file. Returns `null` when the file gives no
@@ -701,19 +777,27 @@ export class AgentReviewEngine implements ReviewEngine {
     context: ReviewContext,
     changes: ChangeSet,
     logger: Logger,
+    span: TelemetrySpan,
   ): Promise<Decisions | null> {
     const { instructions } = this.options;
     // A deleted file has no new path, so look it up by the old path.
     const changed = changes.file(group.file) ?? changes.files.find((f) => f.deleted && f.oldPath === group.file);
     const prompt = buildVerifyAgentPrompt(context, group, changed);
     const shape = shapeOf(group);
-    const createAgent = (onSubmit: (decisions: Decisions) => void, runModel: Model<Api>) =>
+    const createAgent = (
+      onSubmit: (decisions: Decisions) => void,
+      runModel: Model<Api>,
+      span: TelemetrySpan = NOOP_SPAN,
+    ) =>
       new Agent({
-        streamFn: this.streamFn(),
+        streamFn: this.streamFn(span),
         initialState: {
           systemPrompt: buildVerifyAgentSystemPrompt(instructions),
           model: runModel,
-          tools: [createGetFileContentTool(context), createSubmitDecisionsTool(shape, onSubmit, logger)],
+          tools: traceTools(
+            [createGetFileContentTool(context), createSubmitDecisionsTool(shape, onSubmit, logger)],
+            span,
+          ),
         },
       });
 
@@ -727,6 +811,7 @@ export class AgentReviewEngine implements ReviewEngine {
         action: 'did not run the verify agent for a file',
       },
       logger,
+      span,
     );
   }
 
@@ -740,39 +825,43 @@ export class AgentReviewEngine implements ReviewEngine {
     const sent = selectForDedup(findings);
     if (sent.length === 0) return settleGroups(findings, []);
 
-    const spec: RunSpec<number[][]> = {
-      createAgent: (onSubmit, model) =>
-        new Agent({
-          streamFn: this.streamFn(),
-          initialState: {
-            systemPrompt: systemPrompts().dedup,
-            model,
-            tools: [createSubmitGroupsTool(sent, onSubmit, logger)],
-          },
-        }),
-      prompt: buildDedupPrompt(sent),
-      toolName: 'submit_groups',
-      logFields: { step: 'deduplication' },
-    };
-    let groups: number[][];
-    try {
-      groups = await this.runWithRetries(spec, logger, new Set<Agent>(), () => false);
-    } catch (error) {
-      if (!(error instanceof ReviewFailureError)) throw error;
-      logger.warn(
-        { step: 'deduplication', error: error.message },
-        'the deduplication step failed; the findings stay as they were',
-      );
-      warnings.push({ code: 'deduplication_failed' });
-      return settleGroups(findings, []);
-    }
+    return this.step('deduplication', async (span) => {
+      const spec: RunSpec<number[][]> = {
+        createAgent: (onSubmit, model, span) =>
+          new Agent({
+            streamFn: this.streamFn(span),
+            initialState: {
+              systemPrompt: systemPrompts().dedup,
+              model,
+              tools: traceTools([createSubmitGroupsTool(sent, onSubmit, logger)], span),
+            },
+          }),
+        prompt: buildDedupPrompt(sent),
+        toolName: 'submit_groups',
+        logFields: { step: 'deduplication' },
+      };
+      let groups: number[][];
+      try {
+        groups = await this.runWithRetries(spec, logger, new Set<Agent>(), () => false, span);
+      } catch (error) {
+        if (!(error instanceof ReviewFailureError)) throw error;
+        logger.warn(
+          { step: 'deduplication', error: error.message },
+          'the deduplication step failed; the findings stay as they were',
+        );
+        warnings.push({ code: 'deduplication_failed' });
+        span.setStatus({ status: 'error', error: { name: 'ReviewFailureError', message: error.message } });
+        return settleGroups(findings, []);
+      }
 
-    const kept = settleGroups(findings, groups);
-    logger.info(
-      { before: findings.length, after: kept.length },
-      `Deduplication step: ${findings.length} finding(s) before, ${kept.length} after.`,
-    );
-    return kept;
+      const kept = settleGroups(findings, groups);
+      logger.info(
+        { before: findings.length, after: kept.length },
+        `Deduplication step: ${findings.length} finding(s) before, ${kept.length} after.`,
+      );
+      span.setAttributes({ 'picr.findings.before': findings.length, 'picr.findings.after': kept.length });
+      return kept;
+    });
   }
 
   /** Tries a run until it gives output, at most `MAX_RUN_TRIES` times. A final
@@ -785,13 +874,16 @@ export class AgentReviewEngine implements ReviewEngine {
     logger: Logger,
     active: Set<Agent>,
     cancelled: () => boolean,
+    parent: TelemetrySpan,
   ): Promise<T> {
     const sleep = this.options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
     let model = this.options.model;
     let enlarged = false;
     let attempt = 1;
+    let tryNumber = 0;
     for (;;) {
-      const outcome = await this.runOnce(spec, logger, active, model);
+      tryNumber += 1;
+      const outcome = await this.runOnce(spec, logger, active, model, parent, tryNumber);
       if ('output' in outcome) return outcome.output;
 
       if ('cut' in outcome) {
@@ -824,11 +916,54 @@ export class AgentReviewEngine implements ReviewEngine {
     logger: Logger,
     active: Set<Agent>,
     model: Model<Api>,
+    parent: TelemetrySpan,
+    tryNumber: number,
+  ): Promise<{ output: T } | { retryableError: string } | { cut: true }> {
+    const fields = spec.logFields as { step?: string; focus?: string; file?: string; batch?: number };
+    return parent.startSpan(
+      {
+        name: 'picr.agent_run',
+        attributes: {
+          'picr.agent.kind': fields.step ?? 'review',
+          'picr.focus': fields.focus,
+          'picr.file': fields.file,
+          'picr.batch': fields.batch,
+          'picr.try': tryNumber,
+          'picr.max_tokens': model.maxTokens,
+        },
+      },
+      async (span) => {
+        const outcome = await this.runAgent(spec, logger, active, model, span);
+        if ('retryableError' in outcome) {
+          span.setStatus({ status: 'error', error: { name: 'RetryableError', message: outcome.retryableError } });
+        } else if ('cut' in outcome) {
+          span.setStatus({ status: 'error', error: { name: 'OutputCut', message: 'stopped at the token limit' } });
+        }
+        return outcome;
+      },
+    );
+  }
+
+  /** One agent run in its span: the prompts and the responses are recorded on the span. */
+  private async runAgent<T>(
+    spec: RunSpec<T>,
+    logger: Logger,
+    active: Set<Agent>,
+    model: Model<Api>,
+    span: TelemetrySpan,
   ): Promise<{ output: T } | { retryableError: string } | { cut: true }> {
     let submission: { value: T } | undefined;
-    const agent = spec.createAgent((value) => {
-      submission = { value };
-    }, model);
+    const agent = spec.createAgent(
+      (value) => {
+        submission = { value };
+      },
+      model,
+      span,
+    );
+    span.setAttributes({
+      ...textAttributes('picr.prompt.system', agent.state.systemPrompt),
+      ...textAttributes('picr.prompt.user', spec.prompt),
+    });
     // The system prompt as the agent holds it, so the log shows exactly what
     // this run sends (`log-system-prompt` design, Decision 1).
     logger.debug({ ...spec.logFields, systemPrompt: agent.state.systemPrompt, prompt: spec.prompt }, 'review prompt');
@@ -838,6 +973,7 @@ export class AgentReviewEngine implements ReviewEngine {
       await agent.prompt(spec.prompt);
     } finally {
       active.delete(agent);
+      recordResponses(span, agent.state.messages);
     }
 
     const lastAssistant = [...agent.state.messages]

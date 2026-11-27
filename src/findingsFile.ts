@@ -33,6 +33,10 @@ export interface FindingsFile<DiffRefs, Source> {
    * then has no findings. It holds the category of the failure and never the
    * text of the error (`harden-run-failures` design, Decision 5). */
   failed?: { category: FailureCategory };
+  /** The W3C trace context of the root span of `review`, when it sent a trace.
+   * `publish` links its trace to it. A value that is not a string is dropped,
+   * and the file stays valid (`export-review-traces` design, Decision 7). */
+  trace?: { traceparent: string };
 }
 
 export class FindingsFileError extends Error {}
@@ -92,7 +96,7 @@ function validateFindingsFile<DiffRefs, Source>(
     throw new Error('the top-level value is not an object.');
   }
 
-  const { findings, resolved = [], unreviewedFiles = [], warnings = [], failed } = value;
+  const { findings, resolved = [], unreviewedFiles = [], warnings = [], failed, trace } = value;
   const diffRefs = parseDiffRefs(value.diffRefs);
   const source = parseSource(value.source);
 
@@ -117,6 +121,7 @@ function validateFindingsFile<DiffRefs, Source>(
     unreviewedFiles: unreviewedFiles.map((item, index) => validateUnreviewedFile(item, index)),
     warnings: warnings.map((item, index) => validateWarning(item, index)),
     ...(failed === undefined ? {} : { failed: validateFailed(failed) }),
+    ...(isObject(trace) && typeof trace.traceparent === 'string' ? { trace: { traceparent: trace.traceparent } } : {}),
   };
 }
 

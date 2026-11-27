@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import type { TelemetrySpan } from '@earendil-works/pi-telemetry';
+import { NOOP_SPAN } from '../../core/review/telemetry.ts';
 import { ConfigError } from '../../settings.ts';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../../core/errorMessage.ts';
@@ -78,6 +80,9 @@ export interface GitLabClientOptions {
   /** Waits before a retry of a read request. Defaults to a real timer; tests
    * pass one that returns at once. */
   sleep?: (ms: number) => Promise<void>;
+  /** The span that each request span goes under: the root span of the run
+   * (`export-review-traces` design, Decision 6). */
+  telemetry?: TelemetrySpan;
 }
 
 /** The subset of the GitLab API this tool needs. Adapters depend on this
@@ -147,6 +152,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
   private readonly token: string;
   private readonly logger: Logger;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly telemetry: TelemetrySpan;
 
   /** Private: construction goes through `GitLabClient.create()`, so the
    * returned instance is always fully set up, even once setup needs to
@@ -159,6 +165,7 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     this.token = options.token;
     this.logger = options.logger ?? silentLogger();
     this.sleep = options.sleep ?? ((ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+    this.telemetry = options.telemetry ?? NOOP_SPAN;
   }
 
   static async create(options: GitLabClientOptions): Promise<GitLabClient> {
@@ -168,7 +175,30 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
     return new GitLabClient(options);
   }
 
-  private async request(
+  /** One request in a `picr.host_request` span with the method, the URL path,
+   * and the response status. The span never holds a header, the query, or the
+   * body (`export-review-traces`, "Trace the requests to the host"). */
+  private request(
+    path: string,
+    searchParams?: URLSearchParams,
+    init?: { method?: string; body?: string },
+  ): Promise<Response> {
+    const method = init?.method ?? 'GET';
+    const urlPath = new URL(`${this.apiUrl}/projects/${this.projectId}${path}`).pathname;
+    return this.telemetry.startSpan(
+      { name: 'picr.host_request', attributes: { 'http.request.method': method, 'url.path': urlPath } },
+      async (span) => {
+        const response = await this.send(path, searchParams, init);
+        span.setAttributes({ 'http.response.status_code': response.status });
+        if (!response.ok) {
+          span.setStatus({ status: 'error', error: { name: 'HttpError', message: `status ${response.status}` } });
+        }
+        return response;
+      },
+    );
+  }
+
+  private async send(
     path: string,
     searchParams?: URLSearchParams,
     init?: { method?: string; body?: string },
