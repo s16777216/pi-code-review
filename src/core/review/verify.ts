@@ -46,12 +46,13 @@ export function groupByFile(findings: readonly Finding[]): FileGroup[] {
 }
 
 /** The user prompt of a verifier run: the title and the description, the diff
- * of the file, and the four fields of each finding. The prompt has no
+ * of the file, and the four fields of each finding, with its end line when it has one. The prompt has no
  * `relatesTo` and no anchor. */
 export function buildVerifyPrompt(context: ReviewContext, file: ChangedFile, findings: readonly Finding[]): string {
   const items = findings.map((finding, index) => ({
     number: index + 1,
     line: finding.line,
+    ...(finding.endLine === undefined ? {} : { endLine: finding.endLine }),
     severity: finding.severity,
     summary: finding.summary,
   }));

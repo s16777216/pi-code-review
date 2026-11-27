@@ -448,3 +448,20 @@ test('the prompt does not show the review focus or the confidence fields of a fi
   const prompt = buildVerifyAgentPrompt(context, g, undefined);
   assert.doesNotMatch(prompt, /"focus"|corroboration|"verdict"|"confidence"/);
 });
+
+test('the first list of the verify agent has the line and the end line of a range finding', () => {
+  const rangeGroup: VerifyGroup = { ...group(), findings: [finding('a.ts', { line: 562, endLine: 600 })] };
+  const prompt = buildVerifyAgentPrompt(context, rangeGroup, undefined);
+  const findingsSection = prompt.split(/^## /m).find((section) => section.startsWith('Findings')) ?? '';
+  assert.match(findingsSection, /"line": 562,\s*"endLine": 600/);
+});
+
+test('a finding that the verify agent keeps keeps its line and its end line', () => {
+  const rangeGroup: VerifyGroup = { ...group(), findings: [finding('a.ts', { line: 562, endLine: 600 })] };
+  const result = applyDecisions(rangeGroup, {
+    findings: [{ number: 1, decision: 'keep', relatesTo: null, reason: 'r' }],
+    declarations: [{ number: 1, decision: 'keep_open', reason: 'r' }],
+  } as Decisions);
+  assert.equal(result.findings[0]?.line, 562);
+  assert.equal(result.findings[0]?.endLine, 600);
+});

@@ -1,5 +1,12 @@
 import type { ChangedFileDiff, DiffLine, OmittedReason } from '../types.ts';
-import { changedFilePath, numberDiffHunks, parseDiffHunks, splitHunks, type NewFileLineCheck } from './diff.ts';
+import {
+  changedFilePath,
+  numberDiffHunks,
+  oldPositionOfNewLine,
+  parseDiffHunks,
+  splitHunks,
+  type NewFileLineCheck,
+} from './diff.ts';
 
 /** One changed file of a change, as a value object (`model-diffs-and-run-scopes`
  * design, Decision 1). The diff text is parsed once when the object is built;
@@ -60,6 +67,27 @@ export class ChangedFile {
   oldLineFor(line: number): number | null {
     const match = this.lines.find((diffLine) => diffLine.newLine === line && diffLine.type !== 'removed');
     return match?.oldLine ?? null;
+  }
+
+  /** The first added or context line from `line` to `endLine`, or `null`
+   * when no line of the range is in this file's diff
+   * (`report-finding-line-ranges` design, Decisions 2 and 3). */
+  firstNewLineIn(line: number, endLine: number = line): number | null {
+    let first: number | null = null;
+    for (const diffLine of this.lines) {
+      if (diffLine.type === 'removed' || diffLine.newLine === null) continue;
+      if (diffLine.newLine >= line && diffLine.newLine <= endLine && (first === null || diffLine.newLine < first)) {
+        first = diffLine.newLine;
+      }
+    }
+    return first;
+  }
+
+  /** Where the new-file line `line` is in the old file, also outside the
+   * hunks (`oldPositionOfNewLine`), or `null` for a deleted file. */
+  oldPositionOf(line: number): { added: boolean; oldLine: number } | null {
+    if (this.deleted) return null;
+    return oldPositionOfNewLine(this.hunkText, line);
   }
 
   /** The diff text with the new-file line number in front of every added and
@@ -139,6 +167,27 @@ export class ChangeSet {
     const file = this.file(path);
     if (file === undefined) return 'file_not_changed';
     return file.hasNewLine(line) ? 'ok' : 'line_not_in_diff';
+  }
+
+  /** `lineCheck` for the range `line` to `endLine`: `'ok'` when at least one
+   * line of the range is an added or context line. Without `endLine`, the
+   * same as `lineCheck` (`report-finding-line-ranges` design, Decision 2). */
+  rangeCheck(path: string, line: number, endLine: number = line): NewFileLineCheck {
+    const file = this.file(path);
+    if (file === undefined) return 'file_not_changed';
+    return file.firstNewLineIn(line, endLine) === null ? 'line_not_in_diff' : 'ok';
+  }
+
+  /** The first added or context line of the range, whose text gives the
+   * anchor, or `null` (`report-finding-line-ranges` design, Decision 3). */
+  anchorLine(path: string, line: number, endLine: number = line): number | null {
+    return this.file(path)?.firstNewLineIn(line, endLine) ?? null;
+  }
+
+  /** The old-file position of `path`'s new-file line `line`, also outside the
+   * hunks, or `null` for an unknown or deleted file. */
+  oldPositionOf(path: string, line: number): { added: boolean; oldLine: number } | null {
+    return this.file(path)?.oldPositionOf(line) ?? null;
   }
 
   /** The text of the added or context line, or `null`. */

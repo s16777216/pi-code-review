@@ -16,10 +16,11 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 - `confidence.ts`: `deriveConfidence`, the confidence of a finding from its corroboration and its verdict.
 - `judge.ts`: the discussion judgment step: the judge prompts, `selectDiscussions`, `groupDiscussionsByFile`, `buildJudgePrompt`, the `submit_judgments` tool, and `validateJudgments` (it removes an `evidence` field that a model sends).
 - `verifyAgent.ts`: the verify agent step: the prompts, `groupForVerifyAgent`, the `submit_decisions` tool, `validateDecisions`, and `applyDecisions`.
-- `agent.ts`: the agent's tools: `createGetFileContentTool`, `createSubmitReviewTool` (the only way the agent reports findings).
+- `agent.ts`: the agent's tools: `createGetFileContentTool` (the file content with the new-file line number in front of each line), `createSubmitReviewTool` (the only way the agent reports findings, each on a line or a range of lines).
+- `changedFile.ts`: `ChangedFile` and `ChangeSet`, the changed files of a review: line and range checks, the anchor line of a range, and the old-file position of a new-file line. `diff.ts`: diff parsing and numbering.
 - `findings.ts`: `validateFinding`, `validateStoredFinding` (for the findings file), `validateResolvedDiscussion`, `ReviewFailureError` (it has a failure `category`). Also used by `src/findingsFile.ts`. `Severity` values are `critical`, `high`, `medium`, `low`, `pre_existing`.
 - `scope.ts`: `RunScope`, `WholeChange`, `Batch` (what one agent run sees and which findings it may report).
-- `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `systemPrompts()` reads the system prompts from `src/template/system/`. `checks.ts`: `runChecks` (the diff line check and the anchor, then the optional steps: deduplication, judge, and verify agent), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
+- `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `systemPrompts()` reads the system prompts from `src/template/system/`. `checks.ts`: `runChecks` (the diff check of a finding's line or range and the anchor, then the optional steps: deduplication, judge, and verify agent), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
 - `fauxFocus.ts`: test helpers that route faux provider responses by review focus, and answer the deduplication, verification, and judgment steps.
 
 ## Interfaces and dependencies

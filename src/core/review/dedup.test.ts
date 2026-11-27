@@ -236,3 +236,16 @@ test('settleGroups keeps the finding that keepOnePerGroup keeps, with its relate
   assert.equal(kept?.relatesTo, 'd1');
   assert.equal(kept?.corroboration, 2);
 });
+
+test('buildDedupPrompt shows the end line of a range finding', () => {
+  const sent = selectForDedup([
+    finding('a.ts', 562, 'high', 'Race.', { endLine: 600 }),
+    finding('a.ts', 2, 'low', 'B.'),
+  ]);
+  const items = JSON.parse(buildDedupPrompt(sent).slice(buildDedupPrompt(sent).indexOf('['))) as Record<
+    string,
+    unknown
+  >[];
+  assert.deepEqual(items[0], { number: 1, file: 'a.ts', line: 562, endLine: 600, severity: 'high', summary: 'Race.' });
+  assert.equal('endLine' in items[1]!, false);
+});

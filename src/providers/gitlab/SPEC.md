@@ -18,5 +18,5 @@ The GitLab adapter: reads a merge request (metadata, diff, file content, discuss
 
 - Implements the ports in `src/core/ports.ts`; the core never imports from here.
 - `restore` builds its client for the project in the findings file `source`, so `publish` needs only the API URL and the token.
-- Positions a discussion with base/start/head SHA and the new-file line, adding `old_line` for a context line.
+- Positions a discussion with base/start/head SHA and the new-file line, adding `old_line` for a context line. A finding with an end line gets a multi-line discussion (`line_range`) positioned on its last line.
 - Never logs tokens or headers.

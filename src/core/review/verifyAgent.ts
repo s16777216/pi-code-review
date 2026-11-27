@@ -80,6 +80,7 @@ export function buildVerifyAgentPrompt(
   const findings = group.findings.map((finding, index) => ({
     number: index + 1,
     line: finding.line,
+    ...(finding.endLine === undefined ? {} : { endLine: finding.endLine }),
     severity: finding.severity,
     summary: finding.summary,
   }));

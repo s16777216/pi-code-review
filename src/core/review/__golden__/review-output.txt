@@ -106,7 +106,7 @@ WARNS [
  }
 ]
 INFOS [{"before":7,"after":7,"rejected":0,"severityChanged":0},{"before":7,"after":7},{"files":1,"kept":4,"dropped":0,"resolved":0,"leftOpen":0},{"focus":"logic correctness","findings":10},{"focus":"resources and concurrency","findings":0},{"focus":"security","findings":0},{"selected":1,"fixed":0,"notFixed":0,"uncertain":1}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":2597},{"batch":null,"promptChars":3783,"systemChars":2590},{"batch":null,"promptChars":3783,"systemChars":2544},{"batch":null,"promptChars":747,"systemChars":720},{"batch":null,"promptChars":682,"systemChars":3295},{"batch":null,"promptChars":1207,"systemChars":4312},{"batch":null,"promptChars":759,"systemChars":2206},{"batch":null,"promptChars":3467,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":3783,"systemChars":3087},{"batch":null,"promptChars":3783,"systemChars":3080},{"batch":null,"promptChars":3783,"systemChars":3034},{"batch":null,"promptChars":747,"systemChars":767},{"batch":null,"promptChars":682,"systemChars":3295},{"batch":null,"promptChars":1207,"systemChars":4411},{"batch":null,"promptChars":759,"systemChars":2315},{"batch":null,"promptChars":3467,"systemChars":2315},{"batch":null,"promptChars":273,"systemChars":2315}]
 DEBUG OTHER KEYS ["contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,focus,stopReason,usage","contentBlockTypes,step,stopReason,usage","decision,file,line,reason","decision,file,line,reason","decision,file,line,reason","decision,file,line,reason","file,judgment,line,reason","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict"]
 --- logged prompt batch=- ---
 # Change: Characterization change
@@ -977,15 +977,15 @@ WARNS [
  },
  {
   "file": "src/b.ts",
-  "tokens": 1934
+  "tokens": 1980
  },
  {
   "file": "src/a.ts",
-  "tokens": 1942
+  "tokens": 1986
  }
 ]
 INFOS [{"batches":4},{"before":7,"after":7,"rejected":0,"severityChanged":0},{"before":7,"after":7},{"files":0,"kept":0,"dropped":0,"resolved":0,"leftOpen":0},{"focus":"logic correctness","findings":19},{"focus":"resources and concurrency","findings":0},{"focus":"security","findings":0},{"selected":1,"fixed":0,"notFixed":0,"uncertain":1}]
-DEBUG PROMPT FIELDS [{"batch":null,"promptChars":747,"systemChars":720},{"batch":null,"promptChars":682,"systemChars":3295},{"batch":null,"promptChars":759,"systemChars":2206},{"batch":null,"promptChars":273,"systemChars":2206},{"batch":1,"promptChars":756,"systemChars":2901},{"batch":1,"promptChars":756,"systemChars":2894},{"batch":1,"promptChars":756,"systemChars":2848},{"batch":2,"promptChars":1562,"systemChars":2901},{"batch":2,"promptChars":1562,"systemChars":2894},{"batch":2,"promptChars":1562,"systemChars":2848},{"batch":3,"promptChars":1564,"systemChars":2901},{"batch":3,"promptChars":1564,"systemChars":2894},{"batch":3,"promptChars":1564,"systemChars":2848},{"batch":4,"promptChars":1759,"systemChars":2901},{"batch":4,"promptChars":1759,"systemChars":2894},{"batch":4,"promptChars":1759,"systemChars":2848}]
+DEBUG PROMPT FIELDS [{"batch":null,"promptChars":747,"systemChars":767},{"batch":null,"promptChars":682,"systemChars":3295},{"batch":null,"promptChars":759,"systemChars":2315},{"batch":null,"promptChars":273,"systemChars":2315},{"batch":1,"promptChars":756,"systemChars":3391},{"batch":1,"promptChars":756,"systemChars":3384},{"batch":1,"promptChars":756,"systemChars":3338},{"batch":2,"promptChars":1562,"systemChars":3391},{"batch":2,"promptChars":1562,"systemChars":3384},{"batch":2,"promptChars":1562,"systemChars":3338},{"batch":3,"promptChars":1564,"systemChars":3391},{"batch":3,"promptChars":1564,"systemChars":3384},{"batch":3,"promptChars":1564,"systemChars":3338},{"batch":4,"promptChars":1759,"systemChars":3391},{"batch":4,"promptChars":1759,"systemChars":3384},{"batch":4,"promptChars":1759,"systemChars":3338}]
 DEBUG OTHER KEYS ["batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","batch,contentBlockTypes,focus,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,file,step,stopReason,usage","contentBlockTypes,step,stopReason,usage","file,judgment,line,reason","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict","file,line,reason,severity,verdict"]
 --- logged prompt batch=- ---
 Group the findings below.

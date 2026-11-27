@@ -89,7 +89,7 @@ export class GitLabMergeRequest implements ChangeRequest<GitLabDiffRefs>, Discus
     return (await this.client.listDiscussions(this.mergeRequestIid)).map(toHostDiscussion);
   }
 
-  async createDiscussion(position: { file: string; line: number }, body: string): Promise<void> {
+  async createDiscussion(position: { file: string; line: number; endLine?: number }, body: string): Promise<void> {
     if (this.diffRefs === undefined) {
       throw new Error(
         'GitLabMergeRequest.createDiscussion() needs the diff refs: restore it from a snapshot, or load() it first.',
@@ -98,8 +98,31 @@ export class GitLabMergeRequest implements ChangeRequest<GitLabDiffRefs>, Discus
     this.changes ??= this.client
       .getMergeRequestDiff(this.mergeRequestIid)
       .then((diffFiles) => ChangeSet.from(toChangedFiles(diffFiles)));
-    const oldLine = (await this.changes).oldLineFor(position.file, position.line);
+    const changes = await this.changes;
 
+    // A range becomes a multi-line comment, with the position on its last
+    // line, so the comment shows the most code (`report-finding-line-ranges`
+    // design, Decision 7). Its ends can be outside the hunks.
+    if (position.endLine !== undefined && position.endLine > position.line) {
+      const start = changes.oldPositionOf(position.file, position.line);
+      const end = changes.oldPositionOf(position.file, position.endLine);
+      if (start !== null && end !== null) {
+        await this.client.createDiscussion(this.mergeRequestIid, body, {
+          ...this.diffRefs,
+          oldPath: position.file,
+          newPath: position.file,
+          newLine: position.endLine,
+          oldLine: end.added ? null : end.oldLine,
+          lineRange: {
+            start: { newLine: position.line, ...start },
+            end: { newLine: position.endLine, ...end },
+          },
+        });
+        return;
+      }
+    }
+
+    const oldLine = changes.oldLineFor(position.file, position.line);
     await this.client.createDiscussion(this.mergeRequestIid, body, {
       ...this.diffRefs,
       oldPath: position.file,

@@ -56,18 +56,30 @@ export async function runChecks(
     .filter((finding) => {
       // The review did not show this file's diff, so it does not report on it
       // (`handle-omitted-diffs` design, Decision 3).
-      const reason = changes.isOmitted(finding.file) ? 'diff_omitted' : changes.lineCheck(finding.file, finding.line);
+      // A range is kept when one of its lines is in the diff
+      // (`report-finding-line-ranges` design, Decision 2).
+      const reason = changes.isOmitted(finding.file)
+        ? 'diff_omitted'
+        : changes.rangeCheck(finding.file, finding.line, finding.endLine);
       if (reason === 'ok') return true;
       logger.warn(
-        { file: finding.file, line: finding.line, reason },
+        {
+          file: finding.file,
+          line: finding.line,
+          ...(finding.endLine === undefined ? {} : { endLine: finding.endLine }),
+          reason,
+        },
         'discarded a finding that cannot be placed on the diff',
       );
       return false;
     })
     .map((finding) => {
-      // The diff check above guarantees the line is in the diff. Any anchor
-      // the agent wrote is replaced: only the engine computes it.
-      const lineText = changes.lineText(finding.file, finding.line) ?? '';
+      // The diff check above guarantees a line of the range is in the diff.
+      // The anchor uses the first such line (`report-finding-line-ranges`
+      // design, Decision 3). Any anchor the agent wrote is replaced: only the
+      // engine computes it.
+      const anchorLine = changes.anchorLine(finding.file, finding.line, finding.endLine) ?? finding.line;
+      const lineText = changes.lineText(finding.file, anchorLine) ?? '';
       return { ...finding, anchor: computeAnchor(finding.file, lineText) };
     });
   const findings = await betweenSteps(checked);

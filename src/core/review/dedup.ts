@@ -28,12 +28,13 @@ export function selectForDedup(findings: readonly Finding[]): NumberedFinding[] 
   );
 }
 
-/** The user prompt: the four fields of each sent finding, and no other. */
+/** The user prompt: the four fields of each sent finding, and its end line when it has one, and no other. */
 export function buildDedupPrompt(sent: readonly NumberedFinding[]): string {
   const items = sent.map(({ number, finding }) => ({
     number,
     file: finding.file,
     line: finding.line,
+    ...(finding.endLine === undefined ? {} : { endLine: finding.endLine }),
     severity: finding.severity,
     summary: finding.summary,
   }));

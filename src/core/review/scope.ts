@@ -73,16 +73,27 @@ export class Batch implements RunScope {
    * changes-in-batches` design, Decision 5). A finding that is not on the
    * change's diff at all is left for the diff line check, which logs its own
    * reason. A file can have more than one item in a batch (its parts), so a
-   * line is the batch's own when any item of that path has it. */
+   * line is the batch's own when any item of that path has it. A range that
+   * starts on this batch's lines and ends on another part is kept. */
   filterFindings(findings: Finding[], changes: ChangeSet, logger: Logger): Finding[] {
     const ownItems = (path: string) => this.items.filter((item) => item.file.newPath === path);
 
     return findings.filter((finding) => {
       if (changes.isOmitted(finding.file)) return true; // dropped by `runChecks` as `diff_omitted`
-      if (changes.lineCheck(finding.file, finding.line) !== 'ok') return true;
-      if (ownItems(finding.file).some((item) => item.file.hasNewLine(finding.line))) return true;
+      if (changes.rangeCheck(finding.file, finding.line, finding.endLine) !== 'ok') return true;
+      // A range is the batch's own when one of its lines is on an item of
+      // the batch (`report-finding-line-ranges` design, Decision 2).
+      if (ownItems(finding.file).some((item) => item.file.firstNewLineIn(finding.line, finding.endLine) !== null)) {
+        return true;
+      }
       logger.warn(
-        { file: finding.file, line: finding.line, batch: this.index, reason: 'outside_batch' },
+        {
+          file: finding.file,
+          line: finding.line,
+          ...(finding.endLine === undefined ? {} : { endLine: finding.endLine }),
+          batch: this.index,
+          reason: 'outside_batch',
+        },
         'discarded a finding that is outside its batch',
       );
       return false;

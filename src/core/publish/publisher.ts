@@ -92,7 +92,10 @@ export class Publisher {
         skipped += 1;
         continue;
       }
-      const key = target.kind === 'reply' ? `reply\n${target.discussionId}` : `new\n${finding.file}\n${finding.line}`;
+      const key =
+        target.kind === 'reply'
+          ? `reply\n${target.discussionId}`
+          : `new\n${finding.file}\n${finding.line}\n${finding.endLine ?? finding.line}`;
       const group = groups.get(key);
       if (group) group.findings.push(finding);
       else groups.set(key, { target, findings: [finding] });
@@ -204,13 +207,14 @@ export class Publisher {
     };
   }
 
-  /** One discussion for a group of findings on the same file and line. A
+  /** One discussion for a group of findings on the same file, line, and end
+   * line (`report-finding-line-ranges` design, Decision 7). A
    * failure is reported once for each finding in the group. */
   private async createDiscussion(findings: Finding[]): Promise<void> {
     const first = findings[0]!;
     try {
       await this.gateway.createDiscussion(
-        { file: first.file, line: first.line },
+        { file: first.file, line: first.line, ...(first.endLine === undefined ? {} : { endLine: first.endLine }) },
         formatDiscussionBody(findings, this.templates.finding),
       );
     } catch (error) {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { ConfigError } from '../../settings.ts';
 import { silentLogger, type Logger } from '../../logger.ts';
 import { errorMessage } from '../../core/errorMessage.ts';
@@ -101,6 +102,29 @@ export interface DiscussionPosition {
    * added line. GitLab needs both to position a comment on a context line;
    * omitting it can make GitLab reject the position with a 400. */
   oldLine?: number | null;
+  /** The first and the last line of a multi-line comment. `newLine` and
+   * `oldLine` are then the position of the last line
+   * (`report-finding-line-ranges` design, Decision 7). */
+  lineRange?: { start: DiscussionLineRangeEnd; end: DiscussionLineRangeEnd };
+}
+
+/** One end of a multi-line comment. For an added line, `oldLine` is the
+ * old-file line counter at that point, which only the line code uses. */
+export interface DiscussionLineRangeEnd {
+  newLine: number;
+  oldLine: number;
+  added: boolean;
+}
+
+/** GitLab's `line_range` end: the line code is the SHA-1 of the path, the old
+ * line, and the new line. An unchanged line has no `type`. */
+function lineRangeEnd(path: string, end: DiscussionLineRangeEnd): Record<string, unknown> {
+  return {
+    line_code: `${createHash('sha1').update(path).digest('hex')}_${end.oldLine}_${end.newLine}`,
+    ...(end.added ? { type: 'new' } : {}),
+    old_line: end.added ? null : end.oldLine,
+    new_line: end.newLine,
+  };
 }
 
 /** The write side of the GitLab API, kept separate from `MergeRequestProvider`
@@ -327,6 +351,14 @@ export class GitLabClient implements MergeRequestProvider, MergeRequestWriter {
           new_path: position.newPath,
           new_line: position.newLine,
           old_line: position.oldLine ?? null,
+          ...(position.lineRange === undefined
+            ? {}
+            : {
+                line_range: {
+                  start: lineRangeEnd(position.newPath ?? position.oldPath ?? '', position.lineRange.start),
+                  end: lineRangeEnd(position.newPath ?? position.oldPath ?? '', position.lineRange.end),
+                },
+              }),
         },
       }),
     });
