@@ -175,3 +175,17 @@ test('Batch counts a line as its own when any of its items of that path has it',
   assert.equal(kept.length, 2);
   assert.deepEqual(warnings, []);
 });
+
+test('Batch keeps a range that starts on its own line and ends on another part', () => {
+  const { logger: log, warnings } = logger();
+  const kept = batchOfFirstHunk().filterFindings([{ ...finding('src/a.ts', 2), endLine: 22 }], changes, log);
+  assert.equal(kept.length, 1);
+  assert.deepEqual(warnings, []);
+});
+
+test('Batch drops a range with no line on its own items, with outside_batch and the end line', () => {
+  const { logger: log, warnings } = logger();
+  const kept = batchOfFirstHunk().filterFindings([{ ...finding('src/a.ts', 10), endLine: 22 }], changes, log);
+  assert.deepEqual(kept, []);
+  assert.deepEqual(warnings, [{ file: 'src/a.ts', line: 10, endLine: 22, batch: 1, reason: 'outside_batch' }]);
+});

@@ -21,13 +21,18 @@ export function validateFinding(item: unknown, index: number): Finding {
   if (typeof item !== 'object' || item === null) {
     throw new ReviewFailureError(`Finding at index ${index} is not an object.`);
   }
-  const { file, line, severity, summary, relatesTo, anchor } = item as Record<string, unknown>;
+  const { file, line, endLine, severity, summary, relatesTo, anchor } = item as Record<string, unknown>;
 
   if (typeof file !== 'string' || file.length === 0) {
     throw new ReviewFailureError(`Finding at index ${index} is missing a "file" string.`);
   }
   if (typeof line !== 'number' || !Number.isInteger(line)) {
     throw new ReviewFailureError(`Finding at index ${index} is missing an integer "line".`);
+  }
+  if (endLine !== undefined && (typeof endLine !== 'number' || !Number.isInteger(endLine) || endLine < line)) {
+    throw new ReviewFailureError(
+      `Finding at index ${index} has an "endLine" that is not an integer equal to or greater than "line".`,
+    );
   }
   if (typeof severity !== 'string' || !VALID_SEVERITIES.includes(severity as Severity)) {
     throw new ReviewFailureError(
@@ -47,6 +52,7 @@ export function validateFinding(item: unknown, index: number): Finding {
   }
 
   const finding: Finding = { file, line, severity: severity as Severity, summary };
+  if (endLine !== undefined) finding.endLine = endLine;
   if (relatesTo !== undefined) finding.relatesTo = relatesTo;
   if (anchor !== undefined) finding.anchor = anchor;
   return finding;

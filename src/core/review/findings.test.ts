@@ -65,3 +65,15 @@ test('validateStoredFinding rejects an invalid corroboration, verdict or confide
   assert.throws(() => validateStoredFinding({ ...BASE, verdict: 'rejected' }, 0), /"verdict"/);
   assert.throws(() => validateStoredFinding({ ...BASE, confidence: 'certain' }, 0), /"confidence"/);
 });
+
+test('validateFinding keeps a valid endLine, and an endLine equal to line', () => {
+  assert.deepEqual(validateFinding({ ...BASE, line: 562, endLine: 600 }, 0), { ...BASE, line: 562, endLine: 600 });
+  assert.deepEqual(validateFinding({ ...BASE, line: 5, endLine: 5 }, 0), { ...BASE, line: 5, endLine: 5 });
+  assert.equal('endLine' in validateFinding(BASE, 0), false);
+});
+
+test('validateFinding rejects an endLine less than line, or not an integer', () => {
+  assert.throws(() => validateFinding({ ...BASE, line: 30, endLine: 20 }, 2), /index 2 .*"endLine"/);
+  assert.throws(() => validateFinding({ ...BASE, endLine: 1.5 }, 0), /"endLine"/);
+  assert.throws(() => validateFinding({ ...BASE, endLine: '9' }, 0), /"endLine"/);
+});

@@ -7,6 +7,7 @@ import {
   MAX_FILE_CONTENT_CALLS,
   MAX_FILE_CONTENT_CHARS,
   MAX_SUBMIT_ATTEMPTS,
+  numberFileContent,
 } from './agent.ts';
 import type { ParsedReviewOutput } from './findings.ts';
 
@@ -27,7 +28,25 @@ test('get_file_content returns the file content for a changed file', async () =>
   const result = await tool.execute('call-1', { path: 'a.ts' });
 
   assert.equal(result.isError, undefined);
-  assert.deepEqual(result.content, [{ type: 'text', text: 'export const a = 1;' }]);
+  assert.deepEqual(result.content, [{ type: 'text', text: '   1 | export const a = 1;' }]);
+});
+
+test('get_file_content puts the new-file line number in front of each line', async () => {
+  const content = Array.from({ length: 45 }, (_, i) => `line ${i + 1}`).join('\r\n') + '\r\n';
+  const tool = createGetFileContentTool(fixture(async () => content));
+
+  const lines = textOf(await tool.execute('call-1', { path: 'a.ts' })).split('\n');
+
+  assert.equal(lines.length, 45);
+  assert.equal(lines[0], '   1 | line 1');
+  assert.equal(lines[41], '  42 | line 42');
+});
+
+test('numberFileContent widens the gutter for a long file, and keeps an empty line', () => {
+  const content = Array.from({ length: 12_000 }, (_, i) => (i === 9_999 ? '' : 'x')).join('\n');
+  const lines = numberFileContent(content).split('\n');
+  assert.equal(lines[0], '    1 | x');
+  assert.equal(lines[9_999], '10000 | ');
 });
 
 test('get_file_content refuses a path outside the changed files', async () => {
@@ -54,23 +73,24 @@ function textOf(result: { content: unknown[] }): string {
   return (result.content[0] as { text: string }).text;
 }
 
-test('get_file_content returns a file at the size limit unchanged', async () => {
-  const content = 'x'.repeat(MAX_FILE_CONTENT_CHARS);
+test('get_file_content returns a numbered file at the size limit unchanged', async () => {
+  // `   1 | ` is 7 characters.
+  const content = 'x'.repeat(MAX_FILE_CONTENT_CHARS - 7);
   const tool = createGetFileContentTool(fixture(async () => content));
 
   const result = await tool.execute('call-1', { path: 'a.ts' });
 
-  assert.equal(textOf(result), content);
+  assert.equal(textOf(result), `   1 | ${content}`);
 });
 
-test('get_file_content cuts a file over the size limit and says so', async () => {
-  const tool = createGetFileContentTool(fixture(async () => 'y'.repeat(250_000)));
+test('get_file_content applies the size limit to the numbered text and says so', async () => {
+  const tool = createGetFileContentTool(fixture(async () => 'y'.repeat(250_000 - 7)));
 
   const result = await tool.execute('call-1', { path: 'a.ts' });
   const text = textOf(result);
 
   assert.equal(result.isError, undefined);
-  assert.equal(text.startsWith('y'.repeat(MAX_FILE_CONTENT_CHARS) + '\n'), true);
+  assert.equal(text.startsWith(`   1 | ${'y'.repeat(MAX_FILE_CONTENT_CHARS - 7)}\n`), true);
   assert.match(text, /\[cut: showing 100000 of 250000 characters\]$/);
 });
 
@@ -181,5 +201,34 @@ test('submit_review ignores a relatesTo of a finding, and the kept finding has n
 test('the findings of submit_review have no relatesTo field', () => {
   const tool = createSubmitReviewTool(() => {});
   const finding = (tool.parameters.properties.findings as unknown as { items: { properties: object } }).items;
-  assert.deepEqual(Object.keys(finding.properties).sort(), ['file', 'line', 'severity', 'summary']);
+  assert.deepEqual(Object.keys(finding.properties).sort(), ['endLine', 'file', 'line', 'severity', 'summary']);
+});
+
+test('submit_review keeps the endLine of a range finding', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+
+  await tool.execute('call-1', {
+    findings: [{ file: 'a.ts', line: 562, endLine: 600, severity: 'high', summary: 'Race.' }],
+  });
+
+  assert.deepEqual(calls, [
+    { findings: [{ file: 'a.ts', line: 562, endLine: 600, severity: 'high', summary: 'Race.' }] },
+  ]);
+});
+
+test('submit_review rejects a call with an endLine before the line and keeps none of it', async () => {
+  const { onSubmit, calls } = submissions();
+  const tool = createSubmitReviewTool(onSubmit);
+
+  const result = await tool.execute('call-1', {
+    findings: [
+      { file: 'a.ts', line: 1, severity: 'high', summary: 'Good.' },
+      { file: 'a.ts', line: 30, endLine: 20, severity: 'high', summary: 'Bad range.' },
+    ],
+  });
+
+  assert.equal(result.isError, true);
+  assert.match(textOf(result), /index 1 .*"endLine"/);
+  assert.equal(calls.length, 0);
 });

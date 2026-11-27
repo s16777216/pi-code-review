@@ -283,3 +283,22 @@ test('buildVerifyPrompt does not show the review focus or the confidence fields 
   assert.doesNotMatch(prompt, /"focus"|corroboration|"verdict"|"confidence"/);
   assert.doesNotMatch(prompt, /security/);
 });
+
+test('buildVerifyPrompt shows the line and the end line of a range finding', () => {
+  const prompt = buildVerifyPrompt(context, fileOf('a.ts'), [finding('a.ts', 562, 'high', 'Race.', { endLine: 600 })]);
+  const items = JSON.parse(prompt.slice(prompt.indexOf('[', prompt.indexOf('## Findings to verify'))).trim()) as Record<
+    string,
+    unknown
+  >[];
+  assert.deepEqual(items, [{ number: 1, line: 562, endLine: 600, severity: 'high', summary: 'Race.' }]);
+});
+
+test('applyVerdicts keeps the line and the end line of a confirmed finding with a new severity', () => {
+  const [applied] = applyVerdicts(
+    [finding('a.ts', 562, 'high', 'Race.', { endLine: 600 })],
+    [verdict(1, 'confirmed', 'medium')],
+  );
+  assert.equal(applied!.result?.line, 562);
+  assert.equal(applied!.result?.endLine, 600);
+  assert.equal(applied!.result?.severity, 'medium');
+});

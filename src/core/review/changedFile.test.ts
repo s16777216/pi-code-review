@@ -292,3 +292,63 @@ test('ChangedFile does not change after it is built', () => {
   assert.equal(file.hasNewLine(1), true);
   assert.equal(file.hasNewLine(9), false);
 });
+
+// --- Ranges (`report-finding-line-ranges`) ---
+
+const TWO_HUNKS = {
+  oldPath: 'r.ts',
+  newPath: 'r.ts',
+  hunks: '@@ -5,3 +5,4 @@\n a\n+b\n c\n d\n@@ -20,2 +21,3 @@\n x\n+y\n z\n',
+};
+
+test('rangeCheck accepts a range from a context line to a line outside the hunk', () => {
+  assert.equal(set(TWO_HUNKS).rangeCheck('r.ts', 8, 15), 'ok');
+});
+
+test('rangeCheck rejects a range fully outside the hunks, and an unknown file', () => {
+  assert.equal(set(TWO_HUNKS).rangeCheck('r.ts', 10, 20), 'line_not_in_diff');
+  assert.equal(set(TWO_HUNKS).rangeCheck('x.ts', 1, 100), 'file_not_changed');
+});
+
+test('rangeCheck of a single line gives the same result as lineCheck', () => {
+  const changes = set(TWO_HUNKS);
+  for (const line of [1, 5, 6, 8, 9, 21, 22, 23, 24]) {
+    assert.equal(changes.rangeCheck('r.ts', line), changes.lineCheck('r.ts', line));
+    assert.equal(changes.rangeCheck('r.ts', line, line), changes.lineCheck('r.ts', line));
+  }
+});
+
+test('anchorLine is the first added or context line of the range', () => {
+  const changes = set(TWO_HUNKS);
+  assert.equal(changes.anchorLine('r.ts', 1, 7), 5);
+  assert.equal(changes.anchorLine('r.ts', 10, 30), 21);
+  assert.equal(changes.anchorLine('r.ts', 6), 6);
+  assert.equal(changes.anchorLine('r.ts', 10, 20), null);
+});
+
+test('oldPositionOf gives the old line before, inside, between, and after the hunks', () => {
+  const changes = set(TWO_HUNKS);
+  assert.deepEqual(changes.oldPositionOf('r.ts', 3), { added: false, oldLine: 3 }); // before the first hunk
+  assert.deepEqual(changes.oldPositionOf('r.ts', 5), { added: false, oldLine: 5 }); // context
+  assert.deepEqual(changes.oldPositionOf('r.ts', 6), { added: true, oldLine: 6 }); // added
+  assert.deepEqual(changes.oldPositionOf('r.ts', 7), { added: false, oldLine: 6 });
+  assert.deepEqual(changes.oldPositionOf('r.ts', 15), { added: false, oldLine: 14 }); // between the hunks
+  assert.deepEqual(changes.oldPositionOf('r.ts', 23), { added: false, oldLine: 21 });
+  assert.deepEqual(changes.oldPositionOf('r.ts', 30), { added: false, oldLine: 28 }); // after the last hunk
+});
+
+test('oldPositionOf handles a hunk that only removes lines and one that only adds lines', () => {
+  const removes = set({ oldPath: 'd.ts', newPath: 'd.ts', hunks: '@@ -5,2 +4,0 @@\n-p\n-q\n' });
+  assert.deepEqual(removes.oldPositionOf('d.ts', 4), { added: false, oldLine: 4 });
+  assert.deepEqual(removes.oldPositionOf('d.ts', 5), { added: false, oldLine: 7 });
+  const adds = set({ oldPath: 'e.ts', newPath: 'e.ts', hunks: '@@ -3,0 +4,2 @@\n+m\n+n\n' });
+  assert.deepEqual(adds.oldPositionOf('e.ts', 3), { added: false, oldLine: 3 });
+  assert.equal(adds.oldPositionOf('e.ts', 4)?.added, true);
+  assert.deepEqual(adds.oldPositionOf('e.ts', 6), { added: false, oldLine: 4 });
+});
+
+test('oldPositionOf is null for a deleted or unknown file', () => {
+  const changes = set({ oldPath: 'g.ts', newPath: null, deleted: true, hunks: '@@ -1 +0,0 @@\n-g\n' });
+  assert.equal(changes.oldPositionOf('g.ts', 1), null);
+  assert.equal(changes.oldPositionOf('nope.ts', 1), null);
+});

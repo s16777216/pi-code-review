@@ -8,8 +8,9 @@ import type { ReviewContext } from './types.ts';
 export interface DiscussionGateway {
   /** Every discussion of the change request, oldest first. */
   list(): Promise<HostDiscussion[]>;
-  /** Starts a discussion on a new-file line. */
-  createDiscussion(position: { file: string; line: number }, body: string): Promise<void>;
+  /** Starts a discussion on a new-file line, or on the range `line` to
+   * `endLine` when `endLine` is set (`report-finding-line-ranges`). */
+  createDiscussion(position: { file: string; line: number; endLine?: number }, body: string): Promise<void>;
   reply(discussionId: string, body: string): Promise<void>;
   setResolved(discussionId: string, resolved: boolean): Promise<void>;
   /** Creates a general comment on the change request. */

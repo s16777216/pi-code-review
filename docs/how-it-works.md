@@ -22,13 +22,13 @@ A change that is too large for one request is split first. See [Large merge requ
 
 A review focus is not a limit. An agent still reports any other genuine bug that it sees. The three agents get the same input and the same [review instructions](customization.md#review-instructions). The review focuses are built in. You cannot change them or turn them off.
 
-The agent reads each diff with the line numbers of the new file. It can read any changed file with `get_file_content`. It does not read the discussions of the merge request. The system prompt tells it to report the line that holds the problem: a line inside the added or changed lines for a changed problem, the line of the unchanged code for an unchanged problem, and not the line that opens the function, the block, or the call around the problem. The tool does not check this rule. A finding on a line that is not in the diff is dropped.
+The agent reads each diff with the line numbers of the new file. It can read any changed file with `get_file_content`, which also shows the line number in front of each line. It does not read the discussions of the merge request. The system prompt tells it to report the continuous range of lines that holds the problem, in `line` and `endLine`, and to leave out `endLine` for a problem on one line: a range inside the added or changed lines for a changed problem, the range of the unchanged code for an unchanged problem, and not a range that starts at the line that opens the function, the block, or the call around the problem. The range must contain at least one line of the diff, and it can continue past the hunk. The tool does not check this rule. A finding whose range has no added or context line of the diff is dropped. The anchor of a finding uses the first line of its range that is in the diff.
 
 ## Deduplication
 
 The three agents often report the same problem. The **deduplication step** removes the copies:
 
-- It runs after the checks on linked discussions and diff lines. It makes one more model call, and only when at least one file has two or more findings. The model sees the file, the line, the severity, and the summary of those findings, and it answers only with groups of finding numbers. A group holds findings of one file.
+- It runs after the checks on linked discussions and diff lines. It makes one more model call, and only when at least one file has two or more findings. The model sees the file, the line, the end line of a range, the severity, and the summary of those findings, and it answers only with groups of finding numbers. A group holds findings of one file.
 - The program keeps one finding of each group: the one with the highest severity (`critical`, `high`, `medium`, `low`, `pre_existing`), and the first one when the severities are equal. It does not change the text. If the kept finding has no linked discussion and another finding of its group has one, the kept finding takes that link.
 - When the call fails after its tries, or its groups are not valid, `review` keeps all findings, writes a `warn` line, and records the warning `deduplication_failed`. The review does not fail.
 
@@ -40,7 +40,7 @@ After deduplication, a **verifier** checks the findings a second time. The verif
 
 - The verifier sees the title, the description, the diff of the file, and the findings of that file. It can read any changed file with `get_file_content`. It also gets the review instructions.
 - For each finding it gives a **verdict**: `confirmed` (it found the problem), `rejected` (the code shows that the finding is not a problem), or `uncertain` (it cannot decide). It also gives the severity it judges and a one-sentence reason. The prompt asks for a quote of the code in the reason, and for `rejected` when the code contradicts the summary. The program does not check the quote.
-- Only `rejected` drops a finding. `uncertain` stays. Each kept finding gets the severity from the verifier, which can be higher or lower, so the result of `--fail-on` can differ from the severity of the first agents. The verifier cannot change the summary, the line, or the link to a discussion.
+- Only `rejected` drops a finding. `uncertain` stays. Each kept finding gets the severity from the verifier, which can be higher or lower, so the result of `--fail-on` can differ from the severity of the first agents. The verifier cannot change the summary, the line, the end line, or the link to a discussion.
 - There is no confidence value and no option to turn the step off.
 - When the run for a file fails after its tries, or its first request is larger than half of the context window, `review` keeps the findings of that file, writes a `warn` line, and records the warning `verification_failed` or `verification_skipped` with the path. The review does not fail.
 
@@ -124,7 +124,9 @@ The agent sees these files with the reason and no diff, and a finding on them is
 - A finding whose `relatesTo` names a **resolved** discussion is posted as a reply in that discussion, which is then reopened.
 - A finding without `relatesTo` is matched to a discussion from this tool on the same code (same file and same line text, so a reworded finding or a moved line still matches). It posts nothing when that discussion is open, and it is posted as a reply that reopens the newest matching discussion when that is resolved.
 
-Findings that would post on the same file and line become one comment with one paragraph for each finding. Findings that would reply to the same discussion become one reply. Reopening needs a token with a role that can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If `publish` cannot read the existing discussions, it logs a warning and posts every finding as a new comment.
+A finding with `endLine` posts a multi-line comment from `line` to `endLine`. Its position is on `endLine`, because GitLab shows the code above the position line, so the comment shows the most code of the range. The ends of the range can be outside the hunks. Known limit: when the range is on unchanged lines, GitLab labels the comment with the line numbers of the old file (for example "Comment on lines 28 to 38" for the new lines 29 to 43), so the label can differ from `line` and `endLine`.
+
+Findings that would post on the same file, line, and end line become one comment with one paragraph for each finding. Findings that would reply to the same discussion become one reply. Reopening needs a token with a role that can resolve discussions (Developer or higher). If reopening fails, the reply stays and `publish` logs a warning. If `publish` cannot read the existing discussions, it logs a warning and posts every finding as a new comment.
 
 `publish` also keeps the review status comment (see [Failures and warnings](#failures-and-warnings)). It lists the files too large to review, not the generated files.
 

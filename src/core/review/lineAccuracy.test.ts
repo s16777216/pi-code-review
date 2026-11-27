@@ -90,35 +90,52 @@ function capturingLogger() {
 
 // --- The prompt of the review agents (task 1.1) ---
 
-test('the prompt of a review agent tells it to report the line that holds the problem', () => {
-  assert.match(SYSTEM_PROMPT, /Report in "line" the line that holds the problem\./);
+test('the prompt of a review agent names the range of the problem, and endLine only for more than one line', () => {
+  assert.match(SYSTEM_PROMPT, /Report in "line" and "endLine" the continuous range of lines that holds the problem\./);
+  assert.match(SYSTEM_PROMPT, /Leave out "endLine" when the problem is on one line\./);
+});
+
+test('the prompt of a review agent needs one numbered diff line in the range, and allows lines outside the diff', () => {
+  assert.match(SYSTEM_PROMPT, /The range must contain at least one line that has a number in the diff\./);
+  assert.match(
+    SYSTEM_PROMPT,
+    /The range can continue into lines that are not in the diff; read their numbers with get_file_content\./,
+  );
+  assert.match(
+    SYSTEM_PROMPT,
+    /When the problem is in code that the diff does not change, report the range of that code that holds the problem\./,
+  );
+});
+
+test('the prompt of a review agent says that get_file_content shows the line numbers', () => {
+  assert.match(
+    SYSTEM_PROMPT,
+    /The get_file_content tool shows the same line number and "\|" in front of each line of the file, also for the lines that are not in the diff\./,
+  );
 });
 
 test('the prompt of a review agent keeps a changed problem inside the added or changed lines', () => {
   assert.match(
     SYSTEM_PROMPT,
-    /When the problem is in lines that the diff adds or changes, report a line of that run of added or changed lines, not a context line outside it\./,
+    /When the problem is in lines that the diff adds or changes, report a range in that run of added or changed lines, not a context line outside it\./,
   );
 });
 
-test('the prompt of a review agent allows the line of unchanged code for an unchanged problem', () => {
+test('the prompt of a review agent tells it not to start the range at the line that opens the block', () => {
   assert.match(
     SYSTEM_PROMPT,
-    /When the problem is in code that the diff does not change, report the line of that code that holds the problem\./,
+    /Do not start the range at the line that opens the function, the block, or the call around the problem, unless that line holds the problem\./,
   );
 });
 
-test('the prompt of a review agent tells it not to report the line that opens the block around the problem', () => {
-  assert.match(
-    SYSTEM_PROMPT,
-    /Do not report the line that opens the function, the block, or the call around the problem, unless that line holds the problem\./,
-  );
-});
-
-test('the rule for the line reaches the prompt of every review focus', () => {
+test('the rule for the range reaches the prompt of every review focus', () => {
   for (const focus of REVIEW_FOCUSES) {
     const prompt = buildSystemPrompt(undefined, undefined, undefined, focus);
-    assert.match(prompt, /Report in "line" the line that holds the problem\./, focus.name);
+    assert.match(
+      prompt,
+      /Report in "line" and "endLine" the continuous range of lines that holds the problem\./,
+      focus.name,
+    );
     assert.match(prompt, /not a context line outside it/, focus.name);
   }
 });

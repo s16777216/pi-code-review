@@ -388,3 +388,21 @@ test('a findings file with an invalid confidence is rejected, and the focus is n
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("readFindingsFile keeps a finding's endLine, and a finding without endLine stays valid", async () => {
+  const result = await readRaw({
+    diffRefs: validRefs,
+    findings: [{ ...validFinding, line: 562, endLine: 600 }, validFinding],
+  });
+  assert.deepEqual(result.findings, [{ ...validFinding, line: 562, endLine: 600 }, validFinding]);
+});
+
+test('readFindingsFile rejects a bad endLine, naming the index and the field', async () => {
+  for (const endLine of [2, 3.5, '9']) {
+    await assert.rejects(
+      () => readRaw({ diffRefs: validRefs, findings: [validFinding, { ...validFinding, endLine }] }),
+      (error: unknown) =>
+        error instanceof FindingsFileError && /index 1/.test(error.message) && /"endLine"/.test(error.message),
+    );
+  }
+});

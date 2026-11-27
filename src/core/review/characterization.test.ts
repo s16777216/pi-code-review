@@ -117,7 +117,7 @@ async function render(window: number, label: string): Promise<string> {
 }
 
 async function renderAll(): Promise<string> {
-  const parts = [await render(128000, 'SINGLE RUN'), await render(3450, 'BATCHES')];
+  const parts = [await render(128000, 'SINGLE RUN'), await render(3650, 'BATCHES')];
   parts.push('=== SYSTEM PROMPT TAILS ===');
   parts.push(buildSystemPrompt().slice(-60));
   parts.push(buildSystemPrompt('繁體中文', new Batch([], 2, 4), undefined, REVIEW_FOCUSES[1]).slice(-800));

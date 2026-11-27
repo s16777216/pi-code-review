@@ -6,7 +6,7 @@ import type { HostDiscussion } from './discussion.ts';
 import { UNREVIEWED_MARKER } from './marker.ts';
 import { Publisher } from './publisher.ts';
 
-type Position = { file: string; line: number };
+type Position = { file: string; line: number; endLine?: number };
 
 class FakeGateway implements DiscussionGateway {
   calls: { body: string; position: Position }[] = [];
@@ -749,4 +749,28 @@ test('publish logs a warning and goes on when the status comment request fails',
   const warnings = await publishStatus(writer, { failed: { category: 'other' }, warnings: [] });
 
   assert.equal(warnings.length, 1);
+});
+
+test('publish posts two discussions for two findings on one line with different end lines', async () => {
+  const writer = new FakeGateway();
+
+  await new Publisher(writer).publish([
+    { ...bugA, endLine: 10 },
+    { ...bugA2, endLine: 20 },
+    { ...bugA2, summary: 'Same range.', endLine: 20 },
+  ]);
+
+  assert.deepEqual(
+    writer.calls.map((call) => [call.position.line, call.position.endLine]),
+    [
+      [3, 10],
+      [3, 20],
+    ],
+  );
+});
+
+test('publish passes no end line for a single-line finding', async () => {
+  const writer = new FakeGateway();
+  await new Publisher(writer).publish([bugA]);
+  assert.equal('endLine' in writer.calls[0]!.position, false);
 });

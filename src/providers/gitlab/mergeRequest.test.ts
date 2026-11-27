@@ -431,3 +431,35 @@ test('load marks omitted files, with too_large before generated', async () => {
     ],
   );
 });
+
+test('GitLabMergeRequest posts a range as a line_range with the position on the end line', async () => {
+  const writer = new FakeWriter();
+  // New lines 5-8 are in the hunk (6 is added); 15 is after it, at old line 14.
+  writer.diff = [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -5,3 +5,4 @@\n a\n+b\n c\n d' }];
+  await new GitLabMergeRequest(writer, '5', REFS).createDiscussion({ file: 'a.ts', line: 6, endLine: 15 }, 'Range.');
+
+  const [, , , position] = writer.log[0]!;
+  assert.deepEqual(position, {
+    baseSha: 'base',
+    startSha: 'start',
+    headSha: 'head',
+    oldPath: 'a.ts',
+    newPath: 'a.ts',
+    newLine: 15,
+    oldLine: 14,
+    lineRange: {
+      start: { newLine: 6, oldLine: 6, added: true },
+      end: { newLine: 15, oldLine: 14, added: false },
+    },
+  });
+});
+
+test('GitLabMergeRequest posts a range with endLine equal to line as a single-line comment', async () => {
+  const writer = new FakeWriter();
+  writer.diff = [{ oldPath: 'a.ts', newPath: 'a.ts', diffHunks: '@@ -1,1 +1,2 @@\n context\n+added3' }];
+  await new GitLabMergeRequest(writer, '5', REFS).createDiscussion({ file: 'a.ts', line: 2, endLine: 2 }, 'One.');
+
+  const [, , , position] = writer.log[0]! as [unknown, unknown, unknown, DiscussionPosition];
+  assert.equal(position.lineRange, undefined);
+  assert.equal(position.newLine, 2);
+});

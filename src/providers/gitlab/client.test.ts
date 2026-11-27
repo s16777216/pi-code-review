@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { ConfigError } from '../../settings.ts';
 import { GitLabApiError, GitLabClient } from './client.ts';
 
@@ -601,6 +602,63 @@ test('the retry log line has the path without the query, and no token', async ()
     await (await clientWith([], logs)).getMergeRequestDiff('5');
     assert.equal(logs.length, 1);
     assert.doesNotMatch(JSON.stringify(logs), /secret-token|PRIVATE-TOKEN|page=/);
+  } finally {
+    restore();
+  }
+});
+
+test('createDiscussion sends a line_range with the line code, type, old line, and new line of both ends', async () => {
+  const { calls, restore } = mockFetch(() => new Response(null, { status: 201 }));
+  try {
+    const client = await GitLabClient.create({
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '1',
+      token: 'tok',
+    });
+    await client.createDiscussion('5', 'Range comment.', {
+      baseSha: 'base123',
+      startSha: 'start123',
+      headSha: 'head123',
+      oldPath: 'src/a.ts',
+      newPath: 'src/a.ts',
+      newLine: 15,
+      oldLine: 14,
+      lineRange: {
+        start: { newLine: 6, oldLine: 6, added: true },
+        end: { newLine: 15, oldLine: 14, added: false },
+      },
+    });
+
+    const sha = createHash('sha1').update('src/a.ts').digest('hex');
+    const payload = JSON.parse(calls[0]!.body!);
+    assert.equal(payload.position.new_line, 15);
+    assert.equal(payload.position.old_line, 14);
+    assert.deepEqual(payload.position.line_range, {
+      start: { line_code: `${sha}_6_6`, type: 'new', old_line: null, new_line: 6 },
+      end: { line_code: `${sha}_14_15`, old_line: 14, new_line: 15 },
+    });
+  } finally {
+    restore();
+  }
+});
+
+test('createDiscussion sends no line_range for a single-line comment', async () => {
+  const { calls, restore } = mockFetch(() => new Response(null, { status: 201 }));
+  try {
+    const client = await GitLabClient.create({
+      apiUrl: 'https://gitlab.example.com/api/v4',
+      projectId: '1',
+      token: 'tok',
+    });
+    await client.createDiscussion('5', 'One line.', {
+      baseSha: 'b',
+      startSha: 's',
+      headSha: 'h',
+      oldPath: 'a.ts',
+      newPath: 'a.ts',
+      newLine: 7,
+    });
+    assert.equal('line_range' in JSON.parse(calls[0]!.body!).position, false);
   } finally {
     restore();
   }

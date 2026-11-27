@@ -24,6 +24,49 @@ function splitDiffLines(diffText: string): string[] {
   return lines;
 }
 
+/** Where the new-file line `line` is in the old file, also outside the hunks
+ * (`report-finding-line-ranges` design, Decision 7). For an unchanged line,
+ * `oldLine` is its old-file line: inside a hunk from the diff, outside the
+ * hunks from the line offset of the hunks before it. For an added line,
+ * `added` is true and `oldLine` is the old-file line counter at that point of
+ * the hunk, which a host can need for a line code. */
+export function oldPositionOfNewLine(diffText: string, line: number): { added: boolean; oldLine: number } {
+  let offset = 0; // old line minus new line, for a line outside the hunks
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
+
+  for (const rawLine of splitDiffLines(diffText)) {
+    const header = HUNK_HEADER.exec(rawLine);
+    if (header) {
+      const oldStart = Number(header[1]);
+      const oldCount = header[2] === undefined ? 1 : Number(header[2]);
+      const newStart = Number(header[3]);
+      const newCount = header[4] === undefined ? 1 : Number(header[4]);
+      // A count of 0 gives the start as the line before the hunk.
+      const firstNew = newCount === 0 ? newStart + 1 : newStart;
+      if (line < firstNew) return { added: false, oldLine: line + offset };
+      offset = (oldCount === 0 ? oldStart + 1 : oldStart + oldCount) - (firstNew + newCount);
+      oldLine = oldStart;
+      newLine = newStart;
+      inHunk = true;
+      continue;
+    }
+    if (!inHunk || rawLine.startsWith('\\')) continue;
+    if (rawLine.startsWith('+')) {
+      if (newLine === line) return { added: true, oldLine };
+      newLine += 1;
+    } else if (rawLine.startsWith('-')) {
+      oldLine += 1;
+    } else if (rawLine.startsWith(' ') || rawLine === '') {
+      if (newLine === line) return { added: false, oldLine };
+      oldLine += 1;
+      newLine += 1;
+    }
+  }
+  return { added: false, oldLine: line + offset };
+}
+
 /** Parses unified-diff hunk text (as returned by GitLab's diff API) into one
  * `DiffLine` per added, removed, or context line, each tagged with its old
  * and/or new line number. Lines outside any `@@ ... @@` hunk, and

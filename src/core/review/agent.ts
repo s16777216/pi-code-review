@@ -9,13 +9,26 @@ import { ReviewFailureError, validateFinding, type ParsedReviewOutput } from './
 export const MAX_FILE_CONTENT_CHARS = 100_000;
 /** The agent loop has no turn limit of its own, so the tool sets one. */
 export const MAX_FILE_CONTENT_CALLS = 30;
+/** The narrowest gutter of a numbered file, the same as the numbered diff. */
+const MIN_LINE_NUMBER_WIDTH = 4;
+
+/** Puts the new-file line number and `|` in front of each line, in the form of
+ * the numbered diff, so the agent can name lines outside the hunks
+ * (`report-finding-line-ranges` design, Decision 4). A final line break does
+ * not make an empty last line. */
+export function numberFileContent(content: string): string {
+  const lines = content.split('\n');
+  if (content.endsWith('\n')) lines.pop();
+  const width = Math.max(MIN_LINE_NUMBER_WIDTH, String(lines.length).length);
+  return lines.map((text, index) => `${String(index + 1).padStart(width)} | ${text.replace(/\r$/, '')}`).join('\n');
+}
 
 const GetFileContentParams = Type.Object({
   path: Type.String({ description: "Path of a file this change's diff touched." }),
 });
 
 /** The file-content tool: read a changed file's full content beyond
- * what the diff hunks show. Restricted to `context.changedFiles` so the
+ * what the diff hunks show, with line numbers. Restricted to `context.changedFiles` so the
  * agent cannot read arbitrary repository paths. Each result is cut at
  * `MAX_FILE_CONTENT_CHARS`, and the tool answers at most
  * `MAX_FILE_CONTENT_CALLS` calls per review (a fresh tool per review). */
@@ -30,7 +43,7 @@ export function createGetFileContentTool(context: ReviewContext): AgentTool<type
     name: 'get_file_content',
     label: 'Get file content',
     description:
-      "Reads the full content of a file this change's diff touched. Use it when the diff hunks alone are not enough context.",
+      "Reads the full content of a file this change's diff touched, with the new-file line number in front of each line. Use it when the diff hunks alone are not enough context.",
     parameters: GetFileContentParams,
     async execute(_toolCallId, params) {
       calls += 1;
@@ -64,10 +77,11 @@ export function createGetFileContentTool(context: ReviewContext): AgentTool<type
         };
       }
 
+      const numbered = numberFileContent(result);
       const text =
-        result.length > MAX_FILE_CONTENT_CHARS
-          ? `${result.slice(0, MAX_FILE_CONTENT_CHARS)}\n[cut: showing ${MAX_FILE_CONTENT_CHARS} of ${result.length} characters]`
-          : result;
+        numbered.length > MAX_FILE_CONTENT_CHARS
+          ? `${numbered.slice(0, MAX_FILE_CONTENT_CHARS)}\n[cut: showing ${MAX_FILE_CONTENT_CHARS} of ${numbered.length} characters]`
+          : numbered;
       return {
         content: [{ type: 'text', text }],
         details: null,
@@ -84,7 +98,10 @@ const SubmitReviewParams = Type.Object({
   findings: Type.Array(
     Type.Object({
       file: Type.String(),
-      line: Type.Integer(),
+      line: Type.Integer({ description: 'The first line of the problem.' }),
+      endLine: Type.Optional(
+        Type.Integer({ description: 'The last line of the problem. Leave it out when the problem is on one line.' }),
+      ),
       severity: Type.Union([
         Type.Literal('critical'),
         Type.Literal('high'),
@@ -111,7 +128,7 @@ export function createSubmitReviewTool(
     name: 'submit_review',
     label: 'Submit review',
     description:
-      'Submits the review\'s findings. Call this once, when you are done reviewing, with your complete set of findings.',
+      "Submits the review's findings. Call this once, when you are done reviewing, with your complete set of findings.",
     parameters: SubmitReviewParams,
     async execute(_toolCallId, params) {
       calls += 1;

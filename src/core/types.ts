@@ -78,7 +78,13 @@ export interface ReviewContext {
 /** One problem the review reports, on a new-file line of a changed file. */
 export interface Finding {
   file: string;
+  /** The first line of the problem. */
   line: number;
+  /** The last line of the problem, when it covers more than one line: the
+   * finding covers the continuous range `line` to `endLine`, with
+   * `endLine >= line`. Absent for a problem on one line
+   * (`report-finding-line-ranges` design, Decision 1). */
+  endLine?: number;
   severity: Severity;
   summary: string;
   /** The ID of an existing discussion that covers the same problem. */
