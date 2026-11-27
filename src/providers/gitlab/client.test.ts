@@ -663,3 +663,29 @@ test('createDiscussion sends no line_range for a single-line comment', async () 
     restore();
   }
 });
+
+test('each request has a host request span with the method, the URL path, and the status, and no token', async () => {
+  const { InMemoryTelemetryContext } = await import('@earendil-works/pi-telemetry');
+  const memory = new InMemoryTelemetryContext();
+  const { restore } = mockFetch(() => new Response('[]', { status: 200 }));
+  try {
+    await memory.startSpan({ name: 'picr.review' }, async (root) => {
+      const client = await GitLabClient.create({
+        apiUrl: 'https://gitlab.example.com/api/v4',
+        projectId: '1',
+        token: 'glpat-secret',
+        telemetry: root,
+      });
+      await client.listDiscussions('5');
+    });
+  } finally {
+    restore();
+  }
+  const spans = memory.getSpans();
+  const request = spans.find((span) => span.name === 'picr.host_request')!;
+  assert.equal(request.attributes['http.request.method'], 'GET');
+  assert.equal(request.attributes['url.path'], '/api/v4/projects/1/merge_requests/5/discussions');
+  assert.equal(request.attributes['http.response.status_code'], 200);
+  assert.equal(request.parentId, spans.find((span) => span.name === 'picr.review')!.id);
+  assert.doesNotMatch(JSON.stringify(spans), /glpat-secret/);
+});

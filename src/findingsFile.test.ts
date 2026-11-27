@@ -406,3 +406,18 @@ test('readFindingsFile rejects a bad endLine, naming the index and the field', a
     );
   }
 });
+
+test('readFindingsFile keeps a trace context, and reads a file without one', async () => {
+  const traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
+  const withTrace = await readRaw({ diffRefs: validRefs, findings: [], trace: { traceparent } });
+  assert.deepEqual(withTrace.trace, { traceparent });
+  const without = await readRaw({ diffRefs: validRefs, findings: [] });
+  assert.equal('trace' in without, false);
+});
+
+test('readFindingsFile drops a trace context that is not valid and stays valid', async () => {
+  for (const trace of ['x', { traceparent: 5 }, null]) {
+    const result = await readRaw({ diffRefs: validRefs, findings: [], trace });
+    assert.equal('trace' in result, false);
+  }
+});

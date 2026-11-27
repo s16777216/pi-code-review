@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { rm } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { openaiProvider } from '@earendil-works/pi-ai/providers/openai';
 import type { Api, Model, Provider } from '@earendil-works/pi-ai';
+import type { TelemetrySpan } from '@earendil-works/pi-telemetry';
 import {
   type PublishConfig,
   type PublishConfigOverrides,
@@ -18,6 +20,9 @@ import { gitlabHost } from '../providers/index.ts';
 import type { ChangeRequest, CodeHost, DiscussionGateway, HostFlags } from '../core/ports.ts';
 import { Publisher } from '../core/publish/publisher.ts';
 import { loadTemplates, type CommentTemplates } from '../core/publish/template.ts';
+import { traceGateway } from '../core/publish/tracedGateway.ts';
+import { NOOP_SPAN } from '../core/review/telemetry.ts';
+import { buildTelemetry, flattenAttributes, logEventAttributes } from '../tracing.ts';
 import { buildLogger, silentLogger, type Logger } from '../logger.ts';
 import {
   changesInstructionsFile,
@@ -32,6 +37,21 @@ import type { ReviewResult } from '../core/types.ts';
 import { errorMessage } from '../core/errorMessage.ts';
 
 const DEFAULT_FINDINGS_PATH = 'findings.json';
+
+/** The version of the package, for the trace resource. `package.json` is two
+ * folders up from both `src/cli` and `dist/cli`. */
+const PACKAGE_VERSION: string = (createRequire(import.meta.url)('../../package.json') as { version: string }).version;
+
+/** A logger whose `info` and `warn` lines also become `picr.log` events on the
+ * span in `sink.span`, once the command sets it (`export-review-traces`
+ * design, Decision 6). */
+function tracedLogger(debug: boolean): { logger: Logger; sink: { span?: TelemetrySpan } } {
+  const sink: { span?: TelemetrySpan } = {};
+  const logger = buildLogger(debug, (level, message, fields) =>
+    sink.span?.addEvent('picr.log', logEventAttributes(level, message, fields)),
+  );
+  return { logger, sink };
+}
 
 function buildModel(config: ReviewConfig): Model<Api> {
   return {
@@ -63,6 +83,8 @@ export interface ReviewOptions {
   /** Logs progress at `info` level and (under `--debug`) request/response
    * detail at `debug` level. Defaults to a silent logger. */
   logger?: Logger;
+  /** The root span of the run. Defaults to a span that records nothing. */
+  telemetry?: TelemetrySpan;
 }
 
 /** Loads the change request, runs the `ReviewEngine`, and returns the
@@ -78,8 +100,12 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<un
   const { config, changeRequest, source, provider, instructions } = options;
   const logger = options.logger ?? silentLogger();
 
+  const telemetry = options.telemetry ?? NOOP_SPAN;
   logger.info('Fetching merge request context from GitLab...');
-  const { context, snapshot } = await changeRequest.load();
+  const { context, snapshot } = await telemetry.startSpan(
+    { name: 'picr.step.read_change', attributes: { 'picr.step': 'read_change' } },
+    () => changeRequest.load(),
+  );
   logger.info(`Reviewing "${context.title}" (${context.changedFiles.length} changed file(s)).`);
 
   // Warn when the merge request changes the file that holds the review
@@ -107,6 +133,7 @@ export async function runReview(options: ReviewOptions): Promise<FindingsFile<un
     timeoutMs: config.openai.timeoutMs,
     instructions: instructions?.text,
     logger,
+    telemetry,
   });
   let result: ReviewResult;
   try {
@@ -138,14 +165,18 @@ export interface PublishOptions {
   templates?: CommentTemplates;
   /** Logs progress at `info` level. Defaults to a silent logger. */
   logger?: Logger;
+  /** The root span of the run. Defaults to a span that records nothing. */
+  telemetry?: TelemetrySpan;
 }
 
 /** Publishes findings to the host, then decides pass/fail from the severity
  * threshold — always after publishing completes, so a severity gate can
  * never prevent a finding from being published. */
 export async function runPublish(options: PublishOptions): Promise<boolean> {
-  const { config, gateway, findingsFile } = options;
+  const { config, findingsFile } = options;
   const logger = options.logger ?? silentLogger();
+  const telemetry = options.telemetry ?? NOOP_SPAN;
+  const { gateway, counts } = traceGateway(options.gateway, telemetry);
 
   logger.info(`Publishing ${findingsFile.findings.length} finding(s) to GitLab...`);
   await new Publisher(gateway, { logger, ...(options.templates ? { templates: options.templates } : {}) }).publish(
@@ -157,11 +188,20 @@ export async function runPublish(options: PublishOptions): Promise<boolean> {
 
   // A review that failed is not a pass, whatever the threshold is
   // (`harden-run-failures` design, Decision 7).
+  telemetry.setAttributes({
+    'picr.findings': findingsFile.findings.length,
+    'picr.discussions.created': counts.created,
+    'picr.discussions.replied': counts.replied,
+    'picr.discussions.resolved': counts.resolved,
+    'picr.discussions.reopened': counts.reopened,
+  });
   if (findingsFile.failed !== undefined) {
     logger.info(`Result: fail (the review failed: ${findingsFile.failed.category}).`);
+    telemetry.setAttributes({ 'picr.outcome': 'fail' });
     return false;
   }
   const passed = decidePassFail(findingsFile.findings, config.failOnSeverity);
+  telemetry.setAttributes({ 'picr.outcome': passed ? 'pass' : 'fail' });
   logger.info(`Result: ${passed ? 'pass' : 'fail'} (threshold: ${config.failOnSeverity}).`);
   return passed;
 }
@@ -281,7 +321,7 @@ export async function runReviewCommand<Snapshot, Source, ReviewSettings, Publish
 ): Promise<number> {
   const cliOptions = parseReviewCliOptions(argv, host.reviewFlags);
   const outPath = cliOptions.out ?? DEFAULT_FINDINGS_PATH;
-  const logger = buildLogger(resolveDebug(cliOptions.debug));
+  const { logger, sink } = tracedLogger(resolveDebug(cliOptions.debug));
 
   if (!host.isChangeRequest(cliOptions.host)) {
     logger.info('Not a merge request pipeline; skipping review.');
@@ -302,23 +342,59 @@ export async function runReviewCommand<Snapshot, Source, ReviewSettings, Publish
     { instructions: cliOptions.instructions, instructionsText: cliOptions.instructionsText },
     logger,
   );
-  const { changeRequest, source } = await host.openChangeRequest(settings as ReviewSettings, logger);
-
-  const findingsFile = await runReview({
-    config,
-    changeRequest,
-    source,
-    provider: openaiProvider(),
-    instructions,
+  const telemetry = buildTelemetry({
+    env: process.env,
     logger,
+    secrets: [config.openai.apiKey, ...(host.secretsOf?.(settings as ReviewSettings) ?? [])],
+    version: PACKAGE_VERSION,
   });
-  await writeFindingsFile(outPath, findingsFile);
-  if (findingsFile.failed !== undefined) {
-    logger.info(`Wrote the failure (${findingsFile.failed.category}) to "${outPath}".`);
-    return EXIT_ERROR;
+
+  try {
+    return await telemetry.context.startSpan(
+      {
+        name: 'picr.review',
+        attributes: { 'picr.model': config.openai.model, 'picr.language': config.language },
+      },
+      async (root) => {
+        sink.span = root;
+        const { changeRequest, source } = await host.openChangeRequest(settings as ReviewSettings, logger, root);
+        root.setAttributes(flattenAttributes('picr.source', source));
+
+        const findingsFile = await runReview({
+          config,
+          changeRequest,
+          source,
+          provider: openaiProvider(),
+          instructions,
+          logger,
+          telemetry: root,
+        });
+        root.setAttributes({
+          ...flattenAttributes('picr.snapshot', findingsFile.diffRefs),
+          'picr.result.findings': findingsFile.findings.length,
+          'picr.result.resolved': findingsFile.resolved.length,
+          'picr.result.unreviewed_files': findingsFile.unreviewedFiles.length,
+          'picr.result.warnings': findingsFile.warnings.length,
+        });
+        // `publish` links its trace to this one (`export-review-traces` design, Decision 7).
+        const traceparent = telemetry.enabled ? telemetry.context.propagation?.inject(root)?.traceparent : undefined;
+        if (traceparent !== undefined) findingsFile.trace = { traceparent };
+
+        await writeFindingsFile(outPath, findingsFile);
+        if (findingsFile.failed !== undefined) {
+          logger.info(`Wrote the failure (${findingsFile.failed.category}) to "${outPath}".`);
+          root.setStatus({ status: 'error', error: { name: 'ReviewFailed', message: findingsFile.failed.category } });
+          return EXIT_ERROR;
+        }
+        logger.info(`Wrote findings to "${outPath}".`);
+        return EXIT_PASS;
+      },
+    );
+  } finally {
+    sink.span = undefined;
+    // The exit code and the findings file are set before this (Decision 8).
+    await telemetry.finish();
   }
-  logger.info(`Wrote findings to "${outPath}".`);
-  return EXIT_PASS;
 }
 
 /** Real wiring for `publish`: reads the findings file, connects to the host,
@@ -331,7 +407,7 @@ export async function runPublishCommand<Snapshot, Source, ReviewSettings, Publis
 ): Promise<number> {
   const cliOptions = parsePublishCliOptions(argv, host.publishFlags);
   const fromPath = cliOptions.from ?? DEFAULT_FINDINGS_PATH;
-  const logger = buildLogger(resolveDebug(cliOptions.debug));
+  const { logger, sink } = tracedLogger(resolveDebug(cliOptions.debug));
 
   let settings: PublishSettings | undefined;
   const config = loadPublishConfig(cliOptions, () => {
@@ -349,16 +425,47 @@ export async function runPublishCommand<Snapshot, Source, ReviewSettings, Publis
   // valid can never reach the host (see the `review-output` spec's "Check
   // templates before publishing" requirement).
   const templates = await loadTemplates(config.templateDir, logger);
-  const gateway = await host.restore(settings as PublishSettings, findingsFile.source, findingsFile.diffRefs, logger);
-
-  const passed = await runPublish({
-    config,
-    gateway,
-    findingsFile,
-    templates,
+  const telemetry = buildTelemetry({
+    env: process.env,
     logger,
+    secrets: host.secretsOf?.(settings as PublishSettings) ?? [],
+    version: PACKAGE_VERSION,
   });
-  return passed ? EXIT_PASS : EXIT_FAIL;
+  // A link to the trace of `review`; an absent or bad context gives no link (Decision 7).
+  const reviewTrace =
+    findingsFile.trace === undefined ? undefined : telemetry.context.propagation?.extract({ ...findingsFile.trace });
+
+  try {
+    return await telemetry.context.startSpan(
+      {
+        name: 'picr.publish',
+        attributes: flattenAttributes('picr.source', findingsFile.source),
+        ...(reviewTrace === undefined ? {} : { links: [{ context: reviewTrace }] }),
+      },
+      async (root) => {
+        sink.span = root;
+        const gateway = await host.restore(
+          settings as PublishSettings,
+          findingsFile.source,
+          findingsFile.diffRefs,
+          logger,
+          root,
+        );
+        const passed = await runPublish({
+          config,
+          gateway,
+          findingsFile,
+          templates,
+          logger,
+          telemetry: root,
+        });
+        return passed ? EXIT_PASS : EXIT_FAIL;
+      },
+    );
+  } finally {
+    sink.span = undefined;
+    await telemetry.finish();
+  }
 }
 
 /** Dispatches to `review` or `publish` by the first positional argument.
