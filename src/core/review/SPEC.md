@@ -21,6 +21,7 @@ A platform-agnostic review engine. It takes a `ReviewContext`, runs three AI age
 - `findings.ts`: `validateFinding`, `validateStoredFinding` (for the findings file), `validateResolvedDiscussion`, `ReviewFailureError` (it has a failure `category`). Also used by `src/findingsFile.ts`. `Severity` values are `critical`, `high`, `medium`, `low`, `pre_existing`.
 - `scope.ts`: `RunScope`, `WholeChange`, `Batch` (what one agent run sees and which findings it may report).
 - `batch.ts`: `planBatches`, `MAX_BATCHES`. `prompt.ts`: the user prompt builders. They fill the templates `src/template/BATCH_PROMPT.md` and `WHOLE_PROMPT.md`, which `promptTemplates()` reads. `systemPrompts()` reads the system prompts from `src/template/system/`. `checks.ts`: `runChecks` (the diff check of a finding's line or range and the anchor, then the optional steps: deduplication, judge, and verify agent), `listUnreviewedFiles`. `anchor.ts`: `computeAnchor`.
+- `telemetry.ts`: the spans and the content of a review run on the `pi-telemetry` contract: `traceTools`, `recordResponses`, `recordModelRequest`, `dropRecorder`, `textAttributes`, and `NOOP_SPAN`. The engine starts a span for each step, agent run, model request, and tool call under the run span.
 - `fauxFocus.ts`: test helpers that route faux provider responses by review focus, and answer the deduplication, verification, and judgment steps.
 
 ## Interfaces and dependencies

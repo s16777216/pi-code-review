@@ -20,3 +20,4 @@ The GitLab adapter: reads a merge request (metadata, diff, file content, discuss
 - `restore` builds its client for the project in the findings file `source`, so `publish` needs only the API URL and the token.
 - Positions a discussion with base/start/head SHA and the new-file line, adding `old_line` for a context line. A finding with an end line gets a multi-line discussion (`line_range`) positioned on its last line.
 - Never logs tokens or headers.
+- Each request has a span under the run span, with no header. `secretsOf` gives the token to the trace filter.

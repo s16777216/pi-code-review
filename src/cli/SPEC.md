@@ -1,6 +1,6 @@
 # src/cli
 
-Implements capabilities `review-cli` (central spec: `openspec/specs/review-cli/spec.md`) and `debug-logging` (`openspec/specs/debug-logging/spec.md`).
+Implements capabilities `review-cli` (central spec: `openspec/specs/review-cli/spec.md`), `debug-logging` (`openspec/specs/debug-logging/spec.md`), and `review-tracing` (`openspec/specs/review-tracing/spec.md`).
 
 ## Responsibility
 
@@ -15,6 +15,7 @@ The command-line surface: a `review` command that writes a findings file (and de
 
 ## Interfaces and dependencies
 
+- Each command runs in a root span and sends its trace at its end (`../tracing.ts`). `publish` links its root span to the trace context in the findings file.
 - `review` never publishes and never exits 1; `publish` never runs the AI review, and exits 1 for a findings file with `failed`.
 - Each command only accepts its own configuration. The host declares separate flags (`reviewFlags`, `publishFlags`).
 - `publish` takes its target from the findings file `source`. It has no `--project-id` or `--mr` flag and ignores `CI_PROJECT_ID` and `CI_MERGE_REQUEST_IID`. A file without a valid `source` stops it before any API call.

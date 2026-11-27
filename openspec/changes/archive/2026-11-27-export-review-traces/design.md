@@ -29,7 +29,7 @@ See `proposal.md` (Why). Today:
 
 The engine, the publisher, and the host client take a `TelemetryContext` and start spans with `startSpan()`. A new module `src/tracing.ts` holds an adapter from that contract to the OpenTelemetry trace SDK. The CLI builds the adapter, or `NOOP_TELEMETRY_CONTEXT` when tracing is off.
 
-- Reason: `pi-ai` takes a `TelemetrySpan`, so the spans of `pi-ai` and our spans are in one tree with no second model. The contract passes the parent explicitly, so parallel agent runs never mix their parents. Tests use `InMemoryTelemetryContext`.
+- Reason: one contract for every span, with the same names as `pi-ai` uses for a request. The contract passes the parent explicitly, so parallel agent runs never mix their parents. Tests use `InMemoryTelemetryContext`.
 - The adapter uses `BasicTracerProvider`, `BatchSpanProcessor`, and `OTLPTraceExporter` (HTTP). It sets the parent of each OpenTelemetry span from the `TelemetrySpan` that started it. It does not register a global provider and does not use automatic instrumentation.
 - The adapter implements `propagation` with the W3C `traceparent` format, for Decision 7.
 - The adapter must pass the conformance suite of `@earendil-works/pi-telemetry/testing`.
@@ -45,7 +45,7 @@ The engine, the publisher, and the host client take a `TelemetryContext` and sta
 
 - `review()` and each step method (`runAll`, `deduplicate`, `verify`, `judgeDiscussions`, `decideFinal`) start a step span under the run span. A step that returns before its first model call starts no span.
 - `runOnce` starts the agent run span with the kind, the review focus or the file, the batch, and the try number. `runWithRetries` passes the try number.
-- `streamFn(span)` adds `telemetry: span` to the request options of `provider.streamSimple`, so `pi-ai` makes each `pi.ai.request` span under the agent run span.
+- `streamFn(span)` starts one `picr.model_request` span under the agent run span for each request. The span gets the provider, the model, the usage, the cost, and the stop reason from the final message of the stream. `pi-ai` 1.4.0 makes its own `pi.ai.request` span only in its `Models` layer, and the engine calls `provider.streamSimple` directly, so the engine records the request span itself. The attribute names follow `AI_TELEMETRY_SCHEMA` (`usage.input`, `cost.total`, `stop`).
 - Each tool gets the agent run span when the engine builds it. The tool starts its tool call span in `execute`.
 - `runChecks` and `Batch.filterFindings` add a `picr.finding.dropped` event for each finding that they drop, next to the existing `warn` line.
 

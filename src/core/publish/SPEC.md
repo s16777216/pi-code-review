@@ -19,6 +19,8 @@ templates.
 - `marker.ts`: the hidden markers that identify this tool's comments.
 - `discussion.ts`: host-neutral discussion types and helpers for
   recognizing this tool's own comments.
+- `tracedGateway.ts`: wraps a `DiscussionGateway` with one span for
+  each written discussion and for the status comment.
 
 ## Capabilities
 

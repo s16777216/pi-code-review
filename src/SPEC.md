@@ -19,7 +19,11 @@ settings that they read, and the code that they share.
 - `settings.ts`: reads one setting, and `ConfigError`.
 - `findingsFile.ts`: writes and reads the findings file that connects
   `review` and `publish`: findings (each with its corroboration, verdict,
-  and confidence), warnings, and `failed` for a failed review.
+  and confidence), warnings, `failed` for a failed review, and the trace
+  context of `review`.
 - `reviewInstructions.ts`: picks the review instructions from the
   instructions sources, and finds a changed instructions file.
-- `logger.ts`: the logger, with secrets redacted.
+- `logger.ts`: the logger, with secrets redacted, and a sink that copies
+  `info` and `warn` lines to the trace.
+- `tracing.ts`: the adapter from the `pi-telemetry` contract to the
+  OpenTelemetry SDK, and the OTLP export of the trace of a run.
