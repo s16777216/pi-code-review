@@ -5,11 +5,15 @@ The GitLab sink adapter for the `ReviewEngine`. Publishes the engine's findings 
 ## Requirements
 
 ### Requirement: Publish findings as inline merge request comments
-The system SHALL create one GitLab merge request discussion per valid finding, at the finding's file and line, except in the cases below. A finding whose `relatesTo` names an open discussion MUST NOT create a discussion. A finding whose `relatesTo` names a resolved discussion SHALL become a reply in that discussion, and the system SHALL reopen it. A finding with no `relatesTo` SHALL be handled in the same way when a discussion from this tool has the same anchor.
+The system SHALL create one GitLab merge request discussion per valid finding, at the finding's file and line, except in the cases below. For a finding with an end line, the discussion SHALL cover the range from the line to the end line, and its position SHALL be on the end line. The system SHALL create a range discussion also when lines of the range are not in the diff. A finding whose `relatesTo` names an open discussion MUST NOT create a discussion. A finding whose `relatesTo` names a resolved discussion SHALL become a reply in that discussion, and the system SHALL reopen it. A finding with no `relatesTo` SHALL be handled in the same way when a discussion from this tool has the same anchor.
 
 #### Scenario: Valid finding becomes an inline comment
 - **WHEN** the system has a valid finding for a changed file and line
 - **THEN** the system creates a merge request discussion at that file and line, with the finding's severity and summary in the comment body
+
+#### Scenario: Finding with an end line becomes a range comment
+- **WHEN** the system has a valid finding with the line 562 and the end line 600
+- **THEN** the system creates a merge request discussion that covers the lines 562 to 600, with its position on the line 600
 
 #### Scenario: Discussion creation fails for one finding
 - **WHEN** the GitLab API rejects one finding's discussion
@@ -108,11 +112,15 @@ For each fixed declaration in the findings file, the system SHALL add a reply wi
 - **THEN** the reply starts with the marker line, and then has the text that the resolved template gives
 
 ### Requirement: Merge findings on the same line into one comment
-After the system decides what to do with each finding, it SHALL create one discussion for all findings that would each create a discussion on the same file and line, and one reply for all findings that would each reply to the same discussion. The comment MUST start with one marker line, followed by one paragraph for each finding, in findings file order. The finding template SHALL give the text of each paragraph. The system MUST join the paragraphs with one blank line, and a template MUST NOT change how the system joins them.
+After the system decides what to do with each finding, it SHALL create one discussion for all findings that would each create a discussion on the same file, line, and end line, and one reply for all findings that would each reply to the same discussion. The comment MUST start with one marker line, followed by one paragraph for each finding, in findings file order. The finding template SHALL give the text of each paragraph. The system MUST join the paragraphs with one blank line, and a template MUST NOT change how the system joins them.
 
 #### Scenario: Two findings on the same line
 - **WHEN** two findings without `relatesTo` are on the same file and line, and no discussion from this tool has their anchor
 - **THEN** the system creates one discussion at that position, whose body has the marker line and then both findings, each with its own severity
+
+#### Scenario: Two findings on the same line with different end lines
+- **WHEN** two findings without `relatesTo` are on the same file and line, one has the end line 40, and the other has no end line
+- **THEN** the system creates one discussion for each finding
 
 #### Scenario: Two findings on different lines with the same text
 - **WHEN** two findings are on different lines of the same file, and the two lines have the same text

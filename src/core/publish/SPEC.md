@@ -9,7 +9,8 @@ templates.
 ## Contents
 
 - `publisher.ts`: `Publisher`. Decides what to create, reply to,
-  reopen, or resolve, and posts it. Keeps the review status comment.
+  reopen, or resolve, and posts it. Merges findings on the same file
+  and range into one comment. Keeps the review status comment.
 - `status.ts`: the fixed texts and the body of the review status comment
   (a failure, warnings, and files too large to review).
 - `template.ts`: loads and checks the comment templates (`FINDING.md`,

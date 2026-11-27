@@ -35,7 +35,7 @@ The `review` command SHALL write the findings, the accepted fixed declarations, 
 - **THEN** the system writes an empty `unreviewedFiles` list
 
 ### Requirement: Publish reads findings from a file
-The `publish` command SHALL read findings, diff refs, and the source from a JSON file given by a command-line flag, defaulting to `findings.json`. The `publish` command SHALL publish to the project and the merge request that the source names, and MUST stop when the source names a host that it does not support. The `publish` command SHALL reject a findings file with an invalid structure before it calls the GitLab API.
+The `publish` command SHALL read findings, diff refs, and the source from a JSON file given by a command-line flag, defaulting to `findings.json`. The `publish` command SHALL publish to the project and the merge request that the source names, and MUST stop when the source names a host that it does not support. The `publish` command SHALL reject a findings file with an invalid structure before it calls the GitLab API. A finding in the file can have an `endLine`. A finding without `endLine` MUST be valid.
 
 #### Scenario: Publish reads the default file
 - **WHEN** the `publish` command runs without specifying a file
@@ -66,8 +66,12 @@ The `publish` command SHALL read findings, diff refs, and the source from a JSON
 - **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, and reports an error that names the file and the missing field
 
 #### Scenario: Findings file has an invalid finding
-- **WHEN** the findings file contains a finding with a missing field, a non-integer line, or a severity that is not `critical`, `high`, `medium`, `low`, or `pre_existing`
+- **WHEN** the findings file contains a finding with a missing field, a non-integer line, an `endLine` that is not an integer or is less than its line, or a severity that is not `critical`, `high`, `medium`, `low`, or `pre_existing`
 - **THEN** the system stops before it calls the GitLab API, exits with a non-zero code, posts no discussion, and reports an error that names the finding's index and field
+
+#### Scenario: Findings file has a finding with an end line
+- **WHEN** the findings file contains a finding with the line 562 and the `endLine` 600
+- **THEN** the system reads the finding with its line and its end line
 
 #### Scenario: Findings file is not an object
 - **WHEN** the findings file is valid JSON but its top-level value is not an object with a `findings` array
