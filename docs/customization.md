@@ -115,6 +115,8 @@ And this is the whole of `RESOLVED.md`:
 | `OTEL_EXPORTER_OTLP_TIMEOUT` | The time limit of one export, in milliseconds. Without it, the limit is 5000. |
 | `OTEL_SDK_DISABLED` | `true` turns tracing off, also when an endpoint is set. |
 
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` once as a GitLab CI/CD variable at the instance or group level. Every pipeline then gets it, and no project or job needs its own setting. Do not write the address of the receiver in a project file.
+
 Each trace has the resource attributes `service.name` (`pi-code-review`) and `service.version`.
 
 ### What a trace holds
